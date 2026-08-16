@@ -1,5 +1,7 @@
 # Mini Financial Terminal (MFT)
 
+**[michaelbeirnee.github.io/minifinancialterminal-public](https://michaelbeirnee.github.io/minifinancialterminal-public/)** — project site
+
 An **open-source financial research terminal** — an OpenBB-style data platform with
 **244 commands** across equities, ETFs, crypto, FX, derivatives, macro, fixed income
 and regulatory filings, plus a factor-model engine, a backtester and HTML tearsheets.
