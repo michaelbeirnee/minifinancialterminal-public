@@ -1,0 +1,1234 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MFT — Mini Financial Terminal</title>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/styles.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+</head>
+<body>
+  <!-- ===== Auth gate ===== -->
+  <div id="auth" class="auth-screen">
+    <div class="auth-box">
+      <div class="logo-mark"></div>
+      <div class="logo">MFT</div>
+      <div class="logo-sub">MINI FINANCIAL TERMINAL</div>
+      <div class="tabs">
+        <button id="tab-login" class="tab active">Log in</button>
+        <button id="tab-register" class="tab">Register</button>
+      </div>
+      <input id="au-username" placeholder="username" autocomplete="username" />
+      <input id="au-email" placeholder="email" type="email" style="display:none" />
+      <input id="au-password" placeholder="password" type="password" autocomplete="current-password" />
+      <button id="au-submit" class="primary">Sign in</button>
+      <div id="au-msg" class="msg"></div>
+      <div class="hint">Demo — register any user, then explore.</div>
+    </div>
+  </div>
+
+  <!-- ===== Terminal ===== -->
+  <div id="terminal" class="terminal" style="display:none">
+    <header class="topbar">
+      <div class="brand-mark"></div>
+      <div class="brand-block">
+        <div class="brand">MFT</div>
+        <div class="brand-sub">MINI FINANCIAL TERMINAL</div>
+      </div>
+      <span class="spacer"></span>
+      <span id="who" class="who"></span>
+      <button id="logout" class="ghost">Sign out</button>
+    </header>
+
+    <div id="tape" class="tape"></div>
+
+    <nav class="nav">
+      <button class="navbtn active" data-view="market">Markets</button>
+      <button class="navbtn" data-view="workspace">Workspace</button>
+      <button class="navbtn" data-view="assistant">Assistant</button>
+      <button class="navbtn" data-view="sectors">Sectors</button>
+      <button class="navbtn" data-view="screener">Screener</button>
+      <button class="navbtn" data-view="thesis">Thesis</button>
+      <button class="navbtn" data-view="assets">Assets</button>
+      <button class="navbtn" data-view="news">News</button>
+      <button class="navbtn" data-view="sentiment">Sentiment</button>
+      <button class="navbtn" data-view="portfolio">Portfolio</button>
+      <button class="navbtn" data-view="data">Data</button>
+      <button class="navbtn" data-view="factors">Insights</button>
+      <button class="navbtn" data-view="backtest">Test a strategy</button>
+      <button class="navbtn" data-view="saved">Saved</button>
+      <button class="navbtn" data-view="history">Past tests</button>
+      <button class="navbtn" data-view="system">System</button>
+    </nav>
+
+    <main class="content"><div class="container">
+
+      <!-- Markets -->
+      <section id="view-market" class="view active">
+        <h1>Markets</h1>
+        <p id="mk-summary" class="lede"></p>
+
+        <div class="panel">
+          <div class="panel-h">TODAY'S BRIEF
+            <span id="ov-asof" class="panel-note"></span>
+            <button id="ov-refresh" class="ghost panel-btn">Refresh</button>
+          </div>
+          <div id="ov-signals" class="sigrow"><div class="empty">Reading the market…</div></div>
+          <div class="market-grid3">
+            <div><div class="subhead">Movers</div><div id="ov-movers" class="mini"></div></div>
+            <div><div class="subhead">Top headlines</div><div id="ov-news" class="mini"></div></div>
+            <div><div class="subhead">Earnings today</div><div id="ov-earnings" class="mini"></div></div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-h">INDEXES &amp; ASSETS
+            <span id="mk-asof" class="panel-note"></span>
+            <button id="mk-refresh" class="ghost panel-btn">Refresh</button>
+          </div>
+          <div id="mk-indices" class="tiles"><div class="empty">Loading…</div></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-h">YOUR WATCHLIST
+            <span id="wm-note" class="panel-note"></span>
+            <button id="wm-refresh" class="ghost panel-btn">Refresh</button>
+          </div>
+          <div class="row" style="margin-bottom:14px">
+            <input id="wm-add" class="mono" placeholder="Add a ticker…" style="width:200px;text-transform:uppercase" />
+            <span class="hintline">press Enter — synced to your account, click a card to expand</span>
+          </div>
+          <div id="mk-grid" class="quote-grid" style="margin-bottom:0"></div>
+        </div>
+
+        <div class="panel">
+          <div class="row">
+            <input id="mk-symbol" value="AAPL" class="mono" style="width:200px;text-transform:uppercase" placeholder="Any ticker, e.g. NFLX" />
+            <button id="mk-load" class="primary">Load</button>
+            <span id="mk-src" class="badge"></span>
+          </div>
+          <div class="detail-head">
+            <span id="mk-dsym" class="detail-sym"></span>
+            <span class="spacer"></span>
+            <span id="mk-dprice" class="detail-price mono"></span>
+          </div>
+          <div class="chiprow" id="mk-ranges">
+            <button class="chip" data-range="1M">1M</button>
+            <button class="chip" data-range="6M">6M</button>
+            <button class="chip active" data-range="1Y">1Y</button>
+            <button class="chip" data-range="3Y">3Y</button>
+          </div>
+          <canvas id="mk-chart" height="90"></canvas>
+          <div id="mk-stats" class="metrics"></div>
+          <p id="mk-explain" class="explain"></p>
+        </div>
+
+        <div class="panel">
+          <div class="panel-h">COMPARE ANYTHING <span class="panel-note">rebased to 100 — hover to measure, click to pin</span></div>
+          <div class="row">
+            <input id="cmp-symbols" value="SPY,QQQ,IWM,TLT,GLD" class="mono" style="flex:2;text-transform:uppercase" placeholder="Tickers, comma-separated" />
+            <input id="cmp-start" type="date" />
+            <button id="cmp-load" class="primary">Load</button>
+            <span id="cmp-src" class="badge"></span>
+          </div>
+          <canvas id="cmp-chart" height="90"></canvas>
+        </div>
+
+        <div class="market-grid">
+          <div class="panel">
+            <div class="panel-h">US TREASURY YIELD CURVE <span id="mk-curve-note" class="panel-note"></span></div>
+            <canvas id="mk-curve" height="120"></canvas>
+            <div id="mk-keyrates" class="metrics"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-h">CURVE &amp; CREDIT SPREADS <span class="panel-note">FRED, 2 years</span></div>
+            <canvas id="mk-spreads" height="120"></canvas>
+            <div id="mk-credit" class="metrics"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Custom workspace -->
+      <section id="view-workspace" class="view workspace-view">
+        <div class="workspace-head">
+          <div>
+            <div class="workspace-eyebrow">CUSTOM DASHBOARD</div>
+            <h1>Workspace</h1>
+            <p class="lede">Keep the market views you care about together. Add, remove, resize, or drag any box to arrange it.</p>
+          </div>
+          <div class="workspace-head-actions">
+            <span id="ws-saved" class="workspace-saved">Saved on this device</span>
+            <button id="ws-reset" class="ghost">Reset layout</button>
+            <button id="ws-add" class="primary ws-add">＋ Add view</button>
+          </div>
+        </div>
+
+        <div id="ws-grid" class="workspace-grid" aria-live="polite"></div>
+
+        <dialog id="ws-dialog" class="workspace-dialog">
+          <div class="workspace-dialog-head">
+            <div>
+              <div class="workspace-eyebrow">VIEW LIBRARY</div>
+              <h2>Add to workspace</h2>
+              <p>Choose a live view. You can add the same view more than once.</p>
+            </div>
+            <button id="ws-dialog-close" class="workspace-icon-btn" aria-label="Close view library">&times;</button>
+          </div>
+          <div id="ws-picker" class="workspace-picker"></div>
+        </dialog>
+      </section>
+
+      <!-- Stock detail (opened from watchlist / tiles, not in the nav) -->
+      <section id="view-stock" class="view">
+        <button id="st-back" class="linkbtn" style="margin:0 0 14px">← Back to Markets</button>
+
+        <div class="stock-head">
+          <div>
+            <span id="st-sym" class="detail-sym"></span>
+            <div class="stock-head-meta">
+              <button id="st-watch" class="ghost">☆ Watch</button>
+              <button id="st-hedge" class="ghost">⛨ Hedge this</button>
+              <span id="st-meta" class="dim"></span>
+            </div>
+          </div>
+          <span class="spacer"></span>
+          <div class="stock-px">
+            <div id="st-price" class="mono"></div>
+            <div id="st-chg" class="mono"></div>
+          </div>
+          <div class="modetoggle" id="st-mode">
+            <button class="chip sm active" data-mode="simple">Simple</button>
+            <button class="chip sm" data-mode="advanced">Advanced</button>
+          </div>
+        </div>
+
+        <!-- ===== Simple ===== -->
+        <div id="st-simple" class="stock-body">
+          <div class="panel">
+            <div class="chiprow" id="st-ranges" style="margin-top:0">
+              <button class="chip" data-range="1M">1M</button>
+              <button class="chip" data-range="6M">6M</button>
+              <button class="chip active" data-range="1Y">1Y</button>
+              <button class="chip" data-range="3Y">3Y</button>
+            </div>
+            <canvas id="st-chart" height="80"></canvas>
+            <div id="st-stats" class="metrics"></div>
+            <p id="st-explain" class="explain"></p>
+          </div>
+          <div class="market-grid">
+            <div class="panel">
+              <div class="panel-h">ABOUT</div>
+              <div id="st-about"><div class="empty">Loading…</div></div>
+            </div>
+            <div class="panel">
+              <div class="panel-h">WALL STREET VIEW</div>
+              <div id="st-analyst"><div class="empty">Loading…</div></div>
+              <div class="panel-h" style="margin-top:20px">FINANCIALS <span class="panel-note">annual, as filed with the SEC</span></div>
+              <div id="st-fin" class="tablewrap"><div class="empty">Loading…</div></div>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="panel-h">ANALYST RATINGS <span class="panel-note">every public rating action and price target, via Yahoo Finance</span></div>
+            <div id="st-ratings" class="tablewrap"><div class="empty">Loading…</div></div>
+          </div>
+          <div class="panel">
+            <div class="panel-h">NEWS</div>
+            <div id="st-news" class="feed"><div class="empty">Loading…</div></div>
+          </div>
+        </div>
+
+        <!-- ===== Advanced ===== -->
+        <div id="st-advanced" class="stock-body adv" style="display:none">
+
+          <div class="panel keystrip" id="st-keystats"><div class="empty" style="padding:12px 16px">Loading…</div></div>
+
+          <div class="advsigs" id="st-signals"></div>
+
+          <div class="advgrid">
+            <div class="panel advchart">
+              <div class="advtoolbar">
+                <div class="chipgroup" id="st-adv-ranges">
+                  <button class="chip sm" data-range="1M">1M</button>
+                  <button class="chip sm" data-range="6M">6M</button>
+                  <button class="chip sm active" data-range="1Y">1Y</button>
+                  <button class="chip sm" data-range="3Y">3Y</button>
+                </div>
+                <span class="advdiv"></span>
+                <div class="chipgroup" id="st-adv-types">
+                  <button class="chip sm active" data-ctype="candles">Candles</button>
+                  <button class="chip sm" data-ctype="line">Line</button>
+                </div>
+                <span class="advdiv"></span>
+                <div class="chipgroup" id="st-adv-ovs">
+                  <button class="chip sm active" data-ov="sma50">SMA 50</button>
+                  <button class="chip sm active" data-ov="sma200">SMA 200</button>
+                  <button class="chip sm" data-ov="bollinger">Bollinger</button>
+                </div>
+                <span class="spacer"></span>
+                <span class="advhint mono">HOVER TO MEASURE</span>
+              </div>
+
+              <div id="st-readout" class="advreadout mono"></div>
+
+              <div id="st-panes" class="advpanes">
+                <div class="advpane" style="height:330px"><canvas id="st-adv-price"></canvas></div>
+                <div class="advpane" style="height:54px"><canvas id="st-adv-vol"></canvas></div>
+                <div class="advpane sub" id="st-pane-rsi">
+                  <div id="st-rsi-hdr" class="advpane-h mono">RSI 14</div>
+                  <div style="height:62px"><canvas id="st-adv-rsi"></canvas></div>
+                </div>
+                <div class="advpane sub" id="st-pane-macd">
+                  <div id="st-macd-hdr" class="advpane-h mono">MACD 12/26/9</div>
+                  <div style="height:62px"><canvas id="st-adv-macd"></canvas></div>
+                </div>
+              </div>
+              <div id="st-dateaxis" class="advdates mono"></div>
+            </div>
+
+            <div class="advrail">
+              <div class="panel">
+                <div class="panel-h">RISK &amp; RETURN <span id="st-risk-note" class="panel-note"></span></div>
+                <div id="st-risk" class="kvrows"><div class="empty">Loading…</div></div>
+              </div>
+              <div class="panel">
+                <div class="panel-h">CAPM <span id="st-capm-note" class="panel-note"></span></div>
+                <div id="st-capm" class="kvrows"><div class="empty">Loading…</div></div>
+              </div>
+              <div class="panel">
+                <div class="panel-h">VALUATION <span class="panel-note">click a row for its history</span></div>
+                <div id="st-val" class="kvrows"><div class="empty">Loading…</div></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="advgrid2">
+            <div class="panel">
+              <div class="panel-h">OPTIONS CHAIN <span id="st-chain-note" class="panel-note"></span></div>
+              <div class="chipgroup wrap" id="st-expiries"></div>
+              <div class="chainctl" id="st-chain-ctl"></div>
+              <div id="st-chain" class="tablewrap chaintable"><div class="empty">Loading…</div></div>
+            </div>
+            <div class="panel">
+              <div class="panel-h">PEERS <span id="st-peers-note" class="panel-note"></span></div>
+              <div id="st-peers" class="tablewrap peertable"><div class="empty">Loading…</div></div>
+            </div>
+          </div>
+
+          <div class="advgrid2">
+            <div class="panel">
+              <div class="panel-h">FUNDAMENTALS <span class="panel-note">annual, as filed with the SEC</span></div>
+              <div id="st-funds" class="tablewrap fundtable"><div class="empty">Loading…</div></div>
+            </div>
+            <div class="panel">
+              <div class="panel-h">NEWS &amp; SENTIMENT <span class="panel-note">finance-tuned scorer</span></div>
+              <div id="st-senti"><div class="empty">Loading…</div></div>
+              <div id="st-advnews" class="advfeed"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Valuation history, opened from a VALUATION row -->
+        <dialog id="st-metric-dialog" class="metric-dialog">
+          <div class="metric-dialog-head">
+            <div>
+              <div class="workspace-eyebrow">VALUATION HISTORY</div>
+              <h2 id="st-metric-title"></h2>
+              <p id="st-metric-sub"></p>
+            </div>
+            <button id="st-metric-close" class="workspace-icon-btn" aria-label="Close">&times;</button>
+          </div>
+          <div class="metric-dialog-body">
+            <div class="chipgroup" id="st-metric-ranges">
+              <button class="chip sm" data-years="1">1Y</button>
+              <button class="chip sm" data-years="3">3Y</button>
+              <button class="chip sm active" data-years="5">5Y</button>
+            </div>
+            <div id="st-metric-stats" class="metrics"></div>
+            <div class="metric-chartwrap"><canvas id="st-metric-chart"></canvas></div>
+            <p id="st-metric-note" class="explain"></p>
+          </div>
+        </dialog>
+
+        <!-- Single-name hedge simulator, opened from the header button or a chain row -->
+        <dialog id="sim-dialog" class="metric-dialog sim-dialog">
+          <div class="metric-dialog-head">
+            <div>
+              <div class="workspace-eyebrow">HEDGE SIMULATOR</div>
+              <h2 id="sim-title"></h2>
+              <p id="sim-sub"></p>
+            </div>
+            <button id="sim-close" class="workspace-icon-btn" aria-label="Close">&times;</button>
+          </div>
+          <div class="metric-dialog-body">
+            <div class="simctl">
+              <label class="dim">Protect
+                <input id="sim-notional" class="mono" type="number" min="1" step="500" />
+              </label>
+              <label class="dim">over
+                <select id="sim-horizon" class="mono">
+                  <option value="10">2 weeks</option>
+                  <option value="21" selected>1 month</option>
+                  <option value="63">3 months</option>
+                </select>
+              </label>
+              <label class="dim">cutting the tail by
+                <select id="sim-fraction" class="mono">
+                  <option value="0.25">25%</option>
+                  <option value="0.5" selected>50%</option>
+                  <option value="0.75">75%</option>
+                </select>
+              </label>
+              <button id="sim-run" class="primary">Simulate</button>
+            </div>
+            <div id="sim-sizing" class="hintline"></div>
+            <div id="sim-verdict" style="margin-top:14px"></div>
+            <div id="sim-rows" class="tablewrap"></div>
+
+            <div id="sim-scenario" class="hg-scenario" style="display:none">
+              <div class="panel-h" style="margin-top:18px">IF THE STOCK LANDS THERE
+                <span class="panel-note">payoff at the horizon — pick a structure</span></div>
+              <div class="chipgroup wrap" id="sim-scen-picker"></div>
+              <div class="hg-chartwrap"><canvas id="sim-chart"></canvas></div>
+              <div id="sim-scen-table" class="tablewrap"></div>
+              <div id="sim-scen-legend" class="hintline"></div>
+            </div>
+            <p class="explain">This hedges the name against its <em>own</em> history, with its own
+              listed options — a single stock's tail is mostly its own, which is why an index put
+              would leave most of it. Protection is the tail loss removed <em>before</em> cost,
+              measured by repricing today's contracts under past joint price/vol shocks. Nothing
+              here is a position: simulating records nothing.</p>
+            <div id="sim-notes" class="dim" style="margin-top:8px"></div>
+          </div>
+        </dialog>
+      </section>
+
+      <!-- Sectors -->
+      <section id="view-sectors" class="view">
+        <h1>Sectors</h1>
+        <p class="lede">How the 11 sectors of the US market are performing — click any sector to expand into it.</p>
+        <div class="panel">
+          <div class="panel-h">SECTOR PERFORMANCE
+            <span class="panel-note">SPDR sector ETFs · click a row to expand</span>
+            <button id="sc-refresh" class="ghost panel-btn">Refresh</button>
+          </div>
+          <div id="sc-table" class="tablewrap"><div class="empty">Loading…</div></div>
+        </div>
+        <div class="panel">
+          <div class="panel-h">RELATIVE PERFORMANCE <span class="panel-note">rebased to 100</span></div>
+          <div class="row">
+            <input id="sc-start" type="date" />
+            <button id="sc-load" class="primary">Load</button>
+          </div>
+          <canvas id="sc-chart" height="150"></canvas>
+        </div>
+      </section>
+
+      <!-- Single sector (expanded) -->
+      <section id="view-sector" class="view">
+        <button id="se-back" class="linkbtn">← All sectors</button>
+        <div class="detail-head" style="margin-bottom:0">
+          <span id="se-name" class="detail-sym"></span>
+          <span class="spacer"></span>
+          <span id="se-price" class="detail-price mono"></span>
+        </div>
+        <div id="se-chg" class="mono" style="font-size:14px;margin:2px 0 10px"></div>
+        <div class="panel">
+          <div class="panel-h">SECTOR VS S&amp;P 500 <span class="panel-note">rebased to 100</span></div>
+          <div class="chiprow" id="se-ranges" style="margin-top:0">
+            <button class="chip" data-range="1M">1M</button>
+            <button class="chip" data-range="6M">6M</button>
+            <button class="chip active" data-range="1Y">1Y</button>
+            <button class="chip" data-range="3Y">3Y</button>
+          </div>
+          <canvas id="se-chart" height="90"></canvas>
+          <div id="se-perf" class="metrics"></div>
+        </div>
+        <div class="market-grid">
+          <div class="panel">
+            <div class="panel-h">ABOUT THIS SECTOR</div>
+            <div id="se-about"><div class="empty">Loading…</div></div>
+          </div>
+          <div class="panel">
+            <div class="panel-h">NEWS</div>
+            <div id="se-news" class="feed"><div class="empty">Loading…</div></div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-h" id="se-cos-h">BIGGEST COMPANIES <span class="panel-note">click a company to expand</span></div>
+          <div id="se-cos" class="tablewrap"><div class="empty">Loading…</div></div>
+        </div>
+      </section>
+
+      <!-- Screener -->
+      <section id="view-screener" class="view">
+        <h1>Screener</h1>
+        <p class="lede" style="max-width:680px">Search a whole index for the stocks that fit your rules — by size, how far they have moved over any window, and how they behave: volatility, beta and alpha against the index itself.</p>
+
+        <div class="panel">
+          <div class="panel-h">FILTERS <span id="scr-note" class="panel-note"></span></div>
+          <div class="chiprow" id="scr-presets" style="margin-top:0">
+            <span class="dim" style="margin-right:4px">Presets</span>
+            <button class="chip" data-preset="momentum" title="Up 10%+ over 3 months and above the 200-day MA">Momentum leaders</button>
+            <button class="chip" data-preset="defensive" title="Volatility under 25%, beta under 0.7, best alpha first">Low-vol defensive</button>
+            <button class="chip" data-preset="oversold" title="RSI under 35 among $25B+ companies">Oversold big caps</button>
+            <button class="chip" data-preset="highbeta" title="Beta over 1.5, biggest 1-week moves first">High-beta movers</button>
+          </div>
+          <div class="row">
+            <label class="inline-label">Index
+              <select id="scr-index">
+                <option value="sp500">S&amp;P 500</option>
+                <option value="nasdaq100">Nasdaq-100</option>
+                <option value="dowjones">Dow Jones Industrial</option>
+                <option value="sp400">S&amp;P 400 MidCap</option>
+                <option value="sp600">S&amp;P 600 SmallCap</option>
+                <option value="russell1000">Russell 1000</option>
+                <option value="watchlist">My Watchlist</option>
+              </select>
+            </label>
+            <label class="inline-label">Moved over
+              <select id="scr-tf">
+                <option value="one_day">1 day</option>
+                <option value="one_week">1 week</option>
+                <option value="one_month" selected>1 month</option>
+                <option value="three_month">3 months</option>
+                <option value="six_month">6 months</option>
+                <option value="ytd">year to date</option>
+                <option value="one_year">1 year</option>
+              </select>
+            </label>
+            <div class="chiprow" id="scr-dir" style="margin:0">
+              <button class="chip active" data-dir="any">Any direction</button>
+              <button class="chip" data-dir="up">▲ Up</button>
+              <button class="chip" data-dir="down">▼ Down</button>
+            </div>
+            <label class="inline-label">by at least <input id="scr-move" class="mono" placeholder="any" style="width:70px" /> %</label>
+          </div>
+          <div class="row">
+            <label class="inline-label">Sector
+              <select id="scr-sector"><option value="">All sectors</option></select>
+            </label>
+            <label class="inline-label">50-day MA
+              <select id="scr-ma50">
+                <option value="">any</option>
+                <option value="true">price above</option>
+                <option value="false">price below</option>
+              </select>
+            </label>
+            <label class="inline-label">200-day MA
+              <select id="scr-ma200">
+                <option value="">any</option>
+                <option value="true">price above</option>
+                <option value="false">price below</option>
+              </select>
+            </label>
+          </div>
+          <div class="grid5">
+            <label>Market cap min ($B)<input id="scr-mcapmin" class="mono" placeholder="e.g. 10" /></label>
+            <label>Market cap max ($B)<input id="scr-mcapmax" class="mono" placeholder="no limit" /></label>
+            <label>Volatility min (%)<input id="scr-volmin" class="mono" placeholder="annualized" /></label>
+            <label>Volatility max (%)<input id="scr-volmax" class="mono" placeholder="no limit" /></label>
+            <label>Show top<input id="scr-limit" class="mono" value="50" /></label>
+            <label>Beta min<input id="scr-betamin" class="mono" placeholder="vs the index" /></label>
+            <label>Beta max<input id="scr-betamax" class="mono" placeholder="no limit" /></label>
+            <label>Alpha min (%/yr)<input id="scr-alphamin" class="mono" placeholder="vs the index" /></label>
+            <label>Alpha max (%/yr)<input id="scr-alphamax" class="mono" placeholder="no limit" /></label>
+            <label>RSI min<input id="scr-rsimin" class="mono" placeholder="0-100" /></label>
+            <label>RSI max<input id="scr-rsimax" class="mono" placeholder="0-100" /></label>
+          </div>
+          <div class="row" style="margin-top:14px;margin-bottom:0">
+            <button id="scr-run" class="primary">Run screen</button>
+            <button id="scr-reset" class="ghost">Reset filters</button>
+            <button id="scr-save" class="ghost" title="Save this screen to re-run later from the Saved tab">★ Save screen</button>
+            <button id="scr-csv" class="ghost" style="display:none">Download CSV</button>
+            <span id="scr-badge" class="badge" style="display:none"></span>
+            <span class="hintline">First run on a fresh index downloads a year of prices for every member — up to a minute. Instant after that.</span>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-h">RESULTS
+            <span id="scr-count" class="panel-note">click a column header to sort · click a row to open the stock</span>
+          </div>
+          <div id="scr-warn"></div>
+          <div id="scr-table" class="tablewrap"><div class="empty">Pick your filters and press Run.</div></div>
+        </div>
+      </section>
+
+      <!-- Thesis -->
+      <section id="view-thesis" class="view">
+        <h1>Thesis</h1>
+        <p class="lede">Ideas you can grade. Insider-buying clusters surface names worth a look —
+          an attention signal, never a buy signal — and a thesis pins a claim to frozen evidence
+          and the conditions that would prove it wrong.</p>
+
+        <div class="panel">
+          <div class="panel-h">CANDIDATES — WHO'S BUYING THEIR OWN STOCK
+            <span class="panel-note">from SEC Form 4 filings · click a row for the company's insider record</span>
+          </div>
+          <div class="row">
+            <select id="th-quarters">
+              <option value="1">Newest quarter</option>
+              <option value="2" selected>Two quarters</option>
+              <option value="4">Four quarters</option>
+            </select>
+            <input id="th-minoff" class="mono" value="2" style="width:110px" title="Minimum distinct officer/director buyers" />
+            <input id="th-minval" class="mono" value="1000000" style="width:140px" title="Minimum combined officer value ($)" />
+            <label class="panel-note" style="margin-left:0"><input type="checkbox" id="th-fresh" /> also sweep this week's filings (slow first run)</label>
+            <button id="th-run" class="primary">Find clusters</button>
+          </div>
+          <div id="th-cand-warn"></div>
+          <div id="th-cands" class="tablewrap"><div class="empty">Press “Find clusters” to scan.</div></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-h">AI TRIAGE — WORTH YOUR TIME?
+            <span class="panel-note">one model call over the candidates · “promoted” means worth investigating, nothing more</span>
+          </div>
+          <div class="row">
+            <button id="th-triage-run" class="primary" disabled>Triage the candidates</button>
+            <span id="th-triage-note" class="panel-note" style="margin-left:0">checking availability…</span>
+          </div>
+          <div id="th-triage"></div>
+        </div>
+
+        <div class="card-grid">
+          <div class="panel">
+            <div class="panel-h">INSIDER RECORD
+              <span id="th-act-note" class="panel-note">pick a candidate, or type a symbol</span>
+            </div>
+            <div class="row">
+              <input id="th-act-symbol" class="mono" placeholder="SYMBOL" style="width:120px;text-transform:uppercase" />
+              <button id="th-act-run" class="ghost">Look up</button>
+            </div>
+            <div id="th-activity" class="tablewrap"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-h">NOTABLE HOLDERS
+              <span class="panel-note">sovereign funds &amp; activists, latest 13F — up to 45 days stale</span>
+            </div>
+            <div id="th-holders" class="tablewrap"><div class="empty">Looks up automatically with the insider record.</div></div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-h">MY THESES
+            <span class="panel-note">a claim, its frozen evidence, and the checks that can break it</span>
+            <button id="th-refresh" class="ghost panel-btn">Refresh</button>
+          </div>
+          <div class="row">
+            <input id="th-new-title" placeholder="Title — e.g. MGM: board-backed accumulation" style="flex:2" />
+            <input id="th-new-symbol" class="mono" placeholder="SYMBOL" style="width:110px;text-transform:uppercase" />
+            <input id="th-new-days" class="mono" placeholder="Review in (days)" style="width:130px" />
+            <button id="th-create" class="primary">Create</button>
+          </div>
+          <div class="row">
+            <input id="th-new-claim" placeholder="The claim, in one falsifiable sentence" style="flex:1" />
+          </div>
+          <div id="th-msg" class="msg"></div>
+          <div id="th-list" class="tablewrap"><div class="empty">No theses yet.</div></div>
+        </div>
+
+        <div id="th-detail" style="display:none">
+          <div class="panel">
+            <div class="panel-h"><span id="th-d-title">THESIS</span>
+              <button id="th-d-evaluate" class="ghost panel-btn">Re-check now</button>
+              <button id="th-d-delete" class="ghost panel-btn danger">Delete</button>
+            </div>
+            <p id="th-d-claim" class="explain"></p>
+            <div id="th-d-meta" class="panel-note" style="margin:0 0 10px"></div>
+
+            <div class="panel-h">CHECKS — WHAT WOULD PROVE IT WRONG</div>
+            <div id="th-d-checks" class="tablewrap"><div class="empty">No checks yet — add one below.</div></div>
+            <div class="row">
+              <input id="th-c-name" placeholder="Check name" style="flex:1" />
+              <input id="th-c-path" class="mono" placeholder="/equity/price/historical" style="flex:1" />
+              <input id="th-c-params" class="mono" placeholder='{"symbol":"MGM"}' style="flex:1" />
+            </div>
+            <div class="row">
+              <input id="th-c-field" class="mono" placeholder="field, e.g. close" style="width:160px" />
+              <select id="th-c-cmp">
+                <option value="lt">breaks if &lt;</option>
+                <option value="le">breaks if ≤</option>
+                <option value="gt">breaks if &gt;</option>
+                <option value="ge">breaks if ≥</option>
+              </select>
+              <input id="th-c-threshold" class="mono" placeholder="threshold" style="width:130px" />
+              <button id="th-c-add" class="ghost">Add check</button>
+            </div>
+
+            <div class="panel-h" style="margin-top:14px">FROZEN EVIDENCE</div>
+            <div id="th-d-evidence" class="tablewrap"><div class="empty">Nothing frozen yet.</div></div>
+            <div class="row">
+              <input id="th-e-path" class="mono" placeholder="/thesis/insider_activity" style="flex:1" />
+              <input id="th-e-params" class="mono" placeholder='{"symbol":"MGM","days":400}' style="flex:1" />
+              <input id="th-e-leg" placeholder="which leg this supports" style="flex:1" />
+              <button id="th-e-add" class="ghost">Run &amp; freeze</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Assets -->
+      <section id="view-assets" class="view">
+        <h1>Asset classes</h1>
+        <p class="lede">Stocks, bonds, gold, commodities and more — where money is flowing, via liquid ETF proxies.</p>
+        <div class="panel">
+          <div class="panel-h">ASSET CLASS PERFORMANCE
+            <button id="as-refresh" class="ghost panel-btn">Refresh</button>
+          </div>
+          <div id="as-table" class="tablewrap"><div class="empty">Loading…</div></div>
+        </div>
+        <div class="market-grid">
+          <div class="panel">
+            <div class="panel-h">RELATIVE PERFORMANCE <span class="panel-note">rebased to 100</span></div>
+            <div class="row">
+              <input id="as-start" type="date" />
+              <button id="as-load" class="primary">Load</button>
+            </div>
+            <canvas id="as-chart" height="150"></canvas>
+          </div>
+          <div class="panel">
+            <div class="panel-h">STYLE FACTORS <span class="panel-note">growth / value / momentum / quality</span></div>
+            <div id="as-style" class="tablewrap"><div class="empty">Loading…</div></div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-h">COUNTRIES <span class="panel-note">single-country ETFs</span></div>
+          <div id="as-country" class="tablewrap"><div class="empty">Loading…</div></div>
+        </div>
+      </section>
+
+      <!-- News -->
+      <section id="view-news" class="view">
+        <h1>News</h1>
+        <p class="lede">One feed aggregated from free public sources — CNBC, MarketWatch, Yahoo, the Fed, the SEC and more. Headlines link to the original story.</p>
+        <div class="panel">
+          <div class="panel-h">NEWS FEED
+            <button id="nw-refresh" class="ghost panel-btn">Refresh</button>
+          </div>
+          <div class="row">
+            <input id="nw-query" placeholder="Search any topic (Google News)…" style="flex:2" />
+            <input id="nw-symbol" class="mono" placeholder="SYMBOL" style="max-width:130px;text-transform:uppercase" />
+            <button id="nw-go" class="primary">Go</button>
+            <button id="nw-clear" class="ghost">All news</button>
+          </div>
+          <div id="nw-sources" class="chiprow wrap"></div>
+          <div id="nw-warn"></div>
+          <div id="nw-feed" class="feed"><div class="empty">Loading…</div></div>
+        </div>
+      </section>
+
+      <!-- Sentiment -->
+      <section id="view-sentiment" class="view">
+        <h1>Sentiment</h1>
+        <p class="lede" style="max-width:680px">How positive or negative the news reads right now — every headline scored against a finance-tuned dictionary. No black box: hover a score to see the exact words that produced it.</p>
+
+        <div class="tabs" id="se-tabs">
+          <button class="tab active" data-setab="market">Overall market</button>
+          <button class="tab" data-setab="assets">Your stocks &amp; sectors</button>
+        </div>
+
+        <!-- ---- Overall market: the whole newswire, one mood ---- -->
+        <div id="setab-market" class="setab active">
+        <p class="hintline" style="margin:0 0 14px">The mood of the entire financial newswire — ~40 feeds merged, each source weight-capped so no single outlet sets the tone.</p>
+
+        <div class="panel">
+          <div class="panel-h">MARKET MOOD
+            <span id="se-mkt-note" class="panel-note"></span>
+            <button id="se-mkt-refresh" class="ghost panel-btn">Refresh</button>
+          </div>
+          <div id="se-gauge"><div class="empty">Reading the wire…</div></div>
+          <div class="market-grid" style="margin-top:22px">
+            <div>
+              <div class="subhead">Mood by source</div>
+              <div id="se-sources"><div class="empty">Loading…</div></div>
+            </div>
+            <div>
+              <div class="subhead">What's moving the needle</div>
+              <div id="se-drivers" class="mini"><div class="empty">Loading…</div></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-h">SCORED HEADLINES <span id="se-feed-note" class="panel-note"></span></div>
+          <div id="se-feed" class="feed"><div class="empty">Refresh the market mood above.</div></div>
+        </div>
+        </div><!-- /setab-market -->
+
+        <!-- ---- Your stocks & sectors: mood for what you actually hold ---- -->
+        <div id="setab-assets" class="setab">
+        <p class="hintline" style="margin:0 0 14px">The same scorer pointed at specific names — your watchlist, any ticker you type, and the 11 GICS sectors.</p>
+
+        <div class="panel">
+          <div class="panel-h">TICKER SENTIMENT <span class="panel-note">recent stories from Yahoo Finance or Google News</span></div>
+          <div class="row">
+            <input id="se-symbols" value="AAPL,MSFT,NVDA,TSLA" class="mono" style="flex:2;text-transform:uppercase" placeholder="Tickers, comma-separated" />
+            <button id="se-run" class="primary">Analyze</button>
+            <button id="se-watch" class="ghost" title="Load the tickers from your default watchlist">Use my watchlist</button>
+            <span id="se-src" class="badge" style="display:none"></span>
+          </div>
+          <div id="se-warn"></div>
+          <div id="se-cards" class="card-grid"></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-h">SECTOR MOOD
+            <span class="panel-note">how the news reads for each of the 11 sectors — most bullish first</span>
+            <button id="ss-refresh" class="ghost panel-btn">Refresh</button>
+          </div>
+          <div id="ss-table" class="tablewrap"><div class="empty">Reading sector news…</div></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-h">SENTIMENT HISTORY &amp; BACKTEST
+            <span class="panel-note">past news mood rebuilt week by week from the Google News archive</span>
+          </div>
+          <div class="row">
+            <input id="sh-symbol" value="AAPL" class="mono" style="width:160px;text-transform:uppercase" placeholder="Ticker" />
+            <div class="chiprow" id="sh-ranges" style="margin:0">
+              <button class="chip" data-months="6">6M</button>
+              <button class="chip active" data-months="12">1Y</button>
+              <button class="chip" data-months="24">2Y</button>
+            </div>
+            <button id="sh-load" class="primary">Load history</button>
+            <button id="sh-backtest" class="ghost">▶ Backtest this signal</button>
+            <span id="sh-src" class="badge" style="display:none"></span>
+          </div>
+          <div class="hintline" style="margin:-6px 0 12px">
+            First load fetches each past week from the archive separately — expect up to a minute, instant afterwards (windows cache for a week). The backtest owns the stock only in weeks the news read bullish, benchmarked against just holding it.
+          </div>
+          <div id="sh-bench"></div>
+          <canvas id="sh-chart" height="90" style="display:none"></canvas>
+          <p id="sh-signal" class="explain"></p>
+          <div id="sh-result" style="display:none">
+            <div class="subhead" style="margin-top:20px">Backtest — long only when the weekly mood is bullish</div>
+            <div id="sh-headline" class="headline" style="font-size:16px;margin:10px 0 2px"></div>
+            <div id="sh-compare" class="dim"></div>
+            <div class="legend">
+              <span><i class="sw green"></i>Sentiment strategy</span>
+              <span><i class="sw gray"></i>Buy &amp; hold</span>
+            </div>
+            <canvas id="sh-btchart" height="70"></canvas>
+            <div id="sh-btmetrics" class="metrics three"></div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-h">SCORED HEADLINES <span id="sa-feed-note" class="panel-note"></span></div>
+          <div id="sa-feed" class="feed"><div class="empty">Analyze a ticker, or open a sector's stories above.</div></div>
+        </div>
+        </div><!-- /setab-assets -->
+      </section>
+
+      <!-- Portfolio -->
+      <section id="view-portfolio" class="view">
+        <h1>Portfolio</h1>
+        <p class="lede">What you actually own. Record what you bought and sold, and this
+          works out your cost basis, your profit, and what is driving your risk.</p>
+
+        <div class="row">
+          <select id="pf-select" style="flex:1"></select>
+          <input id="pf-newname" placeholder="New portfolio name" />
+          <input id="pf-newcash" class="mono" placeholder="Starting cash" style="width:150px" />
+          <button id="pf-create" class="primary">Create</button>
+          <button id="pf-delete" class="ghost danger">Delete</button>
+        </div>
+
+        <div id="pf-empty" class="empty" style="margin-top:20px">
+          Create a portfolio above to get started.
+        </div>
+
+        <div id="pf-body" style="display:none">
+          <div id="pf-totals" class="metrics"></div>
+
+          <div class="panel">
+            <div class="panel-h">RECORD A TRADE
+              <span class="panel-note">buys and sells move shares; deposits, dividends and fees move cash</span>
+            </div>
+            <div class="row">
+              <select id="tx-side">
+                <option value="buy">Buy</option>
+                <option value="sell">Sell</option>
+                <option value="deposit">Deposit cash</option>
+                <option value="withdraw">Withdraw cash</option>
+                <option value="dividend">Dividend</option>
+                <option value="fee">Fee</option>
+              </select>
+              <input id="tx-symbol" class="mono" placeholder="SYMBOL" style="width:120px;text-transform:uppercase" />
+              <input id="tx-qty" class="mono" placeholder="Quantity" style="width:130px" />
+              <input id="tx-price" class="mono" placeholder="Price" style="width:130px" />
+              <input id="tx-fees" class="mono" placeholder="Fees" style="width:110px" />
+              <input id="tx-date" type="date" class="mono" />
+              <button id="tx-add" class="primary">Add</button>
+            </div>
+            <div id="tx-msg" class="msg"></div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-h">HOLDINGS
+              <span id="pf-asof" class="panel-note"></span>
+              <button id="pf-refresh" class="ghost panel-btn">Refresh</button>
+            </div>
+            <div id="pf-holdings" class="tablewrap"></div>
+          </div>
+
+          <div class="card-grid">
+            <div class="panel">
+              <div class="panel-h">HOW IT HAS DONE</div>
+              <div id="pf-perf-head" class="headline"></div>
+              <div id="pf-perf-note" class="dim"></div>
+              <div class="legend">
+                <span><i class="sw green"></i>Your portfolio</span>
+                <span><i class="sw gray"></i>The market</span>
+              </div>
+              <canvas id="pf-chart" height="80"></canvas>
+              <div id="pf-perf" class="metrics three"></div>
+            </div>
+            <div class="panel">
+              <div class="panel-h">WHERE THE MONEY SITS</div>
+              <div id="pf-alloc" class="tablewrap"></div>
+            </div>
+          </div>
+
+          <div class="card-grid">
+            <div class="panel">
+              <div class="panel-h">RISK <span class="panel-note">how much a bad day could cost</span></div>
+              <div id="pf-risk" class="kv"></div>
+              <p class="explain">Value at Risk is the loss a normal bad day would bring — on
+                19 days out of 20 you should lose less than this.</p>
+              <div id="pf-riskcontrib" class="tablewrap"></div>
+            </div>
+            <div class="panel">
+              <div class="panel-h">WHAT DRIVES IT <span class="panel-note">factor exposure of the whole book</span></div>
+              <div id="pf-factors" class="tablewrap"></div>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-h">HEDGE <span class="panel-note">what it costs to cut the tail, and whether it is worth it</span></div>
+            <div class="row" style="gap:8px;flex-wrap:wrap;align-items:center">
+              <label class="dim">Horizon
+                <select id="hg-horizon" class="mono">
+                  <option value="10">2 weeks</option>
+                  <option value="21" selected>1 month</option>
+                  <option value="63">3 months</option>
+                </select>
+              </label>
+              <label class="dim">Cut CVaR by
+                <select id="hg-fraction" class="mono">
+                  <option value="0.25">25%</option>
+                  <option value="0.5" selected>50%</option>
+                  <option value="0.75">75%</option>
+                </select>
+              </label>
+              <label class="dim"><input type="checkbox" id="hg-i-put" checked /> puts</label>
+              <label class="dim"><input type="checkbox" id="hg-i-spread" checked /> spreads</label>
+              <label class="dim"><input type="checkbox" id="hg-i-collar" checked /> collars</label>
+              <label class="dim"><input type="checkbox" id="hg-i-short" checked /> short ETF</label>
+              <button id="hg-run" class="primary">Analyse</button>
+              <button id="hg-narrate" class="ghost panel-btn" disabled>Explain</button>
+              <span id="hg-narrate-note" class="panel-note"></span>
+            </div>
+            <div id="hg-narrative"></div>
+            <div id="hg-verdict" style="margin-top:12px"></div>
+            <div id="hg-rows" class="tablewrap"></div>
+
+            <div id="hg-scenario" class="hg-scenario" style="display:none">
+              <div class="panel-h" style="margin-top:18px">IF THE MARKET LANDS THERE
+                <span class="panel-note">payoff at the horizon — pick a candidate</span></div>
+              <div class="chipgroup wrap" id="hg-scen-picker"></div>
+              <div class="hg-chartwrap"><canvas id="hg-chart"></canvas></div>
+              <div id="hg-scen-table" class="tablewrap"></div>
+              <div id="hg-scen-legend" class="hintline"></div>
+              <p class="explain">One path per move, drawn after the spread you would pay to get
+                in — certain if it happens, and carrying no probability at all. That is why the
+                ranking above comes from the shock distribution instead: a picture shows you
+                what a structure buys, it cannot tell you whether to buy it.</p>
+            </div>
+
+            <div class="panel-h" style="margin-top:18px">HEDGE LOG
+              <span class="panel-note">decisions only — looking at a candidate records nothing</span></div>
+            <div id="hg-log" class="tablewrap"></div>
+            <div id="hg-scorecard" class="kv"></div>
+
+            <div class="panel-h" style="margin-top:18px">THE LONG RECORD
+              <span class="panel-note">what running a hedge every month has actually cost</span>
+              <button id="hg-overlays" class="ghost panel-btn">Load</button></div>
+            <div id="hg-overlay-body"></div>
+            <p class="explain">Protection is the tail loss removed <em>before</em> cost, measured by
+              repricing today's contracts under past joint market/vol shocks — not a payoff
+              picture. Cost is money only (spread paid, decay, borrow); giving up upside is
+              shown separately because it is not a cash cost. Candidates that reach your goal
+              rank first, then cheapest per dollar of protection. If nothing is worth it, the
+              answer says to sell instead.</p>
+            <div id="hg-notes" class="dim" style="margin-top:8px"></div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-h">BLOTTER <span class="panel-note">every entry, newest first</span></div>
+            <div id="pf-blotter" class="tablewrap"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Data platform explorer -->
+      <section id="view-data" class="view">
+        <h1>Data</h1>
+        <p class="lede">Every command on the platform — equities, macro, fixed income, options, crypto and more. All free data sources.</p>
+        <div class="explorer">
+          <aside class="explorer-side">
+            <input id="cx-search" placeholder="Search commands…" />
+            <div id="cx-list" class="cmdlist"></div>
+          </aside>
+          <div class="explorer-main">
+            <div class="panel">
+              <div class="panel-h" id="cx-title">SELECT A COMMAND</div>
+              <div id="cx-desc" class="cmddesc">
+                <b>How this tab works:</b> pick a command on the left (or search — try
+                "yield curve" or "rsi"), fill in the parameters, and press <b>Run</b>.
+                Results appear as a table, chart automatically when they look like a
+                time series, and can be exported as CSV.<br /><br />
+                <b>Two ways to save:</b> <b>★ Save</b> keeps the <i>command</i> so you can
+                re-run it later with fresh data; <b>💾 Save results</b> keeps a snapshot of
+                the <i>data itself</i> as of right now. Both live in the Saved tab.<br /><br />
+                Every command shows a guide for its menu, an explanation of each
+                parameter, and a runnable example when you select it.
+              </div>
+              <div id="cx-guide" class="cmddesc" style="display:none"></div>
+              <div id="cx-doc" class="cmddesc" style="display:none"></div>
+              <div id="cx-example" class="cmddesc" style="display:none"></div>
+              <div id="cx-params" class="grid2"></div>
+              <div class="row" id="cx-actions" style="display:none">
+                <button id="cx-run" class="primary" style="flex:2">Run</button>
+                <button id="cx-save" class="ghost" style="flex:1" title="Save the command to re-run later">★ Save command</button>
+              </div>
+              <div class="row">
+                <span id="cx-meta" class="badge" style="display:none"></span>
+                <span class="spacer"></span>
+                <button id="cx-saveres" class="ghost" style="display:none" title="Store this exact output in your account">💾 Save results</button>
+                <button id="cx-csv" class="ghost" style="display:none">Download CSV</button>
+              </div>
+              <canvas id="cx-chart" height="90" style="display:none"></canvas>
+              <div id="cx-out" class="tablewrap"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Insights (factors) -->
+      <section id="view-factors" class="view">
+        <h1>Insights</h1>
+        <p class="lede" style="max-width:640px">What actually drives each stock — how much it follows the market, rides recent trends, or stays steady. In plain English, no regression tables.</p>
+        <div class="row">
+          <input id="fa-symbols" value="AAPL,MSFT,NVDA,AMZN,SPY" class="mono" style="flex:2;text-transform:uppercase" placeholder="Tickers, comma-separated" />
+          <label class="inline-label">Since <input id="fa-start" type="date" value="2022-01-01" class="mono" /></label>
+          <button id="fa-run" class="primary">Analyze</button>
+        </div>
+        <div id="fa-out" class="card-grid"></div>
+      </section>
+
+      <!-- Backtest -->
+      <section id="view-backtest" class="view">
+        <h1>Test a strategy</h1>
+        <p class="lede">See how a simple investing rule would have done in the past. No code, no jargon.</p>
+
+        <div class="step">1 · PICK A RULE</div>
+        <div id="bt-strategies" class="strat-grid"></div>
+
+        <div class="step">2 · TUNE IT</div>
+        <div id="bt-params" class="param-row"></div>
+
+        <div class="step">3 · PICK STOCKS &amp; A TIME PERIOD</div>
+        <div id="bt-symbols" class="chiprow wrap"></div>
+        <div class="row" style="margin:0 0 12px">
+          <input id="bt-addsym" class="mono" placeholder="Add any ticker…" style="width:180px;text-transform:uppercase" />
+          <span class="hintline">type and press Enter — autocomplete works here too</span>
+        </div>
+        <div class="chiprow" style="align-items:center">
+          <span class="dim" style="margin-right:4px">Over the last</span>
+          <button class="chip" data-period="1y">1 year</button>
+          <button class="chip active" data-period="3y">3 years</button>
+          <button class="chip" data-period="5y">5 years</button>
+        </div>
+
+        <button id="bt-adv-toggle" class="linkbtn">Advanced settings (engine, costs, capital, benchmark, end date) ▸</button>
+        <div id="bt-advanced" class="panel adv" style="display:none">
+          <div class="row" style="margin-bottom:14px">
+            <span class="dim" style="width:110px">Engine</span>
+            <button class="chip active" data-engine="vectorized">Fast</button>
+            <button class="chip" data-engine="event_driven">Detailed</button>
+            <span id="bt-engine-hint" class="hintline">Quick math over the whole history at once.</span>
+          </div>
+          <div class="grid5">
+            <label>Starting money<input id="bt-cap" value="100000" class="mono" /><span class="hintline">What you invest on day one</span></label>
+            <label>Commission (bps)<input id="bt-comm" value="1.0" class="mono" /><span class="hintline">Broker fee per trade — 1 bps = 0.01%</span></label>
+            <label>Slippage (bps)<input id="bt-slip" value="2.0" class="mono" /><span class="hintline">Price movement while your order fills</span></label>
+            <label>Compare against<input id="bt-bench" value="SPY" class="mono" /><span class="hintline">Ticker to benchmark, usually SPY</span></label>
+            <label>End date<input id="bt-end" type="date" /><span class="hintline">Leave blank to run up to today</span></label>
+          </div>
+          <div class="row" style="margin-top:14px;margin-bottom:0">
+            <label style="flex:1;display:flex;flex-direction:column;gap:5px;color:var(--muted);font-size:12px">
+              Extra parameters (JSON)
+              <input id="bt-extra" class="mono" placeholder='{"skip": 5}' />
+              <span class="hintline">Optional — merged over the tuned settings above, for anything a strategy accepts</span>
+            </label>
+          </div>
+        </div>
+
+        <button id="bt-run" class="primary big">Run the test</button>
+
+        <div id="bt-result" class="panel result" style="display:none">
+          <div id="bt-headline" class="headline"></div>
+          <div id="bt-compare" class="dim"></div>
+          <div class="legend">
+            <span><i class="sw green"></i>Your strategy</span>
+            <span><i class="sw gray"></i>The market</span>
+          </div>
+          <canvas id="bt-chart" height="80"></canvas>
+          <div id="bt-metrics" class="metrics three"></div>
+        </div>
+      </section>
+
+      <!-- Saved -->
+      <section id="view-saved" class="view">
+        <h1>Saved</h1>
+        <p class="lede">Your account — saved commands, watchlists, price alerts and recent activity. Everything here is stored server-side.</p>
+
+        <div class="panel">
+          <div class="panel-h">ACCOUNT</div>
+          <div id="sv-stats" class="metrics"></div>
+          <div class="row" style="margin-top:16px">
+            <input id="sv-fullname" placeholder="display name" />
+            <button id="sv-save-profile" class="ghost">Update profile</button>
+            <span class="spacer"></span>
+            <button id="sv-sessions-toggle" class="ghost">Active sessions</button>
+          </div>
+          <div id="sv-sessions" class="tablewrap" style="display:none"></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-h">SAVED COMMANDS <span class="panel-note">star anything in the Data tab</span></div>
+          <div id="sv-saved" class="tablewrap"></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-h">SAVED RESULTS <span class="panel-note">data snapshots, frozen at save time — 💾 in the Data tab</span></div>
+          <div id="sv-results" class="tablewrap"></div>
+          <div id="sv-results-view" style="display:none">
+            <div class="row" style="margin-top:14px">
+              <span id="sv-results-title" class="badge"></span>
+              <span class="spacer"></span>
+              <button id="sv-results-csv" class="ghost">Download CSV</button>
+              <button id="sv-results-close" class="ghost">Close</button>
+            </div>
+            <div id="sv-results-table" class="tablewrap"></div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-h">WATCHLISTS</div>
+          <div class="row">
+            <input id="wl-name" placeholder="New watchlist name" />
+            <input id="wl-symbols" class="mono" placeholder="AAPL,MSFT,NVDA" style="flex:2;text-transform:uppercase" />
+            <button id="wl-create" class="primary">Create</button>
+          </div>
+          <div id="sv-watchlists"></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-h">PRICE ALERTS <span class="panel-note">checked on demand, not in the background</span></div>
+          <div class="row">
+            <input id="al-symbol" class="mono" placeholder="SYMBOL" style="text-transform:uppercase" />
+            <select id="al-condition">
+              <option value="price_above">price above</option>
+              <option value="price_below">price below</option>
+              <option value="pct_change_above">% change above</option>
+              <option value="pct_change_below">% change below</option>
+            </select>
+            <input id="al-threshold" class="mono" placeholder="threshold" />
+            <button id="al-create" class="primary">Add</button>
+            <button id="al-evaluate" class="ghost">Check now</button>
+          </div>
+          <div id="sv-alerts" class="tablewrap"></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-h">RECENT ACTIVITY
+            <button id="sv-clear-history" class="ghost panel-btn">Clear history</button>
+          </div>
+          <div id="sv-activity" class="tablewrap"></div>
+        </div>
+      </section>
+
+      <!-- History -->
+      <section id="view-history" class="view">
+        <h1>Past tests</h1>
+        <p class="lede">Every strategy test you have run, newest first. Open any of them for the full report.</p>
+        <div id="hi-out" class="runs"></div>
+      </section>
+
+      <!-- System -->
+      <section id="view-system" class="view">
+        <h1>System</h1>
+        <p class="lede">Health of the service, the data cache, and what the database is storing.</p>
+        <div class="card-grid">
+          <div class="panel">
+            <div class="panel-h">HEALTH</div>
+            <div id="sy-health" class="kv"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-h">DATA CACHE</div>
+            <div id="sy-cache" class="kv"></div>
+            <p class="explain">Prices are remembered for a while so repeated requests are instant and do not hit the providers again.</p>
+            <button id="sy-clear" class="ghost danger">Clear cache</button>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-h">DATABASE</div>
+          <div id="sy-db" class="kv"></div>
+        </div>
+      </section>
+
+      <!-- Assistant -->
+      <section id="view-assistant" class="view">
+        <h1>Assistant</h1>
+        <p class="lede" style="max-width:680px">Ask about anything on the screen — what a metric means, why a number moved, where to find something. It knows every command in this terminal and can run them, so answers come from your own data rather than from memory.</p>
+
+        <div id="as-off" class="panel" style="display:none">
+          <div class="panel-h">ASSISTANT IS OFF</div>
+          <p id="as-off-why" class="explain"></p>
+          <p class="explain">This is the only feature in the terminal that needs a paid key. Everything else keeps working without it.</p>
+        </div>
+
+        <div id="as-on" style="display:none">
+          <div class="chat">
+            <div id="as-log" class="chat-log"></div>
+            <div id="as-suggest" class="chat-suggest">
+              <button class="chip" data-ask="What is the yield curve telling us right now?">What is the yield curve telling us right now?</button>
+              <button class="chip" data-ask="Explain the Sharpe ratio like I'm new to this.">Explain the Sharpe ratio</button>
+              <button class="chip" data-ask="How did the market close today, and what drove it?">How did the market close today?</button>
+              <button class="chip" data-ask="What's in my watchlist and how has it done lately?">How is my watchlist doing?</button>
+              <button class="chip" data-ask="What can this terminal actually do? Give me a tour.">Give me a tour</button>
+            </div>
+            <div class="chat-compose">
+              <textarea id="as-input" rows="2" placeholder="Ask anything — press Enter to send, Shift+Enter for a new line"></textarea>
+              <div class="chat-actions">
+                <button id="as-send" class="primary">Ask</button>
+                <button id="as-stop" class="ghost" style="display:none">Stop</button>
+                <button id="as-clear" class="ghost">Clear</button>
+              </div>
+            </div>
+            <p class="explain">Research and education only — not investment advice. Conversations live in this browser tab and are not saved.</p>
+          </div>
+        </div>
+      </section>
+
+    </div></main>
+    <footer class="statusbar"><span id="status">READY</span></footer>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

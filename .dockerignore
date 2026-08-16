@@ -1,0 +1,34 @@
+# Keep the build context to source only — no VCS, venvs, caches, or live data.
+.git
+.gitignore
+.venv
+venv
+env
+__pycache__
+**/__pycache__
+*.py[cod]
+.pytest_cache
+
+# Secrets — pass MFT_* keys at runtime (docker compose env_file), never bake them in.
+.env
+.env.*
+
+# Live data — the volume owns this in the container.
+*.db
+*.db-wal
+*.db-shm
+*.sqlite3
+data_cache/
+reports_out/
+
+# Repo artifacts irrelevant to the image
+minifinancialterminal.bundle
+minifinancialterminal.patch
+tests/
+.claude/
+.vscode/
+.idea/
+.DS_Store
+*.log
+Dockerfile
+docker-compose.yml

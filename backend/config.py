@@ -1,0 +1,91 @@
+"""Application configuration.
+
+Values are read from environment variables (prefixed ``MFT_``) with sensible
+defaults so the platform runs out-of-the-box for local development.
+"""
+from __future__ import annotations
+
+from functools import lru_cache
+from pathlib import Path
+from typing import Optional
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_prefix="MFT_", env_file=".env", extra="ignore")
+
+    # --- App ---
+    app_name: str = "Mini Financial Terminal"
+    debug: bool = True
+
+    # --- Security ---
+    # NOTE: override MFT_SECRET_KEY in any real deployment.
+    secret_key: str = "dev-insecure-secret-change-me"
+    algorithm: str = "HS256"
+    access_token_expire_minutes: int = 60 * 24
+
+    # --- Persistence ---
+    database_url: str = f"sqlite:///{BASE_DIR / 'terminal.db'}"
+
+    # --- Cache ---
+    # TTL (seconds) for cached market-data responses.
+    cache_ttl_seconds: int = 60 * 60
+    cache_dir: str = str(BASE_DIR / "data_cache")
+
+    # --- Platform (OpenBB-style data layer) ---
+    http_timeout_seconds: float = 30.0
+    # Require a bearer token on the auto-generated /api/v1/* data endpoints.
+    platform_require_auth: bool = True
+    # Command history rows kept per user; older runs are pruned as new ones land.
+    max_history_rows_per_user: int = 500
+    # SEC asks automated clients to identify themselves; put a real contact here.
+    sec_user_agent: str = "Mini Financial Terminal research@example.com"
+
+    # --- Optional free API keys -------------------------------------------
+    # Every one of these is free to obtain, and every command that can use one
+    # has a key-free fallback path, so the platform runs fully unconfigured.
+    fred_api_key: Optional[str] = None  # https://fred.stlouisfed.org/docs/api/api_key.html
+    eia_api_key: Optional[str] = None  # https://www.eia.gov/opendata/register.php
+    bls_api_key: Optional[str] = None  # https://data.bls.gov/registrationEngine/
+    nasdaq_api_key: Optional[str] = None  # https://data.nasdaq.com/sign-up
+
+    # --- Assistant (the only paid dependency in the stack) -----------------
+    # The one feature that is NOT free. Leave the key unset and every other
+    # part of the platform still works; the Assistant tab simply reports that
+    # it is switched off. https://platform.claude.com/
+    anthropic_api_key: Optional[str] = None
+    assistant_model: str = "claude-opus-5"
+    # low | medium | high | xhigh | max — how hard the model thinks per reply.
+    # "medium" suits a chat explainer that also calls a handful of tools.
+    assistant_effort: str = "medium"
+    # Caps thinking + reply text together; streaming, so a generous ceiling is
+    # free until it is actually used.
+    assistant_max_tokens: int = 16000
+    # Conversation turns kept per request (the API is stateless — the browser
+    # replays history, and this bounds what we forward).
+    assistant_max_history: int = 40
+    # Tool-call rounds allowed before the assistant must answer with what it has.
+    assistant_max_tool_rounds: int = 6
+    # Rows a single run_command tool result may put in front of the model.
+    assistant_max_tool_rows: int = 40
+
+    # --- Signal calibration ------------------------------------------------
+    # The graded signal log is what turns the thesis engine's gate weights from
+    # guesses into measurements, and it only fills if grading actually runs.
+    # Hours between background sweeps; 0 switches the clock off and leaves
+    # grading to POST /api/theses/signals/grade.
+    grading_interval_hours: float = 12.0
+    # Events examined per sweep. Grading is incremental, so a modest batch
+    # catches up over several passes instead of one long stall at boot.
+    grading_batch_size: int = 500
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
+
+
+settings = get_settings()

@@ -1,0 +1,687 @@
+:root{
+  /* Robinhood-style palette on the friendly design system:
+     true black canvas, signature green accent, orange-red losses. */
+  --bg:#000000; --panel:#0e1011; --deep:#0a0b0c; --line:#232627; --muted:#82868a; --faint:#6f7377;
+  --text:#f5f6f7; --soft:#c9cccd; --amber:#00c805; --green:#00c805; --red:#ff5000; --blue:#00c805;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);
+  font-family:'IBM Plex Sans',sans-serif;font-size:14px}
+.mono{font-family:'IBM Plex Mono',monospace}
+button{cursor:pointer;font-family:inherit;font-size:13px}
+input,select{background:var(--deep);border:1px solid var(--line);color:var(--text);
+  padding:9px 12px;border-radius:6px;font-family:inherit;font-size:13px}
+input:focus,select:focus{outline:none;border-color:var(--amber)}
+h1{margin:0;font-size:26px;font-weight:600}
+.lede{margin:6px 0 24px;color:var(--muted);font-size:15px;line-height:1.5}
+.dim{color:var(--muted);font-size:13px}
+.hintline{font-size:11px;color:var(--faint)}
+a{color:var(--blue);text-decoration:none} a:hover{filter:brightness(1.2)}
+
+/* Auth */
+.auth-screen{display:flex;align-items:center;justify-content:center;height:100vh}
+.auth-box{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+  padding:36px;width:340px;display:flex;flex-direction:column;gap:12px}
+.logo-mark{width:30px;height:30px;background:var(--amber);border-radius:6px;margin:0 auto}
+.logo{font-weight:700;font-size:20px;text-align:center}
+.logo-sub{color:var(--muted);text-align:center;letter-spacing:2px;font-size:11px;margin-bottom:8px}
+.tabs{display:flex;gap:8px}
+.tab{flex:1;background:var(--panel);border:1px solid var(--line);color:var(--muted);padding:8px;border-radius:6px;font-weight:600}
+.tab.active{color:var(--amber);border-color:var(--amber);background:rgba(0,200,5,.12)}
+/* Sub-tabs inside a view (Sentiment: overall market vs your stocks & sectors). */
+#se-tabs{max-width:440px;margin:0 0 6px}
+.setab{display:none}
+.setab.active{display:block}
+.primary{background:var(--amber);color:#000;border:none;padding:11px 20px;border-radius:6px;font-weight:700;font-size:14px}
+.primary:hover{filter:brightness(1.1)}
+.primary.big{padding:12px 28px;border-radius:8px;display:block}
+.ghost{background:transparent;border:1px solid var(--line);color:var(--muted);padding:6px 14px;border-radius:6px;font-size:12px}
+.ghost:hover{color:var(--text);border-color:var(--muted)}
+.ghost.danger{color:var(--red);margin-top:16px}
+.ghost.danger:hover{border-color:var(--red)}
+.linkbtn{background:transparent;border:none;color:var(--blue);padding:0;margin:6px 0 14px;font-size:13px}
+.linkbtn.danger{color:var(--red)}
+.linkbtn:hover{text-decoration:underline}
+.msg{min-height:16px;font-size:12px;color:var(--red)}
+.msg.ok{color:var(--green)}
+.hint{color:var(--muted);font-size:12px;text-align:center}
+.empty{color:var(--muted);font-size:12px;padding:6px 0}
+.warnbox{color:#ffd60a;font-size:11px;margin:8px 0}
+.errbox{color:var(--red);font-size:12px;margin:8px 0;white-space:pre-wrap}
+
+/* Shell */
+.terminal{display:flex;flex-direction:column;height:100vh}
+.topbar{display:flex;align-items:center;gap:14px;background:var(--deep);border-bottom:1px solid var(--line);padding:14px 28px}
+.brand-mark{width:26px;height:26px;background:var(--amber);border-radius:5px}
+.brand{font-weight:700;font-size:16px;letter-spacing:.5px}
+.brand-sub{color:var(--muted);font-size:11px;letter-spacing:2px}
+.spacer{flex:1}
+.who{color:var(--muted);font-size:13px}
+.tape{display:flex;gap:26px;overflow:hidden;white-space:nowrap;background:var(--deep);
+  border-bottom:1px solid var(--line);padding:10px 28px;font-family:'IBM Plex Mono',monospace;font-size:12px}
+.tick .sym{color:var(--muted)}
+.tick .up{color:var(--green)} .tick .down{color:var(--red)}
+
+.nav{display:flex;gap:2px;background:var(--deep);border-bottom:1px solid var(--line);padding:10px 28px 0;overflow-x:auto}
+.navbtn{background:transparent;border:none;border-bottom:2px solid transparent;
+  color:var(--muted);padding:10px 13px;font-size:14px;font-weight:600;white-space:nowrap}
+.navbtn:hover{color:var(--text)}
+.navbtn.active{color:var(--amber);border-bottom-color:var(--amber)}
+
+.content{flex:1;overflow:auto}
+.container{max-width:1240px;margin:0 auto;padding:32px 28px 64px}
+.view{display:none} .view.active{display:block}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:24px;margin-bottom:16px}
+.panel-h{color:var(--amber);font-size:12px;letter-spacing:1px;font-weight:600;margin-bottom:14px}
+.panel-note{color:var(--muted);font-weight:400;letter-spacing:0;text-transform:none;margin-left:10px;font-size:11px}
+.panel-btn{float:right;margin-top:-4px;font-size:10px;padding:3px 10px}
+.row{display:flex;gap:12px;align-items:center;margin-bottom:16px;flex-wrap:wrap}
+.badge{background:var(--deep);border:1px solid var(--line);color:var(--blue);
+  padding:4px 12px;border-radius:12px;font-size:11px;font-family:'IBM Plex Mono',monospace}
+.inline-label{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:13px}
+.subhead{color:var(--muted);font-size:10px;letter-spacing:1px;border-bottom:1px solid var(--line);
+  padding-bottom:4px;margin-bottom:6px;text-transform:uppercase}
+
+/* Tables (data explorer, sectors, saved…) */
+.tablewrap{overflow:auto}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th,td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+th:first-child,td:first-child{text-align:left}
+th{color:var(--muted);font-weight:600;letter-spacing:.5px}
+td a{color:var(--blue);text-decoration:none}
+.pos{color:var(--green)} .neg{color:var(--red)}
+td.pos,.v.pos{color:var(--green)} td.neg,.v.neg{color:var(--red)}
+.clickrows tr[data-i]{cursor:pointer}
+.clickrows tr[data-i]:hover td{background:var(--deep)}
+.perfbar{display:flex;align-items:center;gap:8px}
+.perfbar .bar{height:8px;border-radius:2px;min-width:1px}
+.perfbar .bar.pos{background:var(--green)}
+.perfbar .bar.neg{background:var(--red)}
+
+/* Markets */
+.quote-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:28px}
+.qcard{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px;cursor:pointer}
+.qcard:hover{border-color:var(--muted)}
+.qcard.sel{border-color:var(--amber)}
+.qcard .head{display:flex;align-items:baseline;gap:8px}
+.qcard .s{font-weight:700;font-size:15px}
+.qcard .n{color:var(--muted);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.qcard .p{font-family:'IBM Plex Mono',monospace;font-size:19px;font-weight:600;margin-top:10px}
+.qcard .c{font-family:'IBM Plex Mono',monospace;font-size:12px;margin-top:2px}
+.up{color:var(--green)} .down{color:var(--red)}
+.detail-head{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin-bottom:4px}
+.detail-sym{font-size:22px;font-weight:700}
+.detail-sym small{color:var(--muted);font-weight:400;font-size:15px;margin-left:10px}
+.detail-price{font-size:22px;font-weight:600}
+.chiprow{display:flex;gap:8px;margin:14px 0;flex-wrap:wrap}
+.chiprow.wrap{flex-wrap:wrap;margin-bottom:12px}
+.chip{background:var(--panel);border:1px solid var(--line);color:var(--muted);
+  padding:7px 16px;border-radius:20px;font-weight:600;font-size:12px}
+.chip.active,.chip.sel{background:rgba(0,200,5,.12);border-color:var(--amber);color:var(--amber)}
+.explain{margin:16px 0 0;color:var(--muted);font-size:13px;line-height:1.5}
+
+/* Index / asset tiles */
+.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+.tile{background:var(--deep);border:1px solid var(--line);border-radius:8px;padding:11px 13px;cursor:pointer}
+.tile:hover{border-color:var(--muted)}
+.tile .t-sym{color:var(--muted);font-size:10px;letter-spacing:1px;font-family:'IBM Plex Mono',monospace}
+.tile .t-name{color:var(--text);font-size:11px;margin:2px 0 6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tile .t-px{font-size:17px;font-weight:700;font-family:'IBM Plex Mono',monospace}
+.tile .t-chg{font-size:12px;margin-top:2px;font-family:'IBM Plex Mono',monospace}
+.market-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.market-grid3{display:grid;grid-template-columns:1fr 1.4fr 1fr;gap:18px}
+@media (max-width:980px){.market-grid,.market-grid3{grid-template-columns:1fr}}
+
+/* Today's brief */
+.sigrow{display:grid;grid-template-columns:repeat(auto-fill,minmax(176px,1fr));gap:10px;margin-bottom:14px}
+.sig-card{background:var(--deep);border:1px solid var(--line);border-left:3px solid var(--muted);
+  border-radius:6px;padding:10px 12px}
+.sig-card.t-pos{border-left-color:var(--green)}
+.sig-card.t-neg{border-left-color:var(--red)}
+.sig-card.t-warn{border-left-color:#ffd60a}
+.sig-label{color:var(--muted);font-size:10px;letter-spacing:1px;text-transform:uppercase}
+.sig-value{font-size:15px;font-weight:700;margin:3px 0 2px;font-family:'IBM Plex Mono',monospace}
+.sig-card.t-pos .sig-value{color:var(--green)}
+.sig-card.t-neg .sig-value{color:var(--red)}
+.sig-card.t-warn .sig-value{color:#ffd60a}
+.sig-read{color:var(--muted);font-size:10.5px;line-height:1.4}
+.mini-row{display:flex;justify-content:space-between;gap:10px;padding:3px 0;font-size:12px;font-family:'IBM Plex Mono',monospace}
+.mini-link{display:block;color:var(--text);text-decoration:none;font-size:12px;line-height:1.4;
+  padding:4px 0;border-bottom:1px dotted var(--line)}
+.mini-link:hover{color:var(--green)}
+.mini-src{display:block;color:var(--muted);font-size:10px;font-family:'IBM Plex Mono',monospace}
+
+/* Metrics */
+.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:18px}
+.metrics.three{grid-template-columns:repeat(3,1fr);margin-top:20px}
+.metric{background:var(--deep);border:1px solid var(--line);border-radius:8px;padding:12px 14px}
+.metric .k{color:var(--muted);font-size:11px;letter-spacing:1px;text-transform:uppercase}
+.metric .v{font-family:'IBM Plex Mono',monospace;font-size:18px;font-weight:600;margin:4px 0}
+.metric .note{color:var(--muted);font-size:12px;line-height:1.45}
+
+/* Insights */
+.card-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}
+.fcard{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:20px}
+.fcard .head{display:flex;align-items:baseline;gap:10px}
+.fcard .s{font-weight:700;font-size:16px}
+.fcard .n{color:var(--muted);font-size:13px;flex:1}
+.fcard .edge{font-family:'IBM Plex Mono',monospace;font-size:13px}
+.fcard p{margin:10px 0 14px;color:var(--soft);font-size:13px;line-height:1.55}
+.fbar{display:grid;grid-template-columns:110px 1fr 44px;gap:10px;align-items:center;margin-bottom:8px}
+.fbar .l{color:var(--muted);font-size:12px}
+.fbar .track{height:6px;background:var(--deep);border-radius:3px;overflow:hidden}
+.fbar .fill{height:100%;background:var(--amber);border-radius:3px}
+.fbar .val{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--muted);text-align:right}
+.fcard .conf{margin-top:12px;color:var(--muted);font-size:12px}
+
+/* Backtest */
+.step{color:var(--amber);font-size:12px;letter-spacing:1px;font-weight:600;margin:0 0 10px}
+.strat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:22px}
+.scard{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px;cursor:pointer}
+.scard:hover{border-color:var(--muted)}
+.scard.sel{border-color:var(--amber);background:rgba(0,200,5,.08)}
+.scard .t{font-weight:600;font-size:14px}
+.scard .d{color:var(--muted);font-size:12px;line-height:1.5;margin-top:6px}
+.param-row{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:24px;color:var(--muted);font-size:13px}
+.param-row label,.grid5 label{display:flex;flex-direction:column;gap:5px;color:var(--muted);font-size:12px;width:200px}
+.grid5{display:grid;grid-template-columns:repeat(5,1fr);gap:12px}
+.grid5 label{width:auto}
+.panel.adv{padding:16px;margin-bottom:20px}
+.panel.result{margin-top:26px}
+.headline{font-size:19px;font-weight:600;line-height:1.45}
+.legend{display:flex;gap:18px;margin:18px 0 8px;font-size:12px;color:var(--muted)}
+.legend .sw{display:inline-block;width:18px;height:2px;vertical-align:middle;margin-right:6px}
+.sw.green{background:var(--green)} .sw.gray{background:var(--faint)}
+
+/* History */
+.runs{display:flex;flex-direction:column;gap:12px}
+.run{background:var(--panel);border:1px solid var(--line);border-radius:10px;
+  padding:18px 20px;display:flex;align-items:center;gap:20px}
+.run .body{flex:1;min-width:0}
+.run .t{font-weight:600;font-size:15px}
+.run .s{color:var(--muted);font-size:13px;margin-top:4px}
+.run .ret{font-family:'IBM Plex Mono',monospace;font-size:17px;font-weight:600;text-align:right}
+.run .sh{color:var(--muted);font-size:12px;margin-top:2px;text-align:right}
+
+/* System */
+.kv{display:flex;flex-direction:column;gap:10px}
+.kv .r{display:flex;justify-content:space-between;font-size:13px}
+.kv .r .k{color:var(--muted)}
+.kv .r .v{font-family:'IBM Plex Mono',monospace}
+
+/* Portfolio */
+.wbar{background:var(--deep);border:1px solid var(--line);border-radius:3px;height:9px;overflow:hidden}
+.wbar i{display:block;height:100%;background:var(--amber)}
+#pf-holdings table td:first-child .linkbtn{margin:0}
+#pf-holdings small{color:var(--muted)}
+
+.statusbar{background:var(--deep);border-top:1px solid var(--line);
+  color:var(--muted);padding:8px 28px;font-size:11px;letter-spacing:1px;font-family:'IBM Plex Mono',monospace}
+
+/* Data platform explorer */
+.explorer{display:grid;grid-template-columns:300px 1fr;gap:16px;align-items:start}
+.explorer-side{background:var(--panel);border:1px solid var(--line);border-radius:10px;
+  padding:14px;position:sticky;top:12px;max-height:calc(100vh - 160px);display:flex;flex-direction:column;gap:10px}
+.explorer-side input{width:100%}
+.cmdlist{overflow:auto;flex:1}
+.cmdgroup{color:var(--amber);font-size:10px;letter-spacing:1px;margin:12px 0 4px;
+  border-bottom:1px solid var(--line);padding-bottom:3px;text-transform:uppercase}
+.cmdgroup:first-child{margin-top:0}
+.cmditem{display:block;width:100%;text-align:left;background:transparent;border:none;
+  color:var(--text);padding:5px 7px;border-radius:5px;font-size:12.5px;line-height:1.35}
+.cmditem:hover{background:var(--deep);color:var(--amber)}
+.cmditem.active{background:var(--deep);color:var(--amber);box-shadow:inset 2px 0 0 var(--amber)}
+.cmditem small{display:block;color:var(--muted);font-size:10px;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis}
+.cmddesc{color:var(--muted);font-size:12.5px;line-height:1.5;margin-bottom:12px}
+.cmddesc code{color:var(--blue);font-family:'IBM Plex Mono',monospace}
+.grid2{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+.grid2 label{display:flex;flex-direction:column;gap:4px;color:var(--muted);font-size:11px}
+.grid2 label small{color:var(--muted);font-size:10px;opacity:.75}
+@media (max-width:900px){.explorer{grid-template-columns:1fr}.explorer-side{position:static;max-height:none}}
+
+/* Saved actions */
+.wl-card{background:var(--deep);border:1px solid var(--line);border-radius:8px;padding:14px;margin-bottom:10px}
+.wl-head{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.wl-title{color:var(--amber);font-size:13px;font-weight:700}
+.wl-badge{color:var(--muted);font-size:10px;border:1px solid var(--line);border-radius:9px;padding:2px 7px}
+.symchip{display:inline-flex;align-items:center;gap:6px;background:var(--panel);border:1px solid var(--line);
+  border-radius:12px;padding:3px 9px;margin:0 5px 5px 0;font-size:11px;font-family:'IBM Plex Mono',monospace}
+.symchip button{background:none;border:none;color:var(--muted);padding:0;font-size:13px;line-height:1}
+.symchip button:hover{color:var(--red)}
+.trig{color:var(--green);font-weight:700}
+.notrig{color:var(--muted)}
+
+/* News feed */
+.feed{display:flex;flex-direction:column}
+.feed-item{padding:12px 2px;border-bottom:1px solid var(--line)}
+.feed-item:last-child{border-bottom:none}
+.feed-meta{display:flex;gap:10px;align-items:center;font-size:10px;color:var(--muted);
+  margin-bottom:3px;letter-spacing:1px;text-transform:uppercase;font-family:'IBM Plex Mono',monospace}
+.src-badge{border:1px solid var(--line);border-radius:8px;padding:1px 7px;color:var(--green)}
+.feed-title{color:var(--text);text-decoration:none;font-size:14px;line-height:1.45;font-weight:500}
+.feed-title:hover{color:var(--green)}
+.feed-sum{color:var(--muted);font-size:12px;margin-top:3px;line-height:1.5}
+.chip.nw-chip{padding:5px 13px}
+
+/* Sentiment */
+.senti-hero{display:flex;align-items:center;gap:32px;flex-wrap:wrap}
+.senti-word{font-size:24px;font-weight:700;letter-spacing:2px}
+.senti-num{color:var(--muted);font-size:15px;margin-top:2px}
+.senti-meterwrap{flex:1;min-width:240px}
+.senti-meter{position:relative;height:10px;border-radius:5px;
+  background:linear-gradient(90deg,var(--red) 0%,#3a3d3e 42%,#3a3d3e 58%,var(--green) 100%)}
+.senti-pin{position:absolute;top:-4px;width:4px;height:18px;border-radius:2px;
+  background:var(--text);transform:translateX(-50%)}
+.senti-ends{display:flex;justify-content:space-between;color:var(--faint);font-size:10px;
+  letter-spacing:1px;margin-top:5px;text-transform:uppercase;font-family:'IBM Plex Mono',monospace}
+.fcard .senti-meter{margin-top:14px}
+.senti-badge{border:1px solid var(--line);border-radius:8px;padding:1px 7px;
+  color:var(--muted);font-family:'IBM Plex Mono',monospace;white-space:nowrap}
+.senti-badge.pos{color:var(--green);border-color:rgba(0,200,5,.45)}
+.senti-badge.neg{color:var(--red);border-color:rgba(255,80,0,.45)}
+.senti-badge.mid{color:#ffd60a;border-color:rgba(255,214,10,.35)}
+.senti-why{font-family:'IBM Plex Mono',monospace;font-size:10.5px;text-transform:none}
+.sbar{display:grid;grid-template-columns:130px 1fr 52px;gap:10px;align-items:center;margin-bottom:9px}
+.sbar .l{color:var(--muted);font-size:11px;font-family:'IBM Plex Mono',monospace;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sbar .track{position:relative;height:8px;background:var(--deep);border-radius:4px}
+.sbar .track::before{content:"";position:absolute;left:50%;top:-2px;bottom:-2px;width:1px;background:var(--line)}
+.sbar .fill{position:absolute;top:0;height:100%;border-radius:4px}
+.sbar .val{font-family:'IBM Plex Mono',monospace;font-size:11px;text-align:right}
+
+/* Ticker autocomplete */
+#ac-menu{position:fixed;z-index:999;display:none;background:var(--panel);border:1px solid var(--amber);
+  border-radius:8px;max-height:284px;overflow-y:auto;box-shadow:0 10px 28px rgba(0,0,0,.55);font-size:12.5px}
+.ac-item{display:flex;gap:10px;align-items:baseline;padding:7px 12px;cursor:pointer;white-space:nowrap}
+.ac-item:hover,.ac-item.sel{background:var(--deep)}
+.ac-item.sel{box-shadow:inset 2px 0 0 var(--amber)}
+.ac-sym{color:var(--amber);font-weight:700;min-width:76px;font-family:'IBM Plex Mono',monospace}
+.ac-name{color:var(--text);overflow:hidden;text-overflow:ellipsis;max-width:280px}
+.ac-type{color:var(--muted);font-size:10px;margin-left:auto;border:1px solid var(--line);border-radius:8px;padding:1px 7px}
+
+/* Date inputs */
+input[type=date]{color-scheme:dark;min-width:140px}
+input[type=date]::-webkit-calendar-picker-indicator{cursor:pointer;opacity:.55;
+  filter:invert(48%) sepia(90%) saturate(2400%) hue-rotate(90deg)}
+input[type=date]::-webkit-calendar-picker-indicator:hover{opacity:1}
+
+/* Chart measurement readout */
+.measure-box{font-size:11px;color:var(--muted);padding:6px 2px 0;min-height:18px;
+  display:flex;flex-wrap:wrap;gap:14px;align-items:baseline;font-family:'IBM Plex Mono',monospace}
+.measure-box .m-hdr{color:var(--text);font-weight:600}
+.measure-box .m-series{display:inline-flex;gap:6px;align-items:baseline;color:var(--text)}
+.measure-box .m-dot{width:8px;height:8px;border-radius:2px;display:inline-block;align-self:center}
+
+@media (max-width:900px){
+  .quote-grid,.strat-grid{grid-template-columns:repeat(2,1fr)}
+  .card-grid{grid-template-columns:1fr}
+  .metrics,.metrics.three,.grid5{grid-template-columns:repeat(2,1fr)}
+}
+
+/* ---- Watchlist cards: remove button ---- */
+.qcard{position:relative}
+.q-x{position:absolute;top:8px;right:10px;background:none;border:none;color:var(--muted);
+  font-size:15px;line-height:1;padding:2px 4px;display:none}
+.qcard:hover .q-x{display:block}
+.q-x:hover{color:var(--red)}
+
+/* Assistant — a chat column that stays inside the terminal's own vocabulary:
+   panel surfaces, the green accent for the user's own turns, mono for the
+   command chips that show which part of the platform an answer came from. */
+.chat{max-width:820px}
+.chat-log{min-height:220px;max-height:calc(100vh - 400px);overflow-y:auto;
+  display:flex;flex-direction:column;gap:18px;padding:4px 2px 8px}
+.chat-log:empty{display:none}
+.turn{display:flex;flex-direction:column;gap:6px}
+.turn .who{font-size:11px;letter-spacing:1px;color:var(--faint);font-weight:600}
+.turn.me .who{color:var(--amber)}
+.turn .body{line-height:1.6;color:var(--soft);white-space:normal}
+.turn.me .body{background:rgba(0,200,5,.08);border:1px solid rgba(0,200,5,.22);
+  border-radius:10px;padding:11px 14px;color:var(--text);align-self:flex-start;max-width:100%}
+.turn .body p{margin:0 0 10px}
+.turn .body p:last-child{margin-bottom:0}
+.turn .body ul{margin:0 0 10px;padding-left:20px}
+.turn .body li{margin-bottom:4px}
+.turn .body code{font-family:'IBM Plex Mono',monospace;font-size:12.5px;
+  background:var(--deep);border:1px solid var(--line);border-radius:4px;padding:1px 5px;color:var(--text)}
+.turn .body strong{color:var(--text);font-weight:600}
+.turn .body em{color:var(--text);font-style:italic}
+/* One chip per command the assistant ran, so the answer is auditable. */
+.toolrow{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:2px}
+.toolchip{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--faint);
+  background:var(--deep);border:1px solid var(--line);border-radius:20px;padding:3px 11px;
+  display:inline-flex;align-items:center;gap:6px}
+.toolchip.running{color:var(--amber);border-color:rgba(0,200,5,.3)}
+.toolchip.failed{color:var(--red);border-color:rgba(255,80,0,.3)}
+.toolchip .dot{width:5px;height:5px;border-radius:50%;background:currentColor}
+.toolchip.running .dot{animation:pulse 1s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+.caret{display:inline-block;width:7px;height:14px;background:var(--amber);
+  vertical-align:-2px;margin-left:2px;animation:pulse 1s ease-in-out infinite}
+.chat-suggest{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0}
+.chat-compose{border:1px solid var(--line);background:var(--panel);border-radius:10px;padding:12px}
+.chat-compose textarea{width:100%;background:transparent;border:none;color:var(--text);
+  font-family:inherit;font-size:14px;line-height:1.5;resize:vertical;padding:2px}
+.chat-compose textarea:focus{outline:none}
+.chat-actions{display:flex;gap:8px;align-items:center;margin-top:8px}
+
+/* Custom workspace — a denser, modular terminal surface. Each live view owns
+   its own framed box, while the 12-column grid leaves room for wide charts and
+   compact readouts in the same layout. */
+.container.workspace-open{max-width:1600px;padding-top:24px}
+.workspace-head{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;margin-bottom:18px}
+.workspace-head .lede{margin:5px 0 0}
+.workspace-eyebrow{color:var(--amber);font-family:'IBM Plex Mono',monospace;font-size:10px;
+  font-weight:600;letter-spacing:1.5px;margin-bottom:5px}
+.workspace-head-actions{display:flex;align-items:center;justify-content:flex-end;gap:9px;flex-wrap:wrap}
+.workspace-saved{color:var(--faint);font-size:11px;margin-right:4px;transition:color .2s}
+.workspace-saved.flash{color:var(--green)}
+.ws-add{padding:9px 16px;font-size:13px}
+.workspace-grid{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));grid-auto-flow:dense;gap:12px}
+.workspace-widget{grid-column:span 4;min-width:0;height:340px;background:#0b0d0e;
+  border:1px solid var(--line);border-radius:9px;overflow:hidden;display:flex;flex-direction:column;
+  box-shadow:0 8px 26px rgba(0,0,0,.18);transition:border-color .15s,opacity .15s,transform .15s}
+.workspace-widget.ws-wide{grid-column:span 8}
+.workspace-widget:hover{border-color:#343839}
+.workspace-widget.dragging{opacity:.45;transform:scale(.99)}
+.workspace-widget.dragover{border-color:var(--amber);box-shadow:0 0 0 1px var(--amber)}
+.workspace-widget-head{height:48px;flex:none;display:flex;align-items:center;gap:9px;
+  padding:0 10px 0 13px;background:#111314;border-bottom:1px solid var(--line);cursor:grab}
+.workspace-widget-head:active{cursor:grabbing}
+.workspace-widget-dot{width:8px;height:8px;border-radius:2px;background:var(--amber);box-shadow:0 0 9px rgba(0,200,5,.18)}
+.workspace-widget-title{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.workspace-widget-sub{color:var(--faint);font-family:'IBM Plex Mono',monospace;font-size:10px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.workspace-widget-actions{display:flex;align-items:center;gap:2px;margin-left:auto}
+.workspace-icon-btn{display:grid;place-items:center;width:29px;height:29px;padding:0;border:0;border-radius:5px;
+  background:transparent;color:var(--muted);font-size:16px;line-height:1}
+.workspace-icon-btn:hover{background:#1a1d1e;color:var(--text)}
+.workspace-icon-btn.ws-remove:hover{color:var(--red);background:rgba(255,80,0,.1)}
+.workspace-widget-body{flex:1;min-height:0;overflow:auto;padding:16px}
+/* A chart widget is a column of fixed rows around one flexible chart, so the
+   chart takes exactly the space the readouts leave and nothing is cut off. */
+.workspace-widget-body.ws-body-chart{display:flex;flex-direction:column;overflow:hidden}
+.workspace-loading{height:100%;display:flex;align-items:center;justify-content:center;color:var(--faint);font-size:12px}
+.workspace-loading::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--amber);
+  margin-right:9px;animation:pulse 1s ease-in-out infinite}
+.workspace-error{height:100%;display:flex;align-items:center;justify-content:center;text-align:center;
+  color:var(--red);font-size:12px;line-height:1.5;padding:20px}
+.workspace-empty{grid-column:1/-1;min-height:360px;border:1px dashed #303334;border-radius:10px;
+  background:linear-gradient(145deg,#0a0b0c,#0d1010);display:flex;flex-direction:column;
+  align-items:center;justify-content:center;text-align:center;padding:38px}
+.workspace-empty-mark{width:50px;height:50px;border:1px solid #343839;border-radius:10px;
+  display:grid;place-items:center;color:var(--amber);font-size:26px;margin-bottom:14px}
+.workspace-empty h2{font-size:18px;margin:0 0 5px}
+.workspace-empty p{color:var(--muted);margin:0 0 18px;max-width:380px;line-height:1.5}
+
+/* Workspace widget contents */
+.ws-hero{display:flex;align-items:flex-end;gap:12px;margin-bottom:11px}
+.ws-hero-symbol{font-weight:700;font-size:18px}
+.ws-hero-name{color:var(--muted);font-size:11px;margin-top:1px}
+.ws-hero-price{margin-left:auto;text-align:right;font-family:'IBM Plex Mono',monospace;font-size:21px;font-weight:600}
+.ws-hero-change{font-family:'IBM Plex Mono',monospace;font-size:11px;margin-top:2px}
+.ws-chart{position:relative;flex:1 1 auto;min-height:110px}
+.ws-chart canvas{display:block;width:100%!important;height:100%!important}
+.ws-hero,.ws-quote-stats,.ws-rate-strip,.ws-body-chart .ws-hero-name{flex:none}
+.workspace-widget .measure-box{display:none}
+.ws-symbol-button{border:0;background:transparent;color:var(--text);font-family:'IBM Plex Mono',monospace;
+  padding:3px 5px;border-radius:4px;font-weight:600}
+.ws-symbol-button:hover{background:#1a1d1e;color:var(--amber)}
+.ws-quote-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:8px}
+.ws-quote-stat{border-top:1px solid var(--line);padding-top:7px}
+.ws-quote-stat span{display:block;color:var(--faint);font-size:9px;text-transform:uppercase;letter-spacing:.8px}
+.ws-quote-stat b{display:block;margin-top:2px;font-family:'IBM Plex Mono',monospace;font-size:11px}
+.ws-market-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.workspace-widget.ws-wide .ws-market-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
+.ws-market-tile{background:var(--deep);border:1px solid var(--line);border-radius:6px;padding:10px;cursor:pointer}
+.ws-market-tile:hover{border-color:var(--muted)}
+.ws-market-tile-top{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.ws-market-tile .s{font-family:'IBM Plex Mono',monospace;font-weight:600;font-size:11px}
+.ws-market-tile .p{font-family:'IBM Plex Mono',monospace;font-size:15px;font-weight:600;margin-top:6px}
+.ws-market-tile .c{font-family:'IBM Plex Mono',monospace;font-size:10px}
+.ws-regime{display:flex;align-items:center;gap:7px;margin-bottom:12px;color:var(--soft);font-size:11px}
+.ws-regime i{width:6px;height:6px;background:var(--amber);border-radius:50%}
+.ws-signal-row{display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--line)}
+.ws-signal-row:last-child{border-bottom:0}
+.ws-signal-label{flex:1;color:var(--muted);font-size:11px}
+.ws-signal-value{font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600}
+.ws-table{width:100%;font-size:11px}
+.ws-table th,.ws-table td{padding:7px 5px}
+.ws-table button{margin:0;color:var(--text);font-family:'IBM Plex Mono',monospace;font-weight:600}
+.ws-table button:hover{color:var(--amber)}
+.ws-table .ws-name{max-width:130px;overflow:hidden;text-overflow:ellipsis;text-align:left;color:var(--muted)}
+.ws-news-item{display:block;padding:9px 0;border-bottom:1px solid var(--line)}
+.ws-news-item:first-child{padding-top:0}
+.ws-news-item:last-child{border-bottom:0}
+.ws-news-title{display:block;color:var(--text);font-size:12px;font-weight:500;line-height:1.4}
+.ws-news-item:hover .ws-news-title{color:var(--green)}
+.ws-news-meta{display:flex;gap:7px;margin-top:3px;color:var(--faint);font-family:'IBM Plex Mono',monospace;font-size:9px;text-transform:uppercase}
+.ws-portfolio-value{font-family:'IBM Plex Mono',monospace;font-size:27px;font-weight:600;margin:4px 0}
+.ws-portfolio-label{color:var(--muted);font-size:11px}
+.ws-portfolio-strip{display:grid;grid-template-columns:repeat(3,1fr);border:1px solid var(--line);
+  border-radius:6px;margin:15px 0 10px;overflow:hidden}
+.ws-portfolio-cell{padding:9px;border-right:1px solid var(--line)}
+.ws-portfolio-cell:last-child{border-right:0}
+.ws-portfolio-cell span{display:block;color:var(--faint);font-size:9px;text-transform:uppercase}
+.ws-portfolio-cell b{display:block;font-family:'IBM Plex Mono',monospace;font-size:11px;margin-top:3px}
+.ws-holding{display:grid;grid-template-columns:54px 1fr 70px;gap:8px;padding:6px 0;font-size:11px;border-bottom:1px solid var(--line)}
+.ws-holding:last-child{border-bottom:0}
+.ws-holding b{font-family:'IBM Plex Mono',monospace}.ws-holding span{text-align:right;color:var(--muted)}
+.ws-holding span.pos{color:var(--green)}.ws-holding span.neg{color:var(--red)}
+.ws-rate-strip{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-top:11px}
+.ws-rate{background:var(--deep);border:1px solid var(--line);border-radius:5px;padding:7px;text-align:center}
+.ws-rate span{display:block;color:var(--faint);font-size:9px}.ws-rate b{font-family:'IBM Plex Mono',monospace;font-size:11px}
+
+/* View library */
+.workspace-dialog{width:min(760px,calc(100vw - 32px));border:1px solid #383c3d;border-radius:12px;
+  background:#101213;color:var(--text);padding:0;box-shadow:0 28px 90px rgba(0,0,0,.75)}
+.workspace-dialog::backdrop{background:rgba(0,0,0,.72);backdrop-filter:blur(3px)}
+.workspace-dialog-head{display:flex;justify-content:space-between;gap:20px;padding:22px 24px 18px;border-bottom:1px solid var(--line)}
+.workspace-dialog-head h2{font-size:19px;margin:0}
+.workspace-dialog-head p{color:var(--muted);font-size:12px;margin:4px 0 0}
+.workspace-picker{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;padding:18px 24px 24px}
+.workspace-picker-card{display:grid;grid-template-columns:38px 1fr auto;align-items:center;gap:11px;text-align:left;
+  background:var(--deep);border:1px solid var(--line);border-radius:8px;color:var(--text);padding:13px}
+.workspace-picker-card:hover{border-color:var(--amber);background:rgba(0,200,5,.035)}
+.workspace-picker-icon{width:36px;height:36px;border:1px solid #303334;border-radius:7px;display:grid;place-items:center;
+  color:var(--amber);font-family:'IBM Plex Mono',monospace;font-size:15px}
+.workspace-picker-copy b{display:block;font-size:12px}.workspace-picker-copy span{display:block;color:var(--muted);font-size:10.5px;margin-top:2px;line-height:1.35}
+.workspace-picker-plus{color:var(--muted);font-size:17px}
+
+@media (max-width:1180px){
+  .workspace-widget,.workspace-widget.ws-wide{grid-column:span 6}
+}
+@media (max-width:760px){
+  .workspace-head{align-items:flex-start;flex-direction:column}.workspace-head-actions{justify-content:flex-start}
+  .workspace-saved{width:100%}.workspace-widget,.workspace-widget.ws-wide{grid-column:1/-1}
+  .workspace-picker{grid-template-columns:1fr}.workspace-widget{height:360px}
+  .workspace-widget.ws-wide .ws-market-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+
+/* thesis view */
+#view-thesis td.num,#view-thesis th.num{text-align:right;font-variant-numeric:tabular-nums}
+#view-thesis tr.clickrow:hover td{background:rgba(255,255,255,.03)}
+#th-triage-run:disabled,#hg-narrate:disabled{background:var(--panel);color:var(--muted);border:1px solid var(--line);cursor:not-allowed}
+#hg-narrative .hg-flag{color:var(--neg);border-left:2px solid var(--neg);padding-left:8px;margin:6px 0}
+
+/* ===========================================================================
+   Stock detail — Simple / Advanced
+   The advanced mode is a denser presentation of the same screen: a key-stat
+   strip, signal cards, a four-pane chart, a statistics rail, the options chain,
+   peers, fundamentals and scored news. Almost everything below is a variant of
+   a component the stylesheet already defines; the genuinely new pieces are the
+   mode toggle, the chart pane stack and the options-chain table.
+   =========================================================================== */
+
+/* Extra chart tokens — gridlines and indicator guides sit between the panel
+   surface and the line colour, so they read as structure and not as data. */
+:root{--gridline:#1a1d1e; --guide:#2c3031; --band:#4a4e50; --sma-slow:#5b9dff; --sma-fast:#ffd60a}
+
+/* The advanced view needs the width; the simple view keeps the 1240px column. */
+.container.stock-wide{max-width:1400px}
+
+.stock-head{display:flex;align-items:flex-end;gap:18px;flex-wrap:wrap}
+.stock-head-meta{display:flex;align-items:center;gap:10px;margin-top:8px}
+.stock-px{text-align:right}
+.stock-px #st-price{font-size:26px;font-weight:600;line-height:1.15}
+.stock-px #st-chg{font-size:14px;margin-top:2px;color:var(--muted)}
+
+/* Mode toggle — the chip language at a smaller size, in a pill. */
+.chip.sm{padding:5px 13px;font-size:11.5px;font-weight:600;background:transparent}
+.chip.sm:hover{color:var(--text);border-color:var(--muted)}
+.chip.sm.active,.chip.sm.active:hover{background:rgba(0,200,5,.12);border-color:var(--amber);color:var(--amber)}
+.modetoggle{display:flex;gap:8px;border:1px solid var(--line);background:var(--deep);
+  border-radius:20px;padding:4px}
+
+.stock-body{margin-top:18px}
+.stock-body.adv{display:flex;flex-direction:column;gap:14px}
+.stock-body.adv .panel{margin-bottom:0}
+
+/* a. Key-stat strip */
+.keystrip{padding:0;display:grid;grid-template-columns:repeat(9,1fr)}
+.keystrip .kcell{padding:12px 16px;border-right:1px solid var(--line);min-width:0}
+.keystrip .kcell:last-child{border-right:0}
+.keystrip .kcell .k{color:var(--faint);font-size:10px;letter-spacing:1px;text-transform:uppercase}
+.keystrip .kcell .v{font-family:'IBM Plex Mono',monospace;font-size:14px;font-weight:600;
+  margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.keystrip .kcell .v.soft{color:var(--muted)}
+
+/* b. Signal cards — the existing .sig-card, five across */
+.advsigs{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}
+
+/* c. Chart + rail */
+.advgrid{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:14px;align-items:start}
+/* The chain carries twelve columns to the peer table's six, so it takes the
+   wider half of the row. */
+.advgrid2{display:grid;grid-template-columns:1.7fr 1fr;gap:14px;align-items:start}
+.advrail{display:flex;flex-direction:column;gap:14px}
+.advrail .panel{padding:18px}
+.advchart{padding:18px 20px}
+
+.advtoolbar{display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+.chipgroup{display:flex;gap:6px}
+.chipgroup.wrap{flex-wrap:wrap;margin-bottom:12px}
+.advdiv{width:1px;height:20px;background:var(--line)}
+.advhint{font-size:10px;color:var(--faint);letter-spacing:1px}
+
+.advreadout{display:flex;flex-wrap:wrap;gap:14px;align-items:baseline;
+  font-size:11px;color:var(--muted);padding-bottom:8px;min-height:24px}
+.advreadout .r{display:flex;gap:5px}
+.advreadout .r .k{color:var(--faint)}
+
+/* The panes share one x-axis: every chart reserves the same 52px right-hand
+   gutter for its price scale, so the bars line up column for column. */
+.advpanes{display:flex;flex-direction:column;gap:2px;cursor:crosshair}
+.advpane{position:relative}
+.advpane.sub{border-top:1px solid var(--line);padding-top:6px;margin-top:4px}
+.advpane-h{font-size:10px;color:var(--faint);letter-spacing:1px;margin-bottom:2px}
+.advdates{display:flex;justify-content:space-between;font-size:10px;color:var(--faint);
+  margin:8px 52px 0 0}
+
+/* Rail rows */
+.kvrows .r{display:flex;justify-content:space-between;gap:10px;padding:5px 0;font-size:12.5px}
+.kvrows .r .k{color:var(--muted)}
+.kvrows .r .v{font-family:'IBM Plex Mono',monospace}
+
+/* d. Options chain — calls read right-to-left into the strike, puts left-to-right */
+.chainctl{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:0 0 12px}
+.chainctl .ctl-lbl{font-size:10px;color:var(--faint);letter-spacing:1px}
+.chainctl .ctl-lbl+.chip{margin-right:0}
+.chainctl .chip+.ctl-lbl{margin-left:8px}
+/* A full ladder is taller than the panel beside it, so the body scrolls under
+   a pinned header and opens centred on the money. */
+.chaintable{max-height:440px}
+.chaintable table{font-family:'IBM Plex Mono',monospace;font-size:11.5px}
+.chaintable th,.chaintable td{text-align:right;white-space:nowrap}
+.chaintable thead th{position:sticky;top:0;z-index:2;background:var(--panel)}
+.chaintable th.strike,.chaintable td.strike{text-align:center;background:var(--deep)}
+.chaintable thead th.strike{z-index:3}
+.chaintable td.cbid{color:var(--green)}
+.chaintable td.pbid{color:var(--red)}
+.chaintable td.soft{color:var(--muted)}
+.chaintable td.itm{background:rgba(255,255,255,.04)}
+.chaintable tr.atm td{background:rgba(0,200,5,.06)}
+.chaintable tr.atm td.strike{color:var(--amber);font-weight:600}
+/* Each side of a row opens the hedge simulator on that side's contract. */
+.chaintable td[data-sim]{cursor:pointer}
+.chaintable tr:hover td[data-sim]{background:rgba(255,255,255,.07)}
+
+/* Hedge simulator dialog — nine columns of cost table, so it takes more width
+   than the chart dialogs do. Element+class outranks the plain .metric-dialog
+   width it shares a stylesheet with. */
+dialog.sim-dialog{width:min(1180px,calc(100vw - 32px))}
+.simctl{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:6px}
+.simctl input#sim-notional{width:130px}
+#sim-rows table{font-size:12.5px}
+#sim-rows th,#sim-rows td{white-space:nowrap}
+
+/* d/e. Peers and fundamentals */
+.peertable table,.fundtable table{font-size:12px}
+.peertable td,.peertable th,.fundtable td,.fundtable th{white-space:nowrap}
+.peertable td.num,.peertable th.num,.fundtable td.num,.fundtable th.num{
+  text-align:right;font-family:'IBM Plex Mono',monospace}
+.peertable td.sym{font-family:'IBM Plex Mono',monospace}
+.peertable tr.subject td{background:rgba(0,200,5,.06)}
+.peertable tr.subject td.sym{color:var(--amber)}
+.fundtable th.num{font-family:'IBM Plex Mono',monospace}
+.fundtable td.lbl{color:var(--soft)}
+
+/* e. News & sentiment */
+.advsenti{display:flex;align-items:center;gap:14px;margin-bottom:14px}
+.advsenti .senti-word{font-size:17px;letter-spacing:1.5px}
+.advsenti .senti-num{font-family:'IBM Plex Mono',monospace;font-size:12px;margin-top:2px}
+.advfeed .feed-item{padding:9px 0;border-bottom:1px dotted var(--line)}
+.advfeed .feed-item:last-child{border-bottom:none}
+.advfeed .feed-title{font-size:13px}
+.advfeed .sc{margin-left:auto;font-family:'IBM Plex Mono',monospace}
+
+@media (max-width:1200px){
+  .advgrid{grid-template-columns:1fr}
+  .advrail{flex-direction:row}
+  .advrail .panel{flex:1;min-width:0}
+  .keystrip{grid-template-columns:repeat(5,1fr)}
+  .keystrip .kcell{border-bottom:1px solid var(--line)}
+}
+@media (max-width:900px){
+  .advgrid2{grid-template-columns:1fr}
+  .advrail{flex-direction:column}
+  .advsigs{grid-template-columns:repeat(2,1fr)}
+  .keystrip{grid-template-columns:repeat(3,1fr)}
+  .stock-head{align-items:flex-start;flex-direction:column}
+  .stock-px{text-align:left}
+}
+
+/* Valuation history — a VALUATION row opens its own multi-year chart. */
+.kvrows .r.clickable{cursor:pointer;border-radius:5px;margin:0 -6px;padding-left:6px;padding-right:6px}
+.kvrows .r.clickable:hover{background:var(--deep)}
+.kvrows .r.clickable:hover .k{color:var(--text)}
+.kvrows .r .hist{color:var(--faint);font-size:10px;margin-left:6px;opacity:0}
+.kvrows .r.clickable:hover .hist{opacity:1}
+
+.metric-dialog{width:min(860px,calc(100vw - 32px));border:1px solid #383c3d;border-radius:12px;
+  background:#101213;color:var(--text);padding:0;box-shadow:0 28px 90px rgba(0,0,0,.75)}
+.metric-dialog::backdrop{background:rgba(0,0,0,.72);backdrop-filter:blur(3px)}
+.metric-dialog-head{display:flex;justify-content:space-between;gap:20px;
+  padding:20px 24px 16px;border-bottom:1px solid var(--line)}
+.metric-dialog-head h2{font-size:19px;margin:4px 0 0}
+.metric-dialog-head p{color:var(--muted);font-size:12px;margin:4px 0 0}
+.metric-dialog-body{padding:16px 24px 22px}
+.metric-dialog-body .metrics{grid-template-columns:repeat(5,1fr);margin:14px 0 0}
+.metric-dialog-body .metric .v{font-size:16px}
+.metric-chartwrap{height:260px;margin-top:16px}
+.metric-dialog-body .explain{font-size:12px;margin-top:14px}
+@media (max-width:760px){
+  .metric-dialog-body .metrics{grid-template-columns:repeat(2,1fr)}
+  .metric-chartwrap{height:220px}
+}
+
+/* Hedge scenario curve — what a candidate pays if the move actually lands.
+   The canvas needs a sized box of its own: it is drawn inside a dialog too,
+   where a percentage height has nothing to resolve against. */
+.hg-scenario .chipgroup{margin:10px 0 6px}
+.hg-chartwrap{position:relative;height:280px;margin:6px 0 4px}
+.hg-scenario .tablewrap{margin-top:12px}
+.hg-scenario .hintline{margin-top:10px;line-height:1.6}
+.hg-scenario .hintline div{margin-top:2px}
+@media (max-width:760px){ .hg-chartwrap{height:230px} }

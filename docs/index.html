@@ -1,0 +1,605 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MFT — Mini Financial Terminal</title>
+<meta name="description" content="An open-source financial research terminal: 244 commands across equities, macro, derivatives and filings, plus a factor engine and backtester. Every data source free. Zero API keys required." />
+<meta property="og:title" content="MFT — Mini Financial Terminal" />
+<meta property="og:description" content="244 commands. Four interfaces. Zero paid data vendors." />
+<meta property="og:type" content="website" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+:root{
+  --bg:#000000; --panel:#0e1011; --deep:#0a0b0c; --line:#232627; --line-soft:#1a1d1e;
+  --muted:#82868a; --faint:#6f7377; --text:#f5f6f7; --soft:#c9cccd;
+  --green:#00c805; --red:#ff5000; --amber:#ffd60a;
+  --sans:'IBM Plex Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  --mono:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+  --wrap:1120px;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);
+  font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased}
+a{color:var(--green);text-decoration:none}
+a:hover{filter:brightness(1.25)}
+h1,h2,h3{margin:0;font-weight:600;letter-spacing:-.01em}
+code,.mono{font-family:var(--mono)}
+.wrap{max-width:var(--wrap);margin:0 auto;padding:0 28px}
+
+/* ── top bar ─────────────────────────────────────────── */
+.topbar{position:sticky;top:0;z-index:50;background:rgba(10,11,12,.88);
+  backdrop-filter:blur(12px);border-bottom:1px solid var(--line)}
+.topbar .wrap{display:flex;align-items:center;gap:14px;height:60px}
+.mark{width:26px;height:26px;background:var(--green);border-radius:5px;flex:none}
+.brand{font-weight:700;font-size:16px;letter-spacing:.5px}
+.brand-sub{color:var(--muted);font-size:10px;letter-spacing:2px;text-transform:uppercase}
+.spacer{flex:1}
+.topnav{display:flex;gap:22px;align-items:center}
+.topnav a{color:var(--muted);font-size:13.5px;font-weight:500}
+.topnav a:hover{color:var(--text);filter:none}
+.btn{display:inline-block;background:var(--green);color:#000;font-weight:700;font-size:14px;
+  padding:11px 20px;border-radius:6px;white-space:nowrap}
+.btn:hover{filter:brightness(1.1)}
+.btn.ghost{background:transparent;color:var(--soft);border:1px solid var(--line);font-weight:600}
+.btn.ghost:hover{color:var(--text);border-color:var(--muted);filter:none}
+.btn.sm{padding:7px 15px;font-size:13px}
+
+/* ── tape ────────────────────────────────────────────── */
+.tape{background:var(--deep);border-bottom:1px solid var(--line);overflow:hidden;
+  font-family:var(--mono);font-size:12px;white-space:nowrap;-webkit-mask-image:linear-gradient(90deg,transparent,#000 6%,#000 94%,transparent);mask-image:linear-gradient(90deg,transparent,#000 6%,#000 94%,transparent)}
+.tape-track{display:inline-flex;gap:30px;padding:10px 0;animation:slide 62s linear infinite}
+.tape-track span{color:var(--muted)}
+.tape-track b{color:var(--green);font-weight:500;margin-left:7px}
+@keyframes slide{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+@media (prefers-reduced-motion:reduce){.tape-track{animation:none}}
+
+/* ── hero ────────────────────────────────────────────── */
+.hero{padding:82px 0 72px;border-bottom:1px solid var(--line);
+  background:radial-gradient(900px 420px at 50% -140px,rgba(0,200,5,.11),transparent 70%)}
+.hero-grid{display:grid;grid-template-columns:1fr 1fr;gap:56px;align-items:center}
+.eyebrow{display:inline-flex;align-items:center;gap:8px;font-family:var(--mono);font-size:11px;
+  letter-spacing:1.4px;text-transform:uppercase;color:var(--green);
+  border:1px solid rgba(0,200,5,.35);background:rgba(0,200,5,.08);
+  padding:5px 12px;border-radius:20px;margin-bottom:20px}
+.hero h1{font-size:44px;line-height:1.12;letter-spacing:-.02em}
+.hero h1 em{font-style:normal;color:var(--green)}
+.lede{color:var(--soft);font-size:17px;line-height:1.62;margin:20px 0 0;max-width:36em}
+.lede strong{color:var(--text);font-weight:600}
+.cta{display:flex;gap:12px;flex-wrap:wrap;margin-top:30px}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line);
+  border:1px solid var(--line);border-radius:10px;overflow:hidden;margin-top:38px}
+.stat{background:var(--panel);padding:16px 14px}
+.stat b{display:block;font-family:var(--mono);font-size:25px;font-weight:600;color:var(--green);line-height:1.2}
+.stat span{font-size:11px;color:var(--muted);letter-spacing:.6px;text-transform:uppercase}
+
+/* ── terminal window ─────────────────────────────────── */
+.term{background:var(--panel);border:1px solid var(--line);border-radius:11px;overflow:hidden;
+  box-shadow:0 22px 60px rgba(0,0,0,.75)}
+.term-bar{display:flex;align-items:center;gap:7px;background:var(--deep);
+  border-bottom:1px solid var(--line);padding:11px 14px}
+.dot{width:10px;height:10px;border-radius:50%;background:#2a2e2f}
+.term-title{margin-left:9px;font-family:var(--mono);font-size:11px;color:var(--faint);letter-spacing:.5px}
+.term-body{padding:18px 18px 20px;font-family:var(--mono);font-size:12.5px;line-height:1.85;
+  overflow-x:auto}
+.term-body .p{color:var(--faint)}
+.term-body .c{color:var(--text)}
+.term-body .o{color:var(--muted)}
+.term-body .g{color:var(--green)}
+.term-body .r{color:var(--red)}
+.term-body .k{color:var(--amber)}
+.cursor{display:inline-block;width:7px;height:14px;background:var(--green);
+  vertical-align:-2px;animation:blink 1.15s step-end infinite}
+@keyframes blink{50%{opacity:0}}
+@media (prefers-reduced-motion:reduce){.cursor{animation:none}}
+
+/* ── sections ────────────────────────────────────────── */
+section{padding:78px 0;border-bottom:1px solid var(--line)}
+.shead{margin-bottom:38px;max-width:60em}
+.shead .tag{font-family:var(--mono);font-size:11px;letter-spacing:1.6px;text-transform:uppercase;
+  color:var(--green);display:block;margin-bottom:11px}
+.shead h2{font-size:29px;letter-spacing:-.015em}
+.shead p{color:var(--muted);margin:12px 0 0;font-size:15.5px;max-width:44em}
+
+/* ── generic card grids ──────────────────────────────── */
+.grid{display:grid;gap:14px}
+.g2{grid-template-columns:repeat(2,1fr)}
+.g3{grid-template-columns:repeat(3,1fr)}
+.g4{grid-template-columns:repeat(4,1fr)}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:20px}
+.card h3{font-size:15px;margin-bottom:7px}
+.card p{color:var(--muted);font-size:13.5px;margin:0;line-height:1.55}
+
+/* interfaces */
+.iface{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:22px;
+  display:flex;flex-direction:column;gap:12px}
+.iface .n{font-family:var(--mono);font-size:11px;color:var(--faint);letter-spacing:1px}
+.iface h3{font-size:16px;color:var(--green)}
+.iface p{color:var(--muted);font-size:13.5px;margin:0;flex:1}
+.iface pre{margin:0;background:var(--deep);border:1px solid var(--line-soft);border-radius:7px;
+  padding:11px 13px;font-family:var(--mono);font-size:11.5px;color:var(--soft);
+  overflow-x:auto;line-height:1.65}
+
+/* menu coverage */
+.menu{background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:15px 16px;
+  transition:border-color .15s}
+.menu:hover{border-color:#31383a}
+.menu-top{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:6px}
+.menu-top .nm{font-family:var(--mono);font-size:13.5px;color:var(--green);font-weight:500}
+.menu-top .ct{font-family:var(--mono);font-size:12px;color:var(--faint)}
+.menu p{color:var(--muted);font-size:12.5px;margin:0;line-height:1.5}
+
+/* providers */
+.prov{display:flex;align-items:flex-start;gap:12px;background:var(--panel);
+  border:1px solid var(--line);border-radius:9px;padding:14px 16px}
+.prov .body{flex:1;min-width:0}
+.prov .nm{font-size:13.5px;font-weight:600;margin-bottom:3px}
+.prov .ds{color:var(--muted);font-size:12.5px;line-height:1.5}
+.key{font-family:var(--mono);font-size:10px;letter-spacing:.5px;text-transform:uppercase;
+  padding:3px 8px;border-radius:11px;white-space:nowrap;flex:none;margin-top:2px}
+.key.none{color:var(--green);background:rgba(0,200,5,.1);border:1px solid rgba(0,200,5,.3)}
+.key.opt{color:var(--muted);background:var(--deep);border:1px solid var(--line)}
+.key.req{color:var(--amber);background:rgba(255,214,10,.09);border:1px solid rgba(255,214,10,.3)}
+
+/* research features */
+.feat{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:22px 24px}
+.feat h3{font-size:15.5px;color:var(--text);margin-bottom:9px;display:flex;align-items:center;gap:9px}
+.feat h3::before{content:'';width:3px;height:15px;background:var(--green);border-radius:2px;flex:none}
+.feat p{color:var(--muted);font-size:13.5px;margin:0;line-height:1.6}
+
+/* code block */
+pre.block{background:var(--panel);border:1px solid var(--line);border-radius:10px;
+  padding:20px 22px;overflow-x:auto;font-family:var(--mono);font-size:12.5px;
+  line-height:1.75;color:var(--soft);margin:0}
+pre.block .cm{color:var(--faint)}
+pre.block .kw{color:var(--red)}
+pre.block .st{color:var(--green)}
+pre.block .fn{color:var(--text)}
+
+/* two-col split */
+.split{display:grid;grid-template-columns:1fr 1fr;gap:34px;align-items:start}
+.split ul{margin:0;padding-left:18px;color:var(--muted);font-size:14px;line-height:1.85}
+.split li{margin-bottom:3px}
+.split li strong{color:var(--text);font-weight:600}
+
+/* quick start */
+.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.step{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:20px}
+.step .n{font-family:var(--mono);font-size:11px;color:var(--green);letter-spacing:1px;margin-bottom:9px}
+.step h3{font-size:14.5px;margin-bottom:8px}
+.step pre{margin:0;font-family:var(--mono);font-size:11.5px;color:var(--soft);
+  background:var(--deep);border:1px solid var(--line-soft);border-radius:7px;
+  padding:11px 12px;overflow-x:auto;line-height:1.7}
+.step p{color:var(--muted);font-size:12.5px;margin:9px 0 0}
+
+/* callout */
+.note{background:var(--deep);border:1px solid var(--line);border-left:2px solid var(--green);
+  border-radius:8px;padding:16px 20px;color:var(--muted);font-size:13.5px;line-height:1.65}
+.note strong{color:var(--text)}
+
+/* footer */
+footer{padding:46px 0 56px;color:var(--faint);font-size:13px}
+.foot-top{display:flex;align-items:center;gap:12px;margin-bottom:18px}
+.foot-links{display:flex;gap:20px;flex-wrap:wrap;margin-bottom:22px}
+.foot-links a{color:var(--muted);font-size:13.5px}
+.foot-links a:hover{color:var(--text);filter:none}
+.disc{max-width:62em;line-height:1.65}
+
+@media (max-width:900px){
+  .hero-grid,.split{grid-template-columns:1fr;gap:40px}
+  .g4,.g3,.steps{grid-template-columns:repeat(2,1fr)}
+  .hero h1{font-size:34px}
+  .topnav{display:none}
+}
+@media (max-width:560px){
+  .g4,.g3,.g2,.steps{grid-template-columns:1fr}
+  .stats{grid-template-columns:repeat(2,1fr)}
+  .hero{padding:52px 0 48px}
+  section{padding:56px 0}
+  .hero h1{font-size:29px}
+}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="wrap">
+    <div class="mark"></div>
+    <div>
+      <div class="brand">MFT</div>
+      <div class="brand-sub">Mini Financial Terminal</div>
+    </div>
+    <div class="spacer"></div>
+    <nav class="topnav">
+      <a href="#commands">Commands</a>
+      <a href="#data">Data</a>
+      <a href="#research">Research</a>
+      <a href="#architecture">Architecture</a>
+      <a href="#start">Quick start</a>
+    </nav>
+    <a class="btn sm" href="https://github.com/michaelbeirnee/minifinancialterminal-public">GitHub</a>
+  </div>
+</div>
+
+<div class="tape">
+  <div class="tape-track">
+    <span>EQUITY<b>60</b></span><span>TECHNICAL<b>40</b></span><span>ECONOMY<b>34</b></span>
+    <span>QUANTITATIVE<b>18</b></span><span>FIXEDINCOME<b>15</b></span><span>ETF<b>11</b></span>
+    <span>ECONOMETRICS<b>10</b></span><span>REGULATORS<b>10</b></span><span>CHARTING<b>9</b></span>
+    <span>COMMODITY<b>8</b></span><span>DERIVATIVES<b>8</b></span><span>INDEX<b>7</b></span>
+    <span>CRYPTO<b>6</b></span><span>SENTIMENT<b>5</b></span><span>CURRENCY<b>4</b></span><span>NEWS<b>4</b></span>
+    <span aria-hidden="true">EQUITY<b>60</b></span><span aria-hidden="true">TECHNICAL<b>40</b></span><span aria-hidden="true">ECONOMY<b>34</b></span>
+    <span aria-hidden="true">QUANTITATIVE<b>18</b></span><span aria-hidden="true">FIXEDINCOME<b>15</b></span><span aria-hidden="true">ETF<b>11</b></span>
+    <span aria-hidden="true">ECONOMETRICS<b>10</b></span><span aria-hidden="true">REGULATORS<b>10</b></span><span aria-hidden="true">CHARTING<b>9</b></span>
+    <span aria-hidden="true">COMMODITY<b>8</b></span><span aria-hidden="true">DERIVATIVES<b>8</b></span><span aria-hidden="true">INDEX<b>7</b></span>
+    <span aria-hidden="true">CRYPTO<b>6</b></span><span aria-hidden="true">SENTIMENT<b>5</b></span><span aria-hidden="true">CURRENCY<b>4</b></span><span aria-hidden="true">NEWS<b>4</b></span>
+  </div>
+</div>
+
+<header class="hero">
+  <div class="wrap hero-grid">
+    <div>
+      <div class="eyebrow">Open source · MIT</div>
+      <h1>An OpenBB-style research terminal with <em>no paid vendor</em> anywhere in the stack.</h1>
+      <p class="lede">
+        <strong>244 commands</strong> across equities, ETFs, crypto, FX, derivatives, macro,
+        fixed income and regulatory filings — plus a factor-model engine, two backtesters
+        and HTML tearsheets. Every data source is free or public domain, and the platform
+        is <strong>fully functional with zero API keys configured</strong>.
+      </p>
+      <div class="cta">
+        <a class="btn" href="https://github.com/michaelbeirnee/minifinancialterminal-public">View on GitHub</a>
+        <a class="btn ghost" href="#start">Quick start</a>
+      </div>
+      <div class="stats">
+        <div class="stat"><b>244</b><span>Commands</span></div>
+        <div class="stat"><b>16</b><span>Menus</span></div>
+        <div class="stat"><b>4</b><span>Interfaces</span></div>
+        <div class="stat"><b>0</b><span>Keys needed</span></div>
+      </div>
+    </div>
+
+    <div class="term">
+      <div class="term-bar">
+        <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+        <div class="term-title">python -m cli.terminal</div>
+      </div>
+      <div class="term-body">
+<span class="p">2026 Jul 25 /</span> <span class="c">$ equity</span>
+<span class="p">2026 Jul 25 /equity/</span> <span class="c">$ price</span>
+<span class="p">2026 Jul 25 /equity/price/</span> <span class="c">$ quote --symbol AAPL,MSFT</span>
+
+<span class="o">  symbol    last     chg%     volume   provider</span>
+<span class="o">  ────────────────────────────────────────────</span>
+<span class="o">  AAPL     </span><span class="c">  ·····</span><span class="o">   </span><span class="g">  ·····</span><span class="o">    ·······   yahoo</span>
+<span class="o">  MSFT     </span><span class="c">  ·····</span><span class="o">   </span><span class="r">  ·····</span><span class="o">    ·······   yahoo</span>
+
+<span class="p">2026 Jul 25 /equity/price/</span> <span class="c">$ export quotes.csv</span>
+<span class="g">  wrote quotes.csv</span>
+
+<span class="p">2026 Jul 25 /equity/price/</span> <span class="c">$ </span><span class="cursor"></span>
+      </div>
+    </div>
+  </div>
+</header>
+
+<section id="interfaces">
+  <div class="wrap">
+    <div class="shead">
+      <span class="tag">Four ways in</span>
+      <h2>One registry, four front doors.</h2>
+      <p>Query the same command from REST, Python, the CLI or the web UI and get the same
+         normalised result. A command added under <code>backend/extensions/</code> appears in
+         every one of them with no extra wiring.</p>
+    </div>
+    <div class="grid g4">
+      <div class="iface">
+        <div class="n">01</div>
+        <h3>REST API</h3>
+        <p>One route per command, generated from the registry and documented at <code>/docs</code>.</p>
+        <pre>GET /api/v1/equity/
+    price/historical
+    ?symbol=AAPL</pre>
+      </div>
+      <div class="iface">
+        <div class="n">02</div>
+        <h3>Python</h3>
+        <p>The same surface as attribute access, returning a normalised <code>MFTObject</code>.</p>
+        <pre>mft.equity.price
+   .historical(
+     symbol="AAPL")</pre>
+      </div>
+      <div class="iface">
+        <div class="n">03</div>
+        <h3>CLI</h3>
+        <p>Menu navigation, tab completion and CSV export — stdlib only, no dependencies.</p>
+        <pre>python -m cli.terminal
+
+/equity/price/ $ quote</pre>
+      </div>
+      <div class="iface">
+        <div class="n">04</div>
+        <h3>Web UI</h3>
+        <p>DATA browses every command; PORTFOLIO tracks holdings; SAVED holds watchlists and alerts.</p>
+        <pre>./run.sh
+
+localhost:8000</pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="commands">
+  <div class="wrap">
+    <div class="shead">
+      <span class="tag">Coverage</span>
+      <h2>244 commands across 16 menus.</h2>
+      <p><code>GET /api/v1/_registry</code> returns the whole surface;
+         <code>/api/v1/_search?query=…</code> finds a command.</p>
+    </div>
+    <div class="grid g4">
+      <div class="menu"><div class="menu-top"><span class="nm">equity</span><span class="ct">60</span></div>
+        <p>Prices, quotes, profiles, screener, 10 discovery screens, 5 calendars, 16 fundamentals, estimates, ownership, shorts, dark pool.</p></div>
+      <div class="menu"><div class="menu-top"><span class="nm">technical</span><span class="ct">40</span></div>
+        <p>35+ indicators — MAs, RSI, MACD, stochastic, ADX, Ichimoku, Supertrend, Bollinger, Keltner, VWAP, vol cones, Hurst.</p></div>
+      <div class="menu"><div class="menu-top"><span class="nm">economy</span><span class="ct">34</span></div>
+        <p>CPI, PCE, GDP, unemployment, payrolls, claims, money supply, Fed balance sheet, SLOOS, house prices, trade, debt.</p></div>
+      <div class="menu"><div class="menu-top"><span class="nm">quantitative</span><span class="ct">18</span></div>
+        <p>Normality battery, unit root, CAPM, rolling stats, Sharpe / Sortino / Calmar / Omega / Ulcer, VaR &amp; CVaR, drawdown.</p></div>
+      <div class="menu"><div class="menu-top"><span class="nm">fixedincome</span><span class="ct">15</span></div>
+        <p>Treasury curves, auctions, debt, TIPS, spreads, ICE BofA, Moody's, commercial paper, HQM, SOFR / EFFR, mortgage rates.</p></div>
+      <div class="menu"><div class="menu-top"><span class="nm">etf</span><span class="ct">11</span></div>
+        <p>Search, profile, holdings, sector and asset-class weights, bond ratings, performance, reverse equity exposure.</p></div>
+      <div class="menu"><div class="menu-top"><span class="nm">econometrics</span><span class="ct">10</span></div>
+        <p>Correlation, OLS with full summary, VIF, Granger causality, cointegration, autocorrelation, panel models.</p></div>
+      <div class="menu"><div class="menu-top"><span class="nm">regulators</span><span class="ct">10</span></div>
+        <p>SEC CIK maps, registrant search, EDGAR full-text search, SIC codes, press releases, bulk datasets; CFTC COT.</p></div>
+      <div class="menu"><div class="menu-top"><span class="nm">charting</span><span class="ct">9</span></div>
+        <p>Candlesticks, comparison, drawdown, histogram, correlation heatmap, yield curve, vol cones — as Plotly-compatible JSON.</p></div>
+      <div class="menu"><div class="menu-top"><span class="nm">commodity</span><span class="ct">8</span></div>
+        <p>Spot prices, futures, complex performance, COT, EIA petroleum / STEO / gas storage.</p></div>
+      <div class="menu"><div class="menu-top"><span class="nm">derivatives</span><span class="ct">8</span></div>
+        <p>Option chains, expirations, unusual activity, IV surface, put/call snapshots, futures history and term structure.</p></div>
+      <div class="menu"><div class="menu-top"><span class="nm">index</span><span class="ct">7</span></div>
+        <p>Membership for 16 indices, index prices, regional snapshots, sector breakdown, long-run S&amp;P 500 valuation series.</p></div>
+      <div class="menu"><div class="menu-top"><span class="nm">crypto</span><span class="ct">6</span></div>
+        <p>Prices, ranked market table, global dominance, categories, coin universe.</p></div>
+      <div class="menu"><div class="menu-top"><span class="nm">sentiment</span><span class="ct">5</span></div>
+        <p>Lexicon-scored news sentiment: market mood, 11 GICS sectors, per-ticker summaries, historical weekly series.</p></div>
+      <div class="menu"><div class="menu-top"><span class="nm">currency</span><span class="ct">4</span></div>
+        <p>Pairs, history, ECB reference rates, cross-rate snapshots.</p></div>
+      <div class="menu"><div class="menu-top"><span class="nm">news</span><span class="ct">4</span></div>
+        <p>Company headlines, merged newswire tape from ~40 feeds, topic search, feed list.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="data">
+  <div class="wrap">
+    <div class="shead">
+      <span class="tag">Providers</span>
+      <h2>Every source free or public domain.</h2>
+      <p>Only EIA strictly requires a key. FRED and BLS work without one and simply get higher
+         limits or extra endpoints when a key is present — every key-gated command says so in
+         its error message and names the key-free alternative.</p>
+    </div>
+    <div class="grid g2">
+      <div class="prov"><div class="body"><div class="nm">Yahoo Finance</div>
+        <div class="ds">Prices, fundamentals, options, holders, estimates, screeners, calendars</div></div><span class="key none">No key</span></div>
+      <div class="prov"><div class="body"><div class="nm">SEC EDGAR</div>
+        <div class="ds">XBRL fundamentals, filings, full-text search, Form 4, 13F, fails-to-deliver</div></div><span class="key none">No key</span></div>
+      <div class="prov"><div class="body"><div class="nm">US Treasury · TreasuryDirect · NY Fed</div>
+        <div class="ds">Yield curves, auctions, debt, SOFR / EFFR / OBFR</div></div><span class="key none">No key</span></div>
+      <div class="prov"><div class="body"><div class="nm">FINRA · CFTC</div>
+        <div class="ds">Short-sale volume, ATS / dark-pool volume, Commitments of Traders</div></div><span class="key none">No key</span></div>
+      <div class="prov"><div class="body"><div class="nm">ECB · World Bank · IMF · OECD · Frankfurter</div>
+        <div class="ds">Euro-area curves, FX, cross-country macro, WEO forecasts</div></div><span class="key none">No key</span></div>
+      <div class="prov"><div class="body"><div class="nm">Stooq · Cboe · Nasdaq · Wikipedia · multpl</div>
+        <div class="ds">Backup prices, delayed option chains, calendars, index membership, CAPE</div></div><span class="key none">No key</span></div>
+      <div class="prov"><div class="body"><div class="nm">CoinGecko</div>
+        <div class="ds">Crypto prices, market caps, dominance</div></div><span class="key none">No key</span></div>
+      <div class="prov"><div class="body"><div class="nm">RSS newswires</div>
+        <div class="ds">~40 feeds — WSJ, FT, NYT, Economist, CNBC, MarketWatch, Fed, ECB, BoE, SEC, CoinDesk, plus Reuters and Bloomberg via Google News</div></div><span class="key none">No key</span></div>
+      <div class="prov"><div class="body"><div class="nm">FRED</div>
+        <div class="ds">US macro, rates, credit spreads — via the key-free CSV endpoint</div></div><span class="key opt">Optional</span></div>
+      <div class="prov"><div class="body"><div class="nm">BLS</div>
+        <div class="ds">Labour and price statistics; a free key raises daily limits</div></div><span class="key opt">Optional</span></div>
+      <div class="prov"><div class="body"><div class="nm">EIA</div>
+        <div class="ds">Energy reports — the underlying crude / gas prices stay reachable key-free through FRED</div></div><span class="key req">Free key</span></div>
+      <div class="prov"><div class="body"><div class="nm">Anthropic</div>
+        <div class="ds">The only paid dependency, and only for the Assistant tab. Leave it unset and everything else is unaffected.</div></div><span class="key req">Optional · paid</span></div>
+    </div>
+  </div>
+</section>
+
+<section id="research">
+  <div class="wrap">
+    <div class="shead">
+      <span class="tag">Beyond the data layer</span>
+      <h2>A research stack, not just a data feed.</h2>
+    </div>
+    <div class="grid g2">
+      <div class="feat"><h3>Factor models</h3>
+        <p>Market, momentum and low-volatility factors built from the universe, with per-asset
+           OLS exposures — alpha, betas, t-stats, R² — via <code>statsmodels</code>.</p></div>
+      <div class="feat"><h3>Portfolios</h3>
+        <p>A transaction log with FIFO or average-cost lot matching. Holdings are <em>derived</em>,
+           never edited, so a corrected trade re-states history rather than leaving a counter wrong.</p></div>
+      <div class="feat"><h3>Portfolio analytics</h3>
+        <p>Daily time-weighted returns with deposits neutralised, plus money-weighted XIRR;
+           VaR in dollars; marginal risk contribution per holding; sector and country tilt;
+           factor exposure regressed on the whole book.</p></div>
+      <div class="feat"><h3>Backtesting</h3>
+        <p>Two engines sharing one cost model — a fast vectorized backtester and an event-driven
+           engine with explicit cash, commission, slippage and per-fill logs. Both apply a one-bar
+           execution lag to avoid look-ahead bias.</p></div>
+      <div class="feat"><h3>Backtest analysis</h3>
+        <p>Parameter grid sweeps, walk-forward evaluation with rolling train/purge/test folds,
+           benchmark-relative attribution, cost-sensitivity ladders and block-bootstrap Monte
+           Carlo bands on terminal wealth and drawdown.</p></div>
+      <div class="feat"><h3>Auth &amp; caching</h3>
+        <p>JWT bearer auth with bcrypt and revocable sessions — logout kills the token
+           server-side. A graded-TTL cache sits in front of every outbound call: 2 minutes for
+           quotes, a week for reference data.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="architecture">
+  <div class="wrap">
+    <div class="shead">
+      <span class="tag">Architecture</span>
+      <h2>A command is a decorated function.</h2>
+      <p>Registering it once produces the REST route, the Python attribute, the CLI menu entry
+         and the OpenAPI docs — which is how the platform carries a few hundred commands
+         without a few hundred hand-written routes.</p>
+    </div>
+    <div class="split">
+      <pre class="block"><span class="cm">@command(<span class="st">"/equity/price/quote"</span>, providers=(<span class="st">"yahoo"</span>,),
+         summary=<span class="st">"Snapshot quote"</span>)</span>
+<span class="kw">def</span> <span class="fn">price_quote</span>(symbol: str,
+                provider: Optional[str] = <span class="kw">None</span>) -> Result:
+    src = resolve_provider(provider, (<span class="st">"yahoo"</span>,))
+    <span class="kw">return</span> Result(
+        [yahoo.quote(s) <span class="kw">for</span> s <span class="kw">in</span> norm_symbols(symbol)],
+        provider=src,
+    )</pre>
+      <div>
+        <ul>
+          <li><strong>core/</strong> — the registry, the FastAPI walker, the Python interface, cached HTTP with per-host throttles</li>
+          <li><strong>providers/</strong> — one module per data source, no command logic</li>
+          <li><strong>extensions/</strong> — the 16 command menus</li>
+          <li><strong>assistant/</strong> — a system prompt generated from the registry and four read-only tools</li>
+          <li><strong>backtest· factors· portfolio· reports</strong> — the research and accounting stack</li>
+          <li><strong>frontend/</strong> — <code>index.html</code>, <code>styles.css</code>, <code>app.js</code> — no build step</li>
+        </ul>
+        <div class="note" style="margin-top:20px">
+          <strong>Charts without a chart library.</strong> <code>/charting/*</code> emits
+          Plotly-compatible JSON built by hand, so nothing depends on a plotting package
+          being installed.
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="assistant">
+  <div class="wrap">
+    <div class="shead">
+      <span class="tag">The assistant</span>
+      <h2>A chat window that knows this codebase.</h2>
+      <p>It explains concepts — what a Sharpe ratio measures, why an inverted curve gets
+         attention — and reaches into the platform to answer with your data instead of from
+         memory. It learns the command surface the same way every other interface does: from
+         the registry.</p>
+    </div>
+    <div class="split">
+      <div class="term">
+        <div class="term-bar">
+          <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+          <div class="term-title">ASSISTANT</div>
+        </div>
+        <div class="term-body">
+<span class="c">you  › Is the yield curve inverted, and why
+       does that matter?</span>
+
+<span class="k">     ⟨ /fixedincome/government/yield_curve ⟩</span>
+<span class="k">     ⟨ /fixedincome/spreads ⟩</span>
+
+<span class="g">mft  › Slightly, at the short end…</span>
+<span class="o">       ‹answer built from the rows it just pulled›</span>
+        </div>
+      </div>
+      <div>
+        <ul>
+          <li>The whole command index ships behind a <strong>prompt-cache breakpoint</strong>, so it is a cache read rather than ~6k fresh input tokens per message.</li>
+          <li>Replies stream over SSE with <strong>a chip per command as it runs</strong> — an answer that quietly ran five commands should show you which five.</li>
+          <li>All four tools are <strong>read-only</strong>: it can read your portfolio but never trade, edit or delete.</li>
+          <li>Transcripts live in the browser tab and are not persisted.</li>
+        </ul>
+        <div class="note" style="margin-top:20px">
+          This is the <strong>only paid dependency in the stack</strong>. Leave
+          <code>MFT_ANTHROPIC_API_KEY</code> unset and the tab explains that it is switched
+          off; every data command, the backtester, the factor engine and the portfolio ledger
+          are unaffected.
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="start">
+  <div class="wrap">
+    <div class="shead">
+      <span class="tag">Quick start</span>
+      <h2>Running in about a minute.</h2>
+      <p>Verified on Python 3.14 (numpy 2.5 / pandas 2.3 / FastAPI 0.140); runs on 3.9+.</p>
+    </div>
+    <div class="steps">
+      <div class="step">
+        <div class="n">01 — INSTALL</div>
+        <h3>Dependencies</h3>
+        <pre>pip install -r requirements.txt</pre>
+        <p>No API keys to configure first — the platform runs unkeyed.</p>
+      </div>
+      <div class="step">
+        <div class="n">02 — SERVE</div>
+        <h3>Web UI + REST</h3>
+        <pre>./run.sh
+# http://localhost:8000</pre>
+        <p>Register a user and explore. OpenAPI docs live at <code>/docs</code>.</p>
+      </div>
+      <div class="step">
+        <div class="n">03 — DRIVE IT</div>
+        <h3>CLI or Python</h3>
+        <pre>python -m cli.terminal
+python -m cli.terminal \
+  "/technical/rsi --symbol SPY"</pre>
+        <p>Or import <code>mft</code> and call the same commands in a notebook.</p>
+      </div>
+    </div>
+    <div class="note" style="margin-top:20px">
+      <strong>Docker.</strong> <code>docker compose up -d</code> builds and runs the whole stack
+      on port 8000. State survives rebuilds in a shared host directory
+      (<code>$MFT_DATA_DIR</code>, default <code>~/.5milliondollars</code>) bind-mounted to
+      <code>/data</code>. Run one server at a time — <code>run.sh</code> refuses to start while
+      the container is up.
+    </div>
+    <div style="margin-top:28px;display:flex;gap:12px;flex-wrap:wrap">
+      <a class="btn" href="https://github.com/michaelbeirnee/minifinancialterminal-public">Get it on GitHub</a>
+      <a class="btn ghost" href="https://github.com/michaelbeirnee/minifinancialterminal-public#readme">Read the docs</a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div class="foot-top">
+      <div class="mark" style="width:22px;height:22px"></div>
+      <div>
+        <div class="brand" style="font-size:14px">MFT</div>
+        <div class="brand-sub">Mini Financial Terminal</div>
+      </div>
+    </div>
+    <div class="foot-links">
+      <a href="https://github.com/michaelbeirnee/minifinancialterminal-public">Repository</a>
+      <a href="https://github.com/michaelbeirnee/minifinancialterminal-public#readme">README</a>
+      <a href="https://github.com/michaelbeirnee/minifinancialterminal-public/blob/main/LICENSE">MIT Licence</a>
+      <a href="https://github.com/michaelbeirnee/minifinancialterminal-public/issues">Issues</a>
+    </div>
+    <p class="disc">
+      <strong style="color:var(--muted)">Disclaimer.</strong> Data comes from public and free
+      sources subject to their own availability, rate limits and terms of use. This project is
+      for research and education and is <strong style="color:var(--muted)">not investment
+      advice</strong>. The dependencies carry their own licences, and the data providers each
+      set their own terms; neither is granted by this one.
+    </p>
+    <p class="disc" style="margin-top:14px">© 2026 Michael Beirne · Released under the MIT Licence.</p>
+  </div>
+</footer>
+
+</body>
+</html>

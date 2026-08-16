@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+env/
+
+# Secrets — backend/config.py reads MFT_* keys from a .env file
+.env
+.env.*
+!.env.example
+
+# Project data / artifacts
+# The -wal/-shm sidecars hold live SQLite contents (accounts, password hashes)
+# until a checkpoint, so they must be ignored alongside the .db itself.
+*.db
+*.db-wal
+*.db-shm
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+.cache/
+data_cache/
+reports_out/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.log
+
+# Export artifacts — these duplicate history that is already in the repo.
+*.patch
+*.bundle

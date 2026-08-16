@@ -1,0 +1,39 @@
+# Every dependency here is open source and permissively licensed.
+# Verified on Python 3.14; runs on 3.9+. Version ranges rather than pins so the
+# install still resolves on older interpreters, where pip falls back to the last
+# compatible release (numpy 2 needs Python 3.10+).
+
+# Web framework
+fastapi>=0.115,<1
+uvicorn[standard]>=0.30
+python-multipart>=0.0.9
+pydantic-settings>=2
+email-validator>=2
+
+# Auth
+PyJWT>=2
+python-jose[cryptography]>=3
+bcrypt>=4
+
+# Persistence
+SQLAlchemy>=2,<3
+
+# Quant / data
+pandas>=2,<3
+numpy>=1.26,<3
+scipy>=1.10
+statsmodels>=0.14
+yfinance>=0.2
+
+# Data platform — HTTP client plus HTML/XML parsing for the free providers
+httpx>=0.27
+lxml>=4.9
+beautifulsoup4>=4.12
+
+# Assistant — the only paid dependency, and the only optional one. Without it
+# (or without MFT_ANTHROPIC_API_KEY) the Assistant tab reports that it is off
+# and the rest of the platform is unaffected.
+anthropic>=0.75
+
+# Testing
+pytest>=8

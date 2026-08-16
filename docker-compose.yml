@@ -1,0 +1,26 @@
+name: 5milliondollars
+
+services:
+  app:
+    build: .
+    image: 5milliondollars
+    container_name: 5milliondollars
+    ports:
+      - "8000:8000"
+    # Optional MFT_* keys (Anthropic, FRED, EIA, BLS, Nasdaq, secret key) load
+    # from a local .env if present; everything runs unconfigured without one.
+    env_file:
+      - path: .env
+        required: false
+    # .env carries *host* paths so run.sh and the CLI find the shared data
+    # directory. Inside the container that same directory is the /data mount, so
+    # these pin the container-side paths. `environment` outranks `env_file`, which
+    # is what lets a single .env serve both sides.
+    environment:
+      MFT_DATABASE_URL: sqlite:////data/terminal.db
+      MFT_CACHE_DIR: /data/cache
+    volumes:
+      # One shared data directory on the host — the container, run.sh and the CLI
+      # all read and write the same terminal.db and cache.
+      - ${MFT_DATA_DIR:-${HOME}/.5milliondollars}:/data
+    restart: unless-stopped
