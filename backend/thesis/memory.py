@@ -386,9 +386,12 @@ def backfill_families() -> Dict[str, Any]:
     moved, merged = 0, 0
     try:
         session = SessionLocal()
+        # Filtered in SQL: on an already-fixed database this boots on an empty
+        # result rather than dragging every event through Python.
         stale = [
-            e for e in session.query(SignalEvent).all()
-            if FAMILY_SEP not in e.family and (e.payload or {}).get("family")
+            e for e in session.query(SignalEvent)
+            .filter(~SignalEvent.family.like("%{}%".format(FAMILY_SEP))).all()
+            if (e.payload or {}).get("family")
         ]
         for event in stale:
             new_family = qualify(event.family, (event.payload or {}).get("family"))

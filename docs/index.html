@@ -29,6 +29,9 @@ a:hover{filter:brightness(1.25)}
 h1,h2,h3{margin:0;font-weight:600;letter-spacing:-.01em}
 code,.mono{font-family:var(--mono)}
 .wrap{max-width:var(--wrap);margin:0 auto;padding:0 28px}
+/* Grid/flex children default to min-width:auto, so a wide <pre> stretches its
+   track and pushes the whole page sideways. Let them shrink and scroll instead. */
+.hero-grid>*,.split>*,.grid>*,.steps>*{min-width:0}
 
 /* ── top bar ─────────────────────────────────────────── */
 .topbar{position:sticky;top:0;z-index:50;background:rgba(10,11,12,.88);
@@ -84,7 +87,7 @@ code,.mono{font-family:var(--mono)}
 .dot{width:10px;height:10px;border-radius:50%;background:#2a2e2f}
 .term-title{margin-left:9px;font-family:var(--mono);font-size:11px;color:var(--faint);letter-spacing:.5px}
 .term-body{padding:18px 18px 20px;font-family:var(--mono);font-size:12.5px;line-height:1.85;
-  overflow-x:auto}
+  overflow-x:auto;white-space:pre}
 .term-body .p{color:var(--faint)}
 .term-body .c{color:var(--text)}
 .term-body .o{color:var(--muted)}
@@ -155,6 +158,7 @@ pre.block{background:var(--panel);border:1px solid var(--line);border-radius:10p
   padding:20px 22px;overflow-x:auto;font-family:var(--mono);font-size:12.5px;
   line-height:1.75;color:var(--soft);margin:0}
 pre.block .cm{color:var(--faint)}
+pre.block .dec{color:var(--amber)}
 pre.block .kw{color:var(--red)}
 pre.block .st{color:var(--green)}
 pre.block .fn{color:var(--text)}
@@ -267,21 +271,21 @@ footer{padding:46px 0 56px;color:var(--faint);font-size:13px}
         <div class="dot"></div><div class="dot"></div><div class="dot"></div>
         <div class="term-title">python -m cli.terminal</div>
       </div>
-      <div class="term-body">
-<span class="p">2026 Jul 25 /</span> <span class="c">$ equity</span>
+      <div class="term-body"><span class="p">2026 Jul 25 /</span> <span class="c">$ equity</span>
 <span class="p">2026 Jul 25 /equity/</span> <span class="c">$ price</span>
-<span class="p">2026 Jul 25 /equity/price/</span> <span class="c">$ quote --symbol AAPL,MSFT</span>
+<span class="p">2026 Jul 25 /equity/price/</span> <span class="c">$ help</span>
 
-<span class="o">  symbol    last     chg%     volume   provider</span>
-<span class="o">  ────────────────────────────────────────────</span>
-<span class="o">  AAPL     </span><span class="c">  ·····</span><span class="o">   </span><span class="g">  ·····</span><span class="o">    ·······   yahoo</span>
-<span class="o">  MSFT     </span><span class="c">  ·····</span><span class="o">   </span><span class="r">  ·····</span><span class="o">    ·······   yahoo</span>
+<span class="g">  historical  </span><span class="o">  Historical OHLCV bars</span>
+<span class="g">  quote       </span><span class="o">  Real-time-ish snapshot quote</span>
+<span class="g">  performance </span><span class="o">  Trailing return table, 1D → max</span>
+
+<span class="p">2026 Jul 25 /equity/price/</span> <span class="c">$ quote --symbol AAPL,MSFT</span>
+<span class="o">  2 rows · provider </span><span class="g">yahoo</span>
 
 <span class="p">2026 Jul 25 /equity/price/</span> <span class="c">$ export quotes.csv</span>
 <span class="g">  wrote quotes.csv</span>
 
-<span class="p">2026 Jul 25 /equity/price/</span> <span class="c">$ </span><span class="cursor"></span>
-      </div>
+<span class="p">2026 Jul 25 /equity/price/</span> <span class="c">$ </span><span class="cursor"></span></div>
     </div>
   </div>
 </header>
@@ -458,8 +462,8 @@ localhost:8000</pre>
          without a few hundred hand-written routes.</p>
     </div>
     <div class="split">
-      <pre class="block"><span class="cm">@command(<span class="st">"/equity/price/quote"</span>, providers=(<span class="st">"yahoo"</span>,),
-         summary=<span class="st">"Snapshot quote"</span>)</span>
+      <pre class="block"><span class="dec">@command</span>(<span class="st">"/equity/price/quote"</span>, providers=(<span class="st">"yahoo"</span>,),
+         summary=<span class="st">"Snapshot quote"</span>)
 <span class="kw">def</span> <span class="fn">price_quote</span>(symbol: str,
                 provider: Optional[str] = <span class="kw">None</span>) -> Result:
     src = resolve_provider(provider, (<span class="st">"yahoo"</span>,))
@@ -473,7 +477,7 @@ localhost:8000</pre>
           <li><strong>providers/</strong> — one module per data source, no command logic</li>
           <li><strong>extensions/</strong> — the 16 command menus</li>
           <li><strong>assistant/</strong> — a system prompt generated from the registry and four read-only tools</li>
-          <li><strong>backtest· factors· portfolio· reports</strong> — the research and accounting stack</li>
+          <li><strong>backtest/ · factors/ · portfolio/ · reports/</strong> — the research and accounting stack</li>
           <li><strong>frontend/</strong> — <code>index.html</code>, <code>styles.css</code>, <code>app.js</code> — no build step</li>
         </ul>
         <div class="note" style="margin-top:20px">
@@ -502,16 +506,15 @@ localhost:8000</pre>
           <div class="dot"></div><div class="dot"></div><div class="dot"></div>
           <div class="term-title">ASSISTANT</div>
         </div>
-        <div class="term-body">
-<span class="c">you  › Is the yield curve inverted, and why
+        <div class="term-body"><span class="c">you  › Is the yield curve inverted, and why
        does that matter?</span>
 
 <span class="k">     ⟨ /fixedincome/government/yield_curve ⟩</span>
 <span class="k">     ⟨ /fixedincome/spreads ⟩</span>
 
 <span class="g">mft  › Slightly, at the short end…</span>
-<span class="o">       ‹answer built from the rows it just pulled›</span>
-        </div>
+<span class="o">       ‹answer built from the rows</span>
+<span class="o">        it just pulled›</span></div>
       </div>
       <div>
         <ul>
