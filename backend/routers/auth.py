@@ -18,6 +18,7 @@ from ..auth import (
     token_jti,
     verify_password,
 )
+from ..config import settings
 from ..database import get_db
 from ..models import User, UserSession
 from ..schemas import PasswordChange, SessionOut, Token, UserCreate, UserOut, UserUpdate
@@ -27,6 +28,15 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 @router.post("/register", response_model=UserOut, status_code=status.HTTP_201_CREATED)
 def register(payload: UserCreate, db: Session = Depends(get_db)) -> User:
+    # A public deployment with open sign-up gives any stranger the Assistant tab,
+    # which spends the operator's Anthropic credits. Off by default only on
+    # hosts that say so; local runs are unaffected.
+    if not settings.allow_registration:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Registration is closed on this deployment",
+        )
+
     exists = (
         db.query(User)
         .filter((User.username == payload.username) | (User.email == payload.email))

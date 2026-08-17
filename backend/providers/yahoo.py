@@ -450,14 +450,49 @@ _CALENDAR_ATTRS = {
 }
 
 
+# Yahoo caps one calendar request at 100 rows, so anything wider is paged.
+_CALENDAR_PAGE = 100
+
+
 @cached("yahoo.calendars", ttl=TTL_INTRADAY)
 def market_calendar(kind: str = "earnings", start: Optional[str] = None,
-                    end: Optional[str] = None) -> pd.DataFrame:
+                    end: Optional[str] = None, limit: int = 12,
+                    most_active: bool = True) -> pd.DataFrame:
+    """A calendar over a real date range, paged to ``limit`` rows.
+
+    yfinance defaults to 12 rows per call and caps a single request at 100, so
+    a month view has to page — without this a "month of earnings" is really
+    "the first twelve".
+
+    ``most_active`` is Yahoo's own filter and applies to earnings only. Left on,
+    the calendar is the handful of widely-held names Yahoo considers active;
+    turned off, it is every issuer reporting in the window, which is what a
+    calendar filtered by the user's own symbols needs.
+    """
     attr = _CALENDAR_ATTRS.get(kind)
     if not attr:
         raise ValueError("kind must be one of {}".format(", ".join(_CALENDAR_ATTRS)))
     cal = _yf().Calendars(start=start, end=end)
-    return pd.DataFrame(_call(getattr(cal, attr), "{} calendar".format(kind)))
+    fetch = getattr(cal, attr)
+    extra = {"filter_most_active": most_active} if kind == "earnings" else {}
+
+    wanted = max(1, int(limit))
+    frames: List[pd.DataFrame] = []
+    rows = 0
+    for offset in range(0, wanted, _CALENDAR_PAGE):
+        page = pd.DataFrame(_call(
+            fetch, "{} calendar".format(kind),
+            limit=min(_CALENDAR_PAGE, wanted - offset), offset=offset, **extra))
+        if page.empty:
+            break
+        frames.append(page)
+        rows += len(page)
+        # A short page is the last page; asking again just re-fetches nothing.
+        if len(page) < min(_CALENDAR_PAGE, wanted - offset):
+            break
+    if not frames:
+        return pd.DataFrame()
+    return pd.concat(frames).head(wanted)
 
 
 # --------------------------------------------------------------------------- #

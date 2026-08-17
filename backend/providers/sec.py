@@ -14,7 +14,7 @@ import io
 import re
 import zipfile
 from datetime import date, datetime
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import pandas as pd
 
@@ -299,6 +299,12 @@ INCOME_TAGS: Dict[str, Sequence[str]] = {
 
 BALANCE_TAGS: Dict[str, Sequence[str]] = {
     "cash_and_equivalents": ("CashAndCashEquivalentsAtCarryingValue",),
+    # Only balance-sheet concepts belong here. NVIDIA, for one, stopped tagging
+    # any of these after FY2025, and the neighbouring tags are not substitutes:
+    # its maturity schedule (securities due within a year) and its total
+    # available-for-sale balance bracket the reported current line rather than
+    # matching it. A blank line is honest; a number from a different concept is
+    # not.
     "short_term_investments": ("MarketableSecuritiesCurrent", "ShortTermInvestments",
                                "AvailableForSaleSecuritiesDebtSecuritiesCurrent"),
     "accounts_receivable": ("AccountsReceivableNetCurrent",),
@@ -396,7 +402,12 @@ def _quarterize(frame: pd.DataFrame) -> pd.Series:
     for r in longer[longer["days"].between(*_ANNUAL_DAYS)].itertuples():
         if r.end in quarters:
             continue
-        three = [v for e, v in quarters.items() if r.end - pd.Timedelta(days=340) < e < r.end]
+        # Timestamps explicitly: the keys can arrive as numpy datetimes, and
+        # subtracting from one of those goes through numpy's deprecated
+        # generic-unit timedelta path.
+        end = pd.Timestamp(r.end)
+        window_opens = end - pd.Timedelta(340, unit="D")
+        three = [v for e, v in quarters.items() if window_opens < pd.Timestamp(e) < end]
         if len(three) == 3:
             quarters[r.end] = r.val - sum(three)
     return pd.Series(quarters, dtype="float64").sort_index().dropna()
@@ -404,9 +415,24 @@ def _quarterize(frame: pd.DataFrame) -> pd.Series:
 
 def _fact_series(facts: Dict[str, Any], tags: Sequence[str], forms: Sequence[str],
                  period: str = "annual") -> pd.Series:
-    """Pick the first available tag and return {period_end: value}."""
+    """Best available tag as {period_end: value}.
+
+    Tag order is a preference list, not a priority queue: filers migrate
+    between synonyms and leave the old tag behind with a few stale years on it.
+    Apple last tagged ``PaymentsOfDividendsCommonStock`` in 2017 and has used
+    ``PaymentsOfDividends`` ever since — taking the first tag with *any* data
+    would put a 2017 dividend on a 2025 cash-flow statement, and leave every
+    year since blank.
+
+    So every tag is evaluated and the one reaching the most recent period wins,
+    with more history breaking a tie on that. Order still decides an exact tie,
+    which is what keeps a deliberately-last fallback (``Depreciation``, which
+    excludes amortisation) behind the broader tag it stands in for.
+    """
     gaap = facts.get("facts", {}).get("us-gaap", {})
     quarterly = period != "annual"
+    best = pd.Series(dtype="float64")
+    best_rank: Optional[Tuple[Any, int]] = None
     for tag in tags:
         node = gaap.get(tag)
         if not node:
@@ -435,9 +461,12 @@ def _fact_series(facts: Dict[str, Any], tags: Sequence[str], forms: Sequence[str
                     series = _dedup(frame[frame["days"].between(*_QUARTER_DAYS)])
                 else:
                     series = _quarterize(frame)
-            if not series.empty:
-                return series
-    return pd.Series(dtype="float64")
+            if series.empty:
+                continue
+            rank = (series.index.max(), len(series))
+            if best_rank is None or rank > best_rank:
+                best, best_rank = series, rank
+    return best
 
 
 def statement(symbol: str, kind: str = "income", period: str = "annual", limit: int = 12) -> pd.DataFrame:

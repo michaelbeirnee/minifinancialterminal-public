@@ -22,6 +22,7 @@ from .routers import (
     data,
     factors,
     hedge,
+    modeling,
     portfolio,
     reports,
     system,
@@ -35,6 +36,15 @@ FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # A deployment that keeps the shipped secret key signs its login tokens with
+    # a value published in this repo, so anyone can mint one for any account.
+    # Refusing to boot is the only way that failure gets noticed: it is silent
+    # and total otherwise. MFT_DEBUG=true marks a local run and waives the check.
+    if settings.using_dev_secret and not settings.debug:
+        raise RuntimeError(
+            "MFT_SECRET_KEY is still the shipped development value. Generate one "
+            "with: python3 -c \"import secrets; print(secrets.token_urlsafe(48))\""
+        )
     init_db()
     grader = scheduler.start()
     try:
@@ -55,15 +65,22 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# The image serves the UI and the API from one origin, where CORS never comes
+# into play, so the default is to register nothing at all rather than to
+# advertise the API to every website. Set MFT_CORS_ORIGINS when the frontend is
+# hosted separately. Credentials stay off deliberately: the browser authenticates
+# with a bearer token from localStorage, never a cookie.
+if settings.cors_origin_list:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_origin_list,
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
-for r in (auth, user, portfolio, hedge, data, factors, backtest, reports, system, thesis, assistant):
+for r in (auth, user, portfolio, hedge, data, factors, backtest, reports, system, thesis,
+          modeling, assistant):
     app.include_router(r.router)
 # The single-name hedge simulator is not book-scoped, so it carries its own prefix.
 app.include_router(hedge.simulate_router)

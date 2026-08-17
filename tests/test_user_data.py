@@ -45,7 +45,7 @@ def test_schema_contains_every_table():
         "portfolios", "positions", "transactions",
         "theses", "thesis_evidence", "thesis_checks",
         "signal_events", "signal_runs", "triage_records", "deepdive_records",
-        "hedge_records",
+        "hedge_records", "valuation_models",
     }
 
 

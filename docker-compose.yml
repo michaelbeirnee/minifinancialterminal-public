@@ -19,6 +19,12 @@ services:
     environment:
       MFT_DATABASE_URL: sqlite:////data/terminal.db
       MFT_CACHE_DIR: /data/cache
+      # The image ships MFT_DEBUG=false so that anything deployed from it refuses
+      # to run on the placeholder secret key. Compose is the *local* path — it
+      # publishes to localhost only — so it opts back out and starts key-free.
+      # Deploying with this file instead of fly.toml? Drop this line and set a
+      # real MFT_SECRET_KEY in .env.
+      MFT_DEBUG: "true"
     volumes:
       # One shared data directory on the host — the container, run.sh and the CLI
       # all read and write the same terminal.db and cache.

@@ -15,7 +15,7 @@ from ..core.errors import EmptyDataError
 from ..core.models import Result
 from ..core.registry import command, resolve_provider
 from ..core.utils import date_window, norm_symbols, one_symbol
-from ..providers import sec, yahoo
+from ..providers import sec, segments, statements, yahoo
 
 _FUNDAMENTAL_PROVIDERS = ("sec", "yahoo")
 
@@ -49,6 +49,96 @@ def balance(symbol: str, period: str = "annual", limit: int = 12,
 def cash(symbol: str, period: str = "annual", limit: int = 12,
          provider: Optional[str] = None) -> Result:
     return _statement(symbol, "cash", period, limit, provider)
+
+
+@command("/equity/fundamental/statements", providers=_FUNDAMENTAL_PROVIDERS,
+         summary="Income statement, balance sheet and cash flow in one ordered table")
+def all_statements(symbol: str, period: str = "annual", limit: int = 8,
+                   provider: Optional[str] = None) -> Result:
+    """The three statements as they are actually presented.
+
+    ``income``/``balance``/``cash`` each return one provider's raw columns;
+    this returns all three as a single ordered document — one row per line
+    item, one column per period, newest first — with indentation, subtotals
+    and a consistent sign convention (cash outflows are negative whichever
+    provider reported them).
+
+    A few lines every reader looks for are computed rather than filed — free
+    cash flow, net cash, working capital, EBITDA — and carry ``derived: true``.
+
+    Falls back from ``sec`` to ``yahoo`` per statement, so IFRS filers and ADRs
+    with no ``us-gaap`` XBRL still return something; ``extra.provider_by_statement``
+    says which source served each one.
+    """
+    if provider:
+        resolve_provider(provider, _FUNDAMENTAL_PROVIDERS)
+    sym = one_symbol(symbol)
+    rows, meta = statements.statements(sym, period=period, limit=limit, provider=provider)
+    served = [p for p in meta["provider_by_statement"].values() if p]
+    return Result(rows, provider=served[0] if served else None, extra=meta)
+
+
+@command("/equity/fundamental/revenue_segments", providers=("sec",),
+         summary="Revenue by reportable segment, geography and product line")
+def revenue_segments(symbol: str, dimension: str = "all", period: str = "annual",
+                     limit: int = 6, provider: Optional[str] = None) -> Result:
+    """Where the revenue on the income statement actually comes from.
+
+    One row per segment with one column per period — the shape ``statements``
+    uses — grouped into the three breakdowns a filer may report: ASC 280
+    reportable segments, geography, and product or service lines. Pass
+    ``dimension`` to ask for one of them (``business``, ``geographic``,
+    ``product``). Each group ends on a ``Total disclosed`` subtotal, and
+    ``Total revenue`` closes the table so the split can be read against it.
+
+    Read out of the XBRL in the filings themselves rather than the company-facts
+    API, which publishes every fact with its dimensions stripped off and so has
+    no segment data in it at all. ``extra.filings`` lists the accessions this
+    was built from, and ``revenue_share`` is each segment's share of
+    consolidated revenue in the newest period it reports.
+
+    Two things a reader should expect. A breakdown need not add up: segment
+    revenue is reported before sales between segments are eliminated, and a
+    filer discloses only the split it has — ``extra.dimensions[].coverage``
+    gives each group's share of revenue, and anything far from 100% is
+    warned about. And filers tag two levels of one axis (Apple's
+    Product/Service alongside iPhone, Mac, iPad); the finer split is the one
+    kept, with what it replaced listed in ``extra.superseded``.
+    """
+    src = resolve_provider(provider, ("sec",))
+    sym = one_symbol(symbol)
+    rows, meta = segments.revenue_segments(sym, period=period, limit=limit,
+                                           dimension=dimension)
+    return Result(rows, provider=src, warnings=meta.pop("warnings", []), extra=meta)
+
+
+@command("/equity/fundamental/statements_ytd", providers=_FUNDAMENTAL_PROVIDERS,
+         summary="Year to date on all three statements, and an estimate of the full year")
+def statements_ytd(symbol: str, provider: Optional[str] = None) -> Result:
+    """The year so far, the same stretch of last year, and where the year lands.
+
+    Interim filings are quarterly, so the year to date is the quarters filed
+    since the last fiscal year end added up — on the income and cash-flow
+    statements. The balance sheet is a position rather than a total, so it is
+    carried at its latest quarter end instead of being summed, and is not
+    projected: a year-end balance sheet is a roll-forward, which is what
+    ``/modeling/*`` is for.
+
+    The full-year estimate scales the year to date by what the rest of the year
+    added in each of the last three years, taking the median — a retailer three
+    quarters in has booked well under three quarters of its revenue, and a plain
+    run rate cannot know that. A line with no comparable history falls back to
+    the run rate, and says so in its own ``projection_basis``.
+
+    Columns come back as ``ytd``, ``ytd_ly``, ``projected_fy`` and ``fy_ly``
+    rather than dates; ``extra.period_labels`` names them.
+    """
+    if provider:
+        resolve_provider(provider, _FUNDAMENTAL_PROVIDERS)
+    sym = one_symbol(symbol)
+    rows, meta = statements.year_to_date(sym, provider=provider)
+    served = [p for p in meta["provider_by_statement"].values() if p]
+    return Result(rows, provider=served[0] if served else None, extra=meta)
 
 
 def _safe(numerator: Any, denominator: Any) -> Any:

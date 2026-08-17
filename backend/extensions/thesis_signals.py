@@ -434,7 +434,12 @@ def signal_report(provider: Optional[str] = None) -> Result:
     median excess return vs benchmark and hit rate per horizon, over every
     graded event on record. This is the study that turns recorded signals
     into learned weights; with few graded events it says so rather than
-    extrapolating."""
+    extrapolating.
+
+    Rows under ``thesis:*`` are the engine's own output and carry ``lift_*``:
+    how far the theses it built beat the pooled record of the scanners they
+    were built from. A deep dive that cannot show positive lift is an
+    expensive way to restate the funnel."""
     from ..thesis import memory
 
     src = resolve_provider(provider, ("sec",))

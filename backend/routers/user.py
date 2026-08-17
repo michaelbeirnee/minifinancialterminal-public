@@ -20,6 +20,7 @@ from ..database import get_db
 from ..models import (
     Alert,
     BacktestRun,
+    CalendarEvent,
     CommandRun,
     SavedCommand,
     SavedResult,
@@ -32,6 +33,9 @@ from ..schemas import (
     AlertCreate,
     AlertOut,
     AlertUpdate,
+    CalendarEventCreate,
+    CalendarEventOut,
+    CalendarEventUpdate,
     CommandRunOut,
     SavedCommandCreate,
     SavedCommandOut,
@@ -614,6 +618,91 @@ def delete_alert(
     alert_id: int, current: User = Depends(get_current_user), db: Session = Depends(get_db)
 ) -> None:
     db.delete(_owned_alert(db, current.id, alert_id))
+    db.commit()
+
+
+# --------------------------------------------------------------------------- #
+# Calendar — the user's own "Custom / Notes" events
+# --------------------------------------------------------------------------- #
+# Every other event type on the calendar is fetched from a public feed by
+# /api/v1/calendar/events and never stored. These are the user's own, so they
+# are account-scoped and live here instead of in the stateless command registry.
+def _owned_event(db: Session, user_id: int, event_id: int) -> CalendarEvent:
+    event = (
+        db.query(CalendarEvent)
+        .filter(CalendarEvent.id == event_id, CalendarEvent.user_id == user_id)
+        .first()
+    )
+    if not event:
+        raise HTTPException(status_code=404, detail="Calendar event not found")
+    return event
+
+
+@router.get("/calendar", response_model=List[CalendarEventOut])
+def list_calendar_events(
+    start_date: Optional[str] = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    end_date: Optional[str] = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    symbol: Optional[str] = None,
+    current: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> List[CalendarEvent]:
+    """Notes in a window. Dates are stored ``YYYY-MM-DD``, so a string
+    comparison is a date comparison and the index covers it."""
+    query = db.query(CalendarEvent).filter(CalendarEvent.user_id == current.id)
+    if start_date:
+        query = query.filter(CalendarEvent.event_date >= start_date)
+    if end_date:
+        query = query.filter(CalendarEvent.event_date <= end_date)
+    if symbol:
+        query = query.filter(CalendarEvent.symbol == symbol.strip().upper())
+    return query.order_by(CalendarEvent.event_date, CalendarEvent.id).all()
+
+
+@router.post("/calendar", response_model=CalendarEventOut, status_code=status.HTTP_201_CREATED)
+def create_calendar_event(
+    payload: CalendarEventCreate,
+    current: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> CalendarEvent:
+    event = CalendarEvent(
+        user_id=current.id,
+        event_date=payload.event_date,
+        title=payload.title.strip(),
+        symbol=payload.symbol.strip().upper() if payload.symbol else None,
+        detail=payload.detail,
+        time=payload.time,
+        importance=payload.importance,
+    )
+    db.add(event)
+    db.commit()
+    db.refresh(event)
+    return event
+
+
+@router.patch("/calendar/{event_id}", response_model=CalendarEventOut)
+def update_calendar_event(
+    event_id: int,
+    payload: CalendarEventUpdate,
+    current: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> CalendarEvent:
+    event = _owned_event(db, current.id, event_id)
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        if field == "symbol" and value:
+            value = value.strip().upper()
+        if field == "title" and value:
+            value = value.strip()
+        setattr(event, field, value)
+    db.commit()
+    db.refresh(event)
+    return event
+
+
+@router.delete("/calendar/{event_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_calendar_event(
+    event_id: int, current: User = Depends(get_current_user), db: Session = Depends(get_db)
+) -> None:
+    db.delete(_owned_event(db, current.id, event_id))
     db.commit()
 
 

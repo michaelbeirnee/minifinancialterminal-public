@@ -3,7 +3,7 @@
 **[michaelbeirnee.github.io/minifinancialterminal-public](https://michaelbeirnee.github.io/minifinancialterminal-public/)** — project site
 
 An **open-source financial research terminal** — an OpenBB-style data platform with
-**244 commands** across equities, ETFs, crypto, FX, derivatives, macro, fixed income
+**277 commands** across equities, ETFs, crypto, FX, derivatives, macro, fixed income
 and regulatory filings, plus a factor-model engine, a backtester and HTML tearsheets.
 
 Every data source is **free or public-domain**. There is no paid vendor anywhere in
@@ -32,7 +32,7 @@ mft.quantitative.performance(symbol="AAPL,MSFT,SPY")
 | **REST API** | `GET /api/v1/equity/price/historical?symbol=AAPL` — one route per command, documented at `/docs` |
 | **Python** | `from backend.core.interface import mft` then `mft.equity.price.historical(...)` |
 | **CLI** | `python -m cli.terminal` — menu navigation, tab completion, CSV export |
-| **Web UI** | `http://localhost:8000` → **DATA** tab browses every command; **PORTFOLIO** tab tracks what you own; **SAVED** tab holds watchlists, alerts, saved commands and history; **THESIS** tab tracks falsifiable claims and the signals behind them; **ASSISTANT** tab answers questions and runs commands for you |
+| **Web UI** | `http://localhost:8000` → **DATA** tab browses every command; **PORTFOLIO** tab tracks what you own; **SAVED** tab holds watchlists, alerts, saved commands and history; any stock page has a **FINANCIALS** tab with the three statements — annual, quarterly, or the year so far beside an estimate of where the full year lands — plus the revenue behind them split by segment, geography and product line; an **EXPOSURE** map of who it buys from and sells to; a **COMPARE** tab that builds a peer group out of three disagreeing sources and puts it side by side on valuation, growth, risk and what each company actually sells; **THESIS** tab tracks falsifiable claims and the signals behind them; **MODELING** tab builds savable DCFs seeded from the filings; **ASSISTANT** tab answers questions and runs commands for you |
 
 All four read the same registry, so a command added under `backend/extensions/`
 appears in every one of them with no extra wiring.
@@ -43,7 +43,7 @@ appears in every one of them with no extra wiring.
 
 | Menu | Cmds | What's in it |
 |---|---:|---|
-| **equity** | 60 | prices, quotes, performance, profile, search, screener, 10 discovery screens, 5 calendars, 16 fundamental commands, 5 estimates, 7 ownership, shorts, dark pool |
+| **equity** | 70 | prices, quotes, performance, profile, search, screener, 10 discovery screens, 5 calendars, 20 fundamental commands (including the three statements as one ordered document and revenue split by segment, geography and product line), 5 estimates, 7 ownership, shorts, dark pool, 3 supply-chain relationship commands mined from filings, and a peer group blended from classification, SIC registration and the filings that name the company as competition — with the side-by-side comparison built on it |
 | **technical** | 40 | 35+ indicators: MAs (SMA/EMA/WMA/HMA/ZLMA/DEMA/TEMA), RSI, MACD, stochastic, CCI, ADX, Aroon, Ichimoku, Supertrend, PSAR, Bollinger, Keltner, Donchian, OBV, A/D, CMF, MFI, VWAP, Fisher, TSI, PPO, DeMark, vol cones, Hurst, Clenow momentum |
 | **economy** | 34 | CPI, PCE, GDP, unemployment, payrolls, claims, money supply, Fed balance sheet, SLOOS, financial conditions, house prices, trade, debt, country profiles, calendars, surveys |
 | **quantitative** | 18 | normality battery, unit root, CAPM, rolling stats, Sharpe/Sortino/Calmar/Omega/Ulcer, VaR & CVaR, drawdown |
@@ -56,7 +56,7 @@ appears in every one of them with no extra wiring.
 | **derivatives** | 8 | option chains, expirations, unusual activity, IV surface, put/call snapshots, futures history and term structure |
 | **index** | 7 | membership for 16 indices, index prices, regional snapshots, sector breakdown, 11 long-run S&P 500 valuation series |
 | **crypto** | 6 | prices, ranked market table, global dominance, categories, coin universe |
-| **thesis** | 6 | market-wide insider clusters from the SEC bulk archive, one issuer's collapsed insider trades, notable 13F holders, fund holdings, and the graded signal log with its per-family base rates |
+| **thesis** | 12 | candidate funnels for insider and congressional clusters, undervalued large caps, undervalued growth, crowded shorts and one-month price dislocations; issuer-level insider/holder detail; and the graded signal log with per-family base rates |
 | **currency** | 4 | pairs, history, ECB reference rates, cross-rate snapshots |
 | **news** | 4 | company headlines, merged newswire tape, topic search, feed list |
 | **sentiment** | 5 | lexicon-scored news sentiment: market-wide mood, all 11 GICS sectors, per-ticker summaries, story-by-story scores, historical weekly series rebuilt from the Google News archive (feeds the `news_sentiment` backtest strategy — sector ETFs like XLE trade their sector's news) |
@@ -70,11 +70,12 @@ appears in every one of them with no extra wiring.
 | Provider | Covers | Key |
 |---|---|---|
 | **Yahoo Finance** (`yfinance`) | prices, fundamentals, options, holders, estimates, screeners, calendars | none |
-| **SEC EDGAR** | XBRL fundamentals, filings, full-text search, Form 4, 13F, fails-to-deliver | none |
+| **SEC EDGAR** | XBRL fundamentals, segment revenue read from the filings, filings, full-text search, Form 4, 13F, fails-to-deliver, supplier/customer relationships | none |
 | **FRED** | US macro, rates, credit spreads (key-free CSV endpoint) | optional |
 | **US Treasury / TreasuryDirect / NY Fed** | yield curves, auctions, debt, SOFR/EFFR/OBFR | none |
 | **ECB · World Bank · IMF · OECD · Frankfurter** | euro-area curves, FX, cross-country macro, WEO forecasts | none |
 | **FINRA · CFTC** | short-sale volume, ATS/dark-pool volume, Commitments of Traders | none |
+| **Senate EFD** | STOCK Act periodic transaction reports — congressional trading (Senate only) | none |
 | **Stooq · Cboe · Nasdaq · Wikipedia · multpl** | backup prices, delayed option chains, calendars, index membership, CAPE | none |
 | **CoinGecko** | crypto prices, market caps, dominance | none |
 | **EIA · BLS** | energy reports, labour & price statistics | EIA needs a free key |
@@ -141,6 +142,40 @@ compose:
 docker build -t 5milliondollars .
 docker run -d -p 8000:8000 -v "$HOME/.5milliondollars:/data" --name 5milliondollars 5milliondollars
 ```
+
+### Deploying it online
+
+The image already keeps every mutable thing on `/data`, so any host that runs a
+container with a persistent volume works unchanged. `fly.toml` configures one:
+
+```bash
+brew install flyctl && fly auth login
+fly launch --no-deploy --copy-config          # claims the app name in fly.toml
+fly volumes create mft_data --size 10 --region iad
+fly secrets set \
+  MFT_SECRET_KEY="$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')" \
+  MFT_SEC_USER_AGENT="Mini Financial Terminal you@example.com"
+fly deploy
+```
+
+Three properties of this app decide the shape of any deployment:
+
+- **It is stateful.** SQLite plus a market-data cache that reaches hundreds of
+  megabytes. A host with an ephemeral filesystem loses your accounts on every
+  restart, so a real volume is not optional.
+- **It must stay up.** The grading sweep in `backend/thesis/scheduler.py` runs in
+  process on a 12-hour clock. Scale-to-zero stops that clock, and the calibration
+  loop quietly stops filling.
+- **It is not small.** Importing the app costs ~240 MB before a single request;
+  backtests and factor models go well beyond. 512 MB tiers get OOM-killed.
+
+That rules out static hosts (GitHub Pages, Netlify) and plain serverless
+(Vercel, Cloud Run at default settings) for the API. GitHub Pages is the right
+home for `docs/` — the landing page — and nothing else here.
+
+Set `MFT_DEBUG=false` on any host reachable from the internet. It arms the
+startup check that refuses the shipped `MFT_SECRET_KEY`, which otherwise lets
+anyone holding this repo mint a login token for any account.
 
 ### One database, four interfaces
 
@@ -230,12 +265,36 @@ bulk        SEC quarterly Form 345 archives, ingested market-wide
 collapse    folds the filing artefacts that make one decision look like several
 families    classifies buyers by relationship, not by checkbox
 ────────────────────────────────────────────────────────────────────────────
-funnel      /thesis/insider_clusters — the gate; every number computed here
+sources     the menu of funnels; insider was the first, not the only
+              /thesis/insider_clusters   — the gate; every number computed here
+              /thesis/congress_clusters  — the same shape over STOCK Act filings
+              /thesis/undervalued_large_caps — low P/E + PEG discrepancy queue
+              /thesis/undervalued_growth — growth and valuation disagree
+              /thesis/crowded_shorts     — short case or squeeze case; direction-neutral
+              /thesis/price_dislocations — large 1m drawdowns that need explaining
 triage      one structured model call: rank, and add world knowledge as hypotheses
 deep dive   a tool loop that verifies a candidate and proposes falsifiers
 spine       the thesis itself: frozen evidence, executable checks, derived status
 memory      record → grade → base rates → back into triage
 ```
+
+**An idea source is a registration, not a branch.** `backend/thesis/sources.py`
+holds what varies between funnels — the command that scans, the tunables it
+accepts and their clamps, the lines it renders on a card, and `artifact_rule`:
+the way *this* funnel characteristically produces false positives. Insiders
+trade on calendar, not conviction; a congressional "cluster" is often unrelated
+trades whose 45-day deadlines fell in the same week; cheap screens can be peak
+earnings in the denominator; a crowded short can become either a short or a
+squeeze; and a drawdown does not reveal its cause. Each source states its own
+failure mode and it lands in the triage prompt as the rule the model must argue
+past, so nothing below the funnel needs to know which scanner ran.
+
+Everything downstream is shared: the card frame (symbol, price context, measured
+base rate), the anti-slop pass, the deep dive, the spine, the graded log. A new
+source declares itself, records its emissions under its own namespace, and
+inherits all of it. `GET /api/theses/triage/sources` is the menu; the params it
+advertises are exactly the query keys `POST /triage` will honour for that source,
+and anything belonging to another source is ignored rather than passed on.
 
 **Families, not checkboxes.** IAC files Form 4s at MGM ticking only
 `isTenPercentOwner`, which reads as a passive whale — but IAC's chief executive
@@ -258,15 +317,33 @@ is `closed`; the rest is earned from data.
 Evidence is immutable once written, and evidence proposed by a model is re-run
 and frozen **server-side** — the model's citations are instructions, never data.
 
+**A falsifier is run before it is trusted.** Registering a check used to
+validate only that the command exists and the comparator is legal, which let
+through two checks that are worse than none: one naming a field the command
+does not return, which sits at `holding` until the first sweep quietly turns it
+to `error`; and one that is *already* true, which breaks its thesis on the first
+evaluation and files it on the scoreboard as a failure that never had a chance.
+Neither is detectable without running the thing, so it is run — at the door, on
+both the manual and the deep-drafted path. An unreadable check is refused, an
+already-breached one needs `allow_breached=true`, and an accepted one starts
+life with a reading rather than a null.
+
+**Draft is a state, not a title prefix.** A deep-dive draft is born with
+`reviewed_at` null and `GET /api/theses?reviewed=false` is the review queue.
+Grading is unaffected either way: review decides whether a thesis is *yours*,
+never whether it counts.
+
 ```
 CRUD   /api/theses                              the spine (works with no API key)
+GET    /api/theses?reviewed=false               the review queue: drafts nobody has read
 POST   /api/theses/{id}/evidence                run a command now, freeze its rows
-POST   /api/theses/{id}/checks                  add a falsifier
+POST   /api/theses/{id}/checks                  add a falsifier — run before it is stored
 POST   /api/theses/{id}/evaluate                re-run every check, derive status
-POST   /api/theses/triage                       rank candidates  ·  needs a key
+GET    /api/theses/triage/sources                the funnel menu and each one's params
+POST   /api/theses/triage?source=…               rank candidates  ·  needs a key
 POST   /api/theses/deepdive?create_draft=true   verify one, draft it into the spine
 POST   /api/theses/signals/grade                stamp elapsed outcomes by hand
-GET    /api/v1/thesis/signal_report             measured base rates per family
+GET    /api/v1/thesis/signal_report             measured base rates per family, and lift
 ```
 
 ### The calibration loop
@@ -290,10 +367,26 @@ point: it is what stops the gate weights being guesses.
   argues against a measured prior rather than a hardcoded warning — and a family
   with fewer than ten graded events gets no line at all, because a hit rate over
   nine events is noise wearing a percentage sign.
+- **Audit the expensive half.** Rows under `thesis:*` also carry `lift_*`: the
+  theses the engine built, minus the pooled record of the scanners they were
+  built from. That is the question the model stages have to answer — a deep-dive
+  draft is only worth its tool calls if it beats what the funnel emitted
+  unaided. Both sides need ten graded events before a lift is stated, because
+  otherwise it is two noisy numbers subtracted.
 
 Promotion means "worth a human's investigation time". These are attention
 signals, not alpha signals, and a world-knowledge leg is an unverified hypothesis
 until something checks it.
+
+**What the model sees beyond the funnel.** A triage card is a shared frame
+around whatever the source computed, plus two cross-source lines that change
+what a cluster *means*: the company's own self-disclosed customer concentration
+(insider buying at a supplier whose single customer is 91% of its revenue is not
+the same claim as the same cluster at a diversified name), and what members of
+the Senate disclosed on the symbol under the STOCK Act. The second is a
+different population under a different statute, never corroboration of the
+first. Both are off with `relationships=false` / `politicians=false`, and both
+make the first scan on a cold cache slow and every later one fast.
 
 ---
 
@@ -453,7 +546,10 @@ Environment variables, prefixed `MFT_` (see `backend/config.py`):
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `MFT_SECRET_KEY` | dev key | **Override in production.** JWT signing key. |
+| `MFT_SECRET_KEY` | dev key | **Override in production.** JWT signing key; the app refuses to boot on the default once `MFT_DEBUG=false`. |
+| `MFT_DEBUG` | `true` | `false` marks an internet-reachable deployment and arms the secret-key check above. |
+| `MFT_ALLOW_REGISTRATION` | `true` | `false` closes `POST /api/auth/register`. Set it on any public host once your own account exists. |
+| `MFT_CORS_ORIGINS` | unset | Comma-separated browser origins allowed to call the API cross-origin. Empty means same-origin only — needed only if the frontend is hosted apart from the API. |
 | `MFT_DATABASE_URL` | `sqlite:///terminal.db` | SQLAlchemy URL. |
 | `MFT_CACHE_TTL_SECONDS` | `3600` | Default cache lifetime. |
 | `MFT_PLATFORM_REQUIRE_AUTH` | `true` | Require a bearer token on `/api/v1/*`. |
@@ -506,6 +602,29 @@ they need network access.
   they do; passing the issuer's fresh rows closes most of that gap.
 * The SEC bulk archive lags roughly a quarter. `/thesis/insider_activity` reads one
   symbol's fresh filings straight from EDGAR when that lag matters.
+* A peer group is a judgement, and this one is assembled rather than looked up: an
+  industry classification, the SIC code a company chose when it registered, and the
+  filings that name it as competition. Each has a known weakness — vendor buckets are
+  thin for mega-caps (Apple's holds eight names, so the sector list is appended behind
+  it), SIC codes are self-selected and rarely updated, and EDGAR full-text search matches
+  a phrase and a name anywhere in the same document rather than in the same sentence, so
+  a filer's SIC code is used to throw out the unrelated ones. Every row says which
+  sources found it and links the filing that named it, and the group is editable and
+  remembered per symbol. See [docs/peer-comparison.md](docs/peer-comparison.md).
+* Revenue segments are read out of the filings themselves, because the XBRL company-facts
+  API publishes every fact with its dimensions stripped off. Coverage therefore stops
+  where a filer's tagging does: a company that only ever cross-tabs its segments against
+  geography (Exxon does) reports none here, since adding a cross-tab cell to the
+  single-axis rows would count the same revenue twice. A breakdown also need not add up
+  — segment revenue is reported before sales between segments are eliminated — so each
+  group carries its coverage and anything outside 95–105% comes back as a warning. See
+  [docs/revenue-segments.md](docs/revenue-segments.md).
+* Congressional disclosures cover the **Senate only** — 100 of 535 members. The House
+  publishes its periodic transaction reports as PDFs, which would mean a PDF dependency
+  and OCR for the paper filings; its index names who filed but never what they bought.
+  Amounts are brackets rather than sizes, and the filing can lag the trade by 45 days,
+  so everything measured anchors on the filing date. See
+  [docs/congressional-disclosures.md](docs/congressional-disclosures.md).
 
 ## Licence
 

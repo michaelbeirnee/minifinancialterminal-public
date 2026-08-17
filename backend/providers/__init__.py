@@ -18,6 +18,7 @@ a documented key-free path so the platform is fully functional unconfigured.
 | ``coingecko``   | crypto market data                        | no        |
 | ``govstats``    | EIA energy, BLS labour & prices           | optional  |
 | ``newsfeeds``   | RSS newswires, Google News                | no        |
+| ``congress``    | Senate STOCK Act transaction reports      | no        |
 +-----------------+-------------------------------------------+-----------+
 """
 from __future__ import annotations
@@ -64,6 +65,8 @@ PROVIDERS: Dict[str, Dict[str, object]] = {
             "description": "Bureau of Labor Statistics (free key optional)"},
     "rss": {"module": "newsfeeds", "requires_key": False,
             "description": "Public financial newswire RSS feeds"},
+    "senate": {"module": "congress", "requires_key": False,
+               "description": "Senate EFD — STOCK Act periodic transaction reports"},
 }
 
 

@@ -62,6 +62,9 @@ Method, per leg:
   propose where to look; only retrieved data may decide.
 
 Then finish by calling deepdive_result exactly once:
+- direction: preserve or revise the candidate's long / short / neutral posture
+  based only on the evidence retrieved here. Neutral means the work earned a
+  watchlist claim but not a directional claim.
 - evidence: for each leg, the command calls whose output was decisive. These
   will be re-run and frozen server-side, so cite only calls that worked.
 - falsifiers: conditions that would BREAK the thesis, in the platform's check
@@ -78,6 +81,7 @@ DOSSIER_TOOL: Dict[str, Any] = {
         "properties": {
             "proceed": {"type": "boolean"},
             "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
+            "direction": {"type": "string", "enum": ["long", "short", "neutral"]},
             "claim": {"type": "string",
                       "description": "The thesis in one falsifiable sentence."},
             "review_by_days": {"type": "integer",
@@ -126,7 +130,7 @@ DOSSIER_TOOL: Dict[str, Any] = {
                 },
             },
         },
-        "required": ["proceed", "confidence", "claim", "summary", "legs"],
+        "required": ["proceed", "confidence", "direction", "claim", "summary", "legs"],
     },
 }
 
@@ -138,6 +142,8 @@ def validate_dossier(dossier: Dict[str, Any]) -> Dict[str, Any]:
     and simply skipped by the draft-creation step, so the human sees what the
     model tried to claim.
     """
+    direction = str(dossier.get("direction") or "neutral").strip().lower()
+    dossier["direction"] = direction if direction in ("long", "short", "neutral") else "neutral"
     for leg in dossier.get("legs", []):
         for cite in leg.get("evidence") or []:
             path = "/" + str(cite.get("path", "")).strip().strip("/")

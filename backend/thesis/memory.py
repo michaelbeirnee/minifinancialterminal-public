@@ -47,6 +47,16 @@ HORIZONS: Dict[str, Tuple[int, int]] = {
 #: bet, and a report that pools them can never say so.
 FAMILY_SEP = ":"
 
+#: The namespace the engine files its *own* output under, as opposed to the
+#: scanners' emissions. Everything outside it is a signal the funnel found;
+#: everything inside it is a thesis the engine built from one.
+THESIS_NAMESPACE = "thesis"
+
+#: Below this many graded events a rate is noise dressed as evidence, so it is
+#: withheld rather than shown with a caveat nobody reads. Applies to base rates
+#: and to lift alike — the latter subtracts two of them, so it needs both sides.
+MIN_GRADED = 10
+
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
@@ -197,9 +207,13 @@ def record_thesis(thesis: Any) -> Optional[int]:
         "checks_broken": sum(1 for c in (thesis.checks or []) if c.status == "broken"),
         "review_by": str(thesis.review_by.date()) if thesis.review_by else None,
         "thesis_id": thesis.id,
+        # Recorded, not gated on: an unreviewed draft is graded like anything
+        # else, and carrying the flag is what lets the report ask later whether
+        # the ones a human kept did better than the ones nobody looked at.
+        "reviewed": getattr(thesis, "reviewed_at", None) is not None,
     }
     return record_events(
-        family="thesis",
+        family=THESIS_NAMESPACE,
         rows=[{"symbol": s, "known_on": str(created.date()),
                "family": thesis.source, "score": thesis.prior, "payload": payload}
               for s in symbols],
@@ -298,8 +312,21 @@ def grade_pending(limit: int = 500) -> Dict[str, Any]:
 # --------------------------------------------------------------------------- #
 # Learn: base rates per family, straight from the log
 # --------------------------------------------------------------------------- #
+def _namespace(family: str) -> str:
+    return str(family).split(FAMILY_SEP)[0]
+
+
 def report() -> List[Dict[str, Any]]:
-    """Per-family outcome summary of every graded event on record."""
+    """Per-family outcome summary of every graded event on record.
+
+    Families in the ``thesis`` namespace also carry ``lift_{horizon}``: their
+    mean excess minus the pooled mean excess of every *scanner* family at the
+    same horizon. That is the question the expensive half of the engine has to
+    answer — a thesis drafted off the funnel is only worth its model calls if
+    it beats what the funnel emitted unaided, and the pooled scanner record is
+    what "unaided" means here. Both sides must clear :data:`MIN_GRADED` before
+    a lift is stated, because otherwise it is two noisy numbers subtracted.
+    """
     import numpy as np
 
     session = SessionLocal()
@@ -308,6 +335,17 @@ def report() -> List[Dict[str, Any]]:
         by_family: Dict[str, List[SignalEvent]] = {}
         for event in events:
             by_family.setdefault(event.family, []).append(event)
+
+        # The funnel's own record, pooled across every scanner family: the
+        # benchmark a thesis built from those signals has to clear.
+        baseline: Dict[str, List[float]] = {column: [] for column in HORIZONS}
+        for family, members in by_family.items():
+            if _namespace(family) == THESIS_NAMESPACE:
+                continue
+            for column in HORIZONS:
+                baseline[column].extend(
+                    getattr(m, column) for m in members if getattr(m, column) is not None
+                )
 
         rows: List[Dict[str, Any]] = []
         for family, members in sorted(by_family.items()):
@@ -329,6 +367,19 @@ def report() -> List[Dict[str, Any]]:
                 row["mean_excess_" + label] = round(float(arr.mean()), 4)
                 row["median_excess_" + label] = round(float(np.median(arr)), 4)
                 row["hit_rate_" + label] = round(float((arr > 0).mean()), 3)
+
+            if _namespace(family) == THESIS_NAMESPACE:
+                for column in HORIZONS:
+                    label = column.replace("fwd_", "")
+                    against = baseline[column]
+                    if (row.get("graded_" + label) or 0) < MIN_GRADED:
+                        continue
+                    if len(against) < MIN_GRADED:
+                        continue
+                    mean = round(float(np.mean(against)), 4)
+                    row["baseline_graded_" + label] = len(against)
+                    row["baseline_mean_excess_" + label] = mean
+                    row["lift_" + label] = round(row["mean_excess_" + label] - mean, 4)
             rows.append(row)
         return rows
     finally:
@@ -351,13 +402,13 @@ def base_rate_index() -> Dict[str, Dict[str, Any]]:
 def describe_base_rate(row: Optional[Dict[str, Any]], horizon: str = "3m") -> Optional[str]:
     """One line of measured history for a family, or ``None`` if too thin.
 
-    Below ten graded events a hit rate is noise dressed as evidence, so it is
-    withheld rather than shown with a caveat nobody reads.
+    Below :data:`MIN_GRADED` events a hit rate is noise dressed as evidence, so
+    it is withheld rather than shown with a caveat nobody reads.
     """
     if not row:
         return None
     graded = row.get("graded_" + horizon) or 0
-    if graded < 10:
+    if graded < MIN_GRADED:
         return None
     return "{} graded {} events: {:.0f}% beat benchmark, mean excess {:+.1f}%".format(
         row["family"], graded,

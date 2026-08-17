@@ -295,6 +295,7 @@ class _FakeClient:
 
 
 def test_triage_card_contains_only_funnel_numbers():
+    from backend.thesis import sources
     from backend.thesis.triage import build_card
 
     row = {"symbol": "MGM", "issuer": "MGM Resorts International",
@@ -302,12 +303,17 @@ def test_triage_card_contains_only_funnel_numbers():
            "officer_value": 0, "board_backed_value": 39884552,
            "board_backed_via": "LEVIN JOSEPH", "buyers": "IAC Inc.",
            "total_buyers": 1, "has_ceo_cfo": False, "last_filing": "2025-12-09"}
+    # The funnel's own numbers come from the source that emitted the row; the
+    # frame around them is shared with every other source.
+    detail = sources.get(sources.INSIDER_CLUSTER).detail(row)
     card = build_card(row, {"one_month": -0.05, "three_month": 0.15, "one_year": 0.25},
-                      {"one_year": 0.22})
+                      {"one_year": 0.22}, detail=detail)
     assert "39,884,552" in card and "LEVIN JOSEPH" in card
     assert "+25.0%" in card and "SPY 1y +22.0%" in card
     # No price context degrades explicitly, never silently.
-    assert "price: unavailable" in build_card(row)
+    assert "price: unavailable" in build_card(row, detail=detail)
+    # The frame itself knows nothing about officers.
+    assert "officers=" not in build_card(row)
 
 
 def test_triage_run_and_validation(monkeypatch, stub_command):
@@ -720,3 +726,212 @@ def test_the_clock_keeps_sweeping_after_a_sweep_fails(monkeypatch):
     asyncio.run(drive())
     assert calls[:2] == [7, 7]  # a dead price API does not stop the clock
     assert second_sweep.is_set()
+
+
+# --------------------------------------------------------------------------- #
+# A falsifier is run before it is trusted
+# --------------------------------------------------------------------------- #
+def test_preflight_accepts_a_live_check_and_gives_it_a_first_reading(stub_command):
+    value, state, problem = spine.preflight(make_check(comparator="lt", threshold=5.0))
+    assert (value, state, problem) == (12.5, "holding", None)
+
+
+def test_preflight_refuses_a_field_the_command_does_not_return(stub_command):
+    """A check nobody can read looks tracked and watches nothing."""
+    _, state, problem = spine.preflight(make_check(field="ebitda"))
+    assert state == "error"
+    assert "ebitda" in problem
+
+
+def test_preflight_refuses_a_falsifier_that_is_already_true(stub_command):
+    """close is 12.5, so "breaks below 20" is true the moment it is written."""
+    _, state, problem = spine.preflight(make_check(comparator="lt", threshold=20.0))
+    assert state == "broken"
+    assert "already breached at creation" in problem
+
+
+def _new_thesis(auth_client, **kw):
+    body = {"title": "t", "claim": "c", "symbols": "AAA"}
+    body.update(kw)
+    return auth_client.post("/api/theses", json=body).json()
+
+
+def test_an_unreadable_check_is_refused_at_the_door(auth_client, stub_command):
+    thesis = _new_thesis(auth_client)
+    response = auth_client.post(
+        "/api/theses/{}/checks".format(thesis["id"]),
+        json={"name": "n", "command_path": STUB, "field": "ebitda",
+              "comparator": "lt", "threshold": 5.0},
+    )
+    assert response.status_code == 422
+    assert "ebitda" in response.json()["detail"]
+    # Nothing was stored: no falsifier is better than one that only errors.
+    detail = auth_client.get("/api/theses/{}".format(thesis["id"])).json()
+    assert detail["checks"] == []
+
+
+def test_a_check_already_true_has_to_be_meant(auth_client, stub_command):
+    thesis = _new_thesis(auth_client)
+    url = "/api/theses/{}/checks".format(thesis["id"])
+    body = {"name": "n", "command_path": STUB, "field": "close",
+            "comparator": "lt", "threshold": 20.0}
+
+    refused = auth_client.post(url, json=body)
+    assert refused.status_code == 422
+    assert "allow_breached=true" in refused.json()["detail"]
+
+    # The caller who means it is not blocked, only made to say so.
+    stored = auth_client.post(url + "?allow_breached=true", json=body)
+    assert stored.status_code == 201
+    assert stored.json()["status"] == "broken"
+
+
+def test_a_healthy_check_is_stored_with_its_first_reading(auth_client, stub_command):
+    thesis = _new_thesis(auth_client)
+    stored = auth_client.post(
+        "/api/theses/{}/checks".format(thesis["id"]),
+        json={"name": "n", "command_path": STUB, "field": "close",
+              "comparator": "lt", "threshold": 5.0},
+    ).json()
+    assert stored["status"] == "holding"
+    assert stored["last_value"] == 12.5  # preflight leaves the reading behind
+    assert stored["last_checked_at"] is not None
+
+
+# --------------------------------------------------------------------------- #
+# Review is a state, not a title prefix
+# --------------------------------------------------------------------------- #
+def test_a_hand_written_thesis_starts_reviewed_and_can_be_handed_back(auth_client):
+    thesis = _new_thesis(auth_client, title="mine")
+    assert thesis["reviewed_at"] is not None
+
+    def queue():
+        return [t["id"] for t in auth_client.get("/api/theses?reviewed=false").json()]
+
+    assert thesis["id"] not in queue()
+    auth_client.patch("/api/theses/{}".format(thesis["id"]), json={"reviewed": False})
+    assert thesis["id"] in queue()
+    auth_client.patch("/api/theses/{}".format(thesis["id"]), json={"reviewed": True})
+    assert thesis["id"] not in queue()
+
+
+def test_review_state_rides_along_into_the_signal_log(memory_db, stub_command):
+    from backend.models import SignalEvent
+    from backend.thesis import memory
+
+    thesis = Thesis(title="t", claim="c", symbols="AAA", status="open",
+                    source="deep_dive", created_at=datetime(2026, 1, 5))
+    thesis.checks = []
+    memory.record_thesis(thesis)
+
+    session = memory_db()
+    event = session.query(SignalEvent).one()
+    # A draft nobody has looked at is logged and graded like anything else;
+    # the flag is recorded so the report can ask about it later.
+    assert event.payload["reviewed"] is False
+    session.close()
+
+
+# --------------------------------------------------------------------------- #
+# What a company says about its own concentration
+# --------------------------------------------------------------------------- #
+def test_concentration_line_takes_the_largest_and_says_whose_books():
+    from backend.thesis import triage
+
+    rows = [
+        {"relationship": "customer", "symbol": "SSNLF", "exposure_pct": 12.0,
+         "pct_of": "CRUS net sales", "form": "10-K", "filing_date": "2024-05-03"},
+        {"relationship": "customer", "symbol": "AAPL", "exposure_pct": 91.0,
+         "pct_of": "CRUS net sales", "form": "10-K", "filing_date": "2024-05-03"},
+    ]
+    assert triage.describe_concentration(rows) == (
+        "customer AAPL = 91% of CRUS net sales (10-K 2024-05-03)")
+
+
+def test_a_filing_that_named_nobody_claims_nothing():
+    """Silence is the norm for a large cap, never evidence of diversification."""
+    from backend.thesis import triage
+
+    assert triage.describe_concentration([]) is None
+    assert triage.describe_concentration(None) is None
+    assert triage.describe_concentration([{"symbol": "X", "exposure_pct": None}]) is None
+
+
+def test_triage_card_carries_the_concentration_when_there_is_one():
+    from backend.thesis.triage import build_card
+
+    row = {"symbol": "CRUS", "issuer": "Cirrus Logic", "family": "officer_conviction"}
+    assert "concentration" not in build_card(row)
+    card = build_card(row, concentration="customer AAPL = 91% of CRUS net sales (10-K 2024-05-03)")
+    assert "concentration (self-disclosed): customer AAPL = 91%" in card
+
+
+# --------------------------------------------------------------------------- #
+# Lift: does the expensive half beat the cheap half?
+# --------------------------------------------------------------------------- #
+def _graded(session, family, count, excess, tag, first_day=1):
+    from backend.models import SignalEvent
+    from backend.thesis import memory
+
+    for i in range(count):
+        anchor = "2026-01-{:02d}".format(first_day + i)
+        symbol = "{}{}".format(tag, i)
+        session.add(SignalEvent(
+            event_key=memory.event_key(family, symbol, anchor),
+            family=family, symbol=symbol,
+            known_on=datetime.fromisoformat(anchor), fwd_3m=excess))
+
+
+def test_lift_is_withheld_until_both_sides_have_history(memory_db):
+    from backend.thesis import memory
+
+    session = memory_db()
+    _graded(session, "insider_cluster:officer_conviction", 12, 0.02, "IC")
+    _graded(session, "thesis:deep_dive", 4, 0.09, "TH")
+    session.commit()
+    session.close()
+
+    rows = {r["family"]: r for r in memory.report()}
+    # Four theses is not a measurement, so no lift is claimed over them.
+    assert "lift_3m" not in rows["thesis:deep_dive"]
+    # And a scanner family never gets one: it *is* the baseline.
+    assert "lift_3m" not in rows["insider_cluster:officer_conviction"]
+
+
+def test_lift_measures_theses_against_the_scanners_they_came_from(memory_db):
+    from backend.thesis import memory
+
+    session = memory_db()
+    _graded(session, "insider_cluster:officer_conviction", 10, 0.02, "IC")
+    _graded(session, "insider_cluster:board_backed_strategic", 10, 0.04, "BB", first_day=11)
+    _graded(session, "thesis:deep_dive", 10, 0.09, "TH")
+    session.commit()
+    session.close()
+
+    row = {r["family"]: r for r in memory.report()}["thesis:deep_dive"]
+    # The baseline pools every scanner family: (0.02 + 0.04) / 2 = 0.03.
+    assert row["baseline_graded_3m"] == 20
+    assert row["baseline_mean_excess_3m"] == pytest.approx(0.03)
+    assert row["lift_3m"] == pytest.approx(0.06)
+
+
+def test_preflight_refuses_a_deadline_that_has_already_passed(stub_command):
+    """A check past its by_date is graded as held from the moment it is
+    written, so it is a falsifier that can never fire."""
+    past = datetime.now(timezone.utc) - timedelta(days=5)
+    _, state, problem = spine.preflight(make_check(threshold=1.0, by_date=past))
+    assert state == "expired"
+    assert "can never fire" in problem
+
+
+def test_a_check_with_a_dead_deadline_is_refused(auth_client, stub_command):
+    thesis = _new_thesis(auth_client)
+    response = auth_client.post(
+        "/api/theses/{}/checks".format(thesis["id"]),
+        json={"name": "n", "command_path": STUB, "field": "close",
+              "comparator": "lt", "threshold": 1.0,
+              "by_date": (datetime.now(timezone.utc) - timedelta(days=5)).isoformat()},
+    )
+    assert response.status_code == 422
+    assert "already passed" in response.json()["detail"]
+    assert auth_client.get("/api/theses/{}".format(thesis["id"])).json()["checks"] == []

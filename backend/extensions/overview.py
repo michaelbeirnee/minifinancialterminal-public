@@ -40,7 +40,7 @@ def _quotes(pairs) -> List[Dict[str, Any]]:
 
 
 def _rates() -> Dict[str, Any]:
-    df = treasury.rates(start_date=str(pd.Timestamp.today().date() - pd.Timedelta(days=14)))
+    df = treasury.rates(start_date=str(pd.Timestamp.today().date() - pd.Timedelta(14, unit="D")))
     def col(name):
         series = df[name].dropna() if name in df.columns else pd.Series(dtype=float)
         if series.empty:
@@ -62,7 +62,7 @@ def _rates() -> Dict[str, Any]:
 
 def _credit() -> Dict[str, Any]:
     df = fred.series("BAMLH0A0HYM2,BAMLC0A0CM",
-                     start_date=str(pd.Timestamp.today().date() - pd.Timedelta(days=45)))
+                     start_date=str(pd.Timestamp.today().date() - pd.Timedelta(45, unit="D")))
     def latest(colname):
         series = df[colname].dropna() if colname in df.columns else pd.Series(dtype=float)
         return None if series.empty else float(series.iloc[-1])

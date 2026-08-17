@@ -74,7 +74,7 @@ def test_trailing_eps_sums_four_quarters(canned):
 def test_a_quarter_is_not_used_before_it_was_filed(canned):
     """The window closing 2025-12-31 must not move the ratio until it is public."""
     out = _frame(lag_days=45)
-    known_from = pd.Timestamp("2025-12-31") + pd.Timedelta(days=45)
+    known_from = pd.Timestamp("2025-12-31") + pd.Timedelta(45, unit="D")
     before = out.loc[out.index < known_from]
     # Nothing in the canned filings changes quarter to quarter, so the guard is
     # that the last quarter is excluded until its date: with only 7 quarters

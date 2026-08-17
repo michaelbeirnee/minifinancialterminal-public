@@ -118,6 +118,10 @@ td.pos,.v.pos{color:var(--green)} td.neg,.v.neg{color:var(--red)}
 .chip{background:var(--panel);border:1px solid var(--line);color:var(--muted);
   padding:7px 16px;border-radius:20px;font-weight:600;font-size:12px}
 .chip.active,.chip.sel{background:rgba(0,200,5,.12);border-color:var(--amber);color:var(--amber)}
+/* An unreviewed draft: visible in a list without shouting over the row. */
+.chip.warn{background:rgba(255,214,10,.10);border-color:#ffd60a;color:#ffd60a;
+  padding:2px 8px;font-size:10px;border-radius:10px;vertical-align:1px}
+.warn{color:#ffd60a}
 .explain{margin:16px 0 0;color:var(--muted);font-size:13px;line-height:1.5}
 
 /* Index / asset tiles */
@@ -624,6 +628,46 @@ dialog.sim-dialog{width:min(1180px,calc(100vw - 32px))}
 .peertable td.sym{font-family:'IBM Plex Mono',monospace}
 .peertable tr.subject td{background:rgba(0,200,5,.06)}
 .peertable tr.subject td.sym{color:var(--amber)}
+/* A row already in the comparison, in the picker below the group. */
+.peertable tr.picked td{background:rgba(0,200,5,.06)}
+.peertable tr.picked td.sym{color:var(--amber)}
+/* The evidence column is prose and the only one allowed to wrap. */
+.peertable td.why{white-space:normal;color:var(--muted);font-size:11.5px;min-width:180px}
+.peertable td.why a{color:var(--muted);text-decoration:underline}
+.peertable td.why a:hover{color:var(--text)}
+
+/* ===== Compare mode ===== */
+.chip.ghost{background:transparent;border-style:dashed}
+.cmp-group{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+.cmp-chip{display:inline-flex;align-items:center;gap:7px;padding:6px 12px;
+  border:1px solid var(--line);border-radius:3px;font-family:'IBM Plex Mono',monospace;
+  font-size:12px;color:var(--text)}
+.cmp-chip.subject{border-color:var(--amber);color:var(--amber)}
+.cmp-chip small{font-family:inherit;color:var(--faint);font-size:10px;letter-spacing:.5px;
+  text-transform:uppercase}
+.cmp-x{background:none;border:none;color:var(--faint);cursor:pointer;font-size:15px;
+  line-height:1;padding:0}
+.cmp-x:hover{color:var(--red)}
+.cmp-add{display:flex;align-items:center;gap:8px;margin:14px 0 4px}
+.cmp-add input{background:var(--deep);border:1px solid var(--line);color:var(--text);
+  padding:6px 10px;font-family:'IBM Plex Mono',monospace;font-size:12px;width:150px}
+.cmp-add input:focus{outline:none;border-color:var(--muted)}
+/* The subject column is the one every other column is read against. */
+.fstable th.cmp-subject,.fstable td.cmp-subject{background:rgba(0,200,5,.06)}
+.fstable th.cmp-median,.fstable td.cmp-median{color:var(--muted);
+  border-left:1px solid var(--line)}
+.cmp-mixrow{margin-bottom:16px}
+.cmp-mixhead{display:flex;justify-content:space-between;align-items:baseline;
+  margin-bottom:5px;font-size:12px}
+.cmp-mixhead b{font-family:'IBM Plex Mono',monospace;color:var(--text)}
+.cmp-mixhead span{color:var(--faint);font-size:11px}
+.cmp-bar{display:flex;width:100%;height:26px;overflow:hidden;background:var(--deep)}
+.cmp-seg{display:flex;align-items:center;overflow:hidden;opacity:.85;
+  border-right:1px solid var(--panel)}
+.cmp-seg:last-child{border-right:none}
+.cmp-seg em{font-style:normal;font-size:10.5px;color:#000;padding:0 6px;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis}
+.cmp-missing{color:var(--faint);font-size:11.5px;margin-top:10px}
 .fundtable th.num{font-family:'IBM Plex Mono',monospace}
 .fundtable td.lbl{color:var(--soft)}
 
@@ -650,6 +694,250 @@ dialog.sim-dialog{width:min(1180px,calc(100vw - 32px))}
   .keystrip{grid-template-columns:repeat(3,1fr)}
   .stock-head{align-items:flex-start;flex-direction:column}
   .stock-px{text-align:left}
+}
+
+/* ==========================================================================
+   6c. Exposure — the third stock mode: who this company buys from, sells to
+   and is compared against, read out of SEC concentration disclosures.
+
+   Layout is a five-column grid — suppliers, hub, subject, hub, customers —
+   with an SVG sitting behind it that draws the connectors between whatever
+   the grid actually laid out. The SVG is therefore never authored, only
+   measured (see drawExposureLinks), which keeps the wiring correct at any
+   width and for any number of nodes.
+   ========================================================================== */
+.expo-map{position:relative;min-height:300px;margin-top:4px}
+.expo-svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:0}
+.expo-grid{position:relative;z-index:1;display:grid;align-items:center;
+  grid-template-columns:minmax(150px,1fr) 106px minmax(230px,1.15fr) 106px minmax(150px,1fr)}
+.expo-col{display:flex;flex-direction:column;gap:5px;min-width:0}
+
+/* The hub column is empty apart from the dot the connectors converge on; the
+   count sits above it the way the Bloomberg screen labels its fan-out. */
+.expo-hub{display:flex;flex-direction:column;align-items:center;gap:6px;color:var(--muted)}
+.expo-hub .hub-label{font-family:'IBM Plex Mono',monospace;font-size:10.5px;
+  letter-spacing:.5px;white-space:nowrap;text-align:center}
+.expo-hub .hub-dot{width:11px;height:11px;background:var(--muted);border-radius:2px}
+.expo-hub.empty-hub{opacity:.35}
+
+/* A node is a company. Border carries the day's direction, exactly like the
+   tiles elsewhere in the terminal; the whole box is the click target. */
+.expo-node{display:block;width:100%;text-align:left;background:var(--deep);
+  border:1px solid var(--line);border-left-width:3px;border-radius:4px;
+  padding:5px 8px;color:var(--text);font-family:inherit;min-width:0}
+.expo-node:hover{border-color:var(--soft);background:#15181a}
+.expo-node .n-name{display:block;font-size:12px;font-weight:600;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.expo-node .n-meta{display:block;font-family:'IBM Plex Mono',monospace;font-size:10.5px;
+  color:var(--muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.expo-node .n-meta b{color:var(--soft);font-weight:600}
+.expo-node.up{border-left-color:var(--green)}
+.expo-node.down{border-left-color:var(--red)}
+.expo-node.flat{border-left-color:var(--line)}
+.expo-node .n-chg{float:right;margin-left:8px}
+.expo-node.up .n-chg{color:var(--green)}
+.expo-node.down .n-chg{color:var(--red)}
+
+/* The subject sits in the middle and is the only node that is not a link. */
+.expo-subject{background:rgba(0,200,5,.09);border:1px solid var(--green);border-radius:5px;
+  padding:10px 12px}
+.expo-subject .s-sym{font-family:'IBM Plex Mono',monospace;font-size:17px;
+  font-weight:600;color:var(--green)}
+.expo-subject .s-name{font-size:12px;color:var(--soft);margin:1px 0 8px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.expo-subject .s-row{display:flex;font-family:'IBM Plex Mono',monospace;font-size:11px;
+  color:var(--muted);gap:8px}
+.expo-subject .s-row span:last-child{margin-left:auto;color:var(--soft)}
+
+/* Comparables hang below the subject rather than to either side: they are not
+   a counterparty, so they must not read as one. */
+.expo-below{position:relative;z-index:1;display:flex;flex-direction:column;
+  align-items:center;gap:8px;margin-top:18px}
+.expo-peerrow{display:flex;flex-wrap:wrap;justify-content:center;gap:5px;max-width:78%}
+.expo-peerrow .expo-node{width:auto;min-width:118px;flex:0 1 156px}
+
+.expo-side-h{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:1.4px;
+  color:var(--faint);margin-bottom:2px}
+.expo-side-h.r{text-align:right}
+
+.expo-legend{display:flex;flex-wrap:wrap;gap:16px;margin-top:16px;padding-top:12px;
+  border-top:1px solid var(--line);font-size:11px;color:var(--muted)}
+.expo-legend b{color:var(--soft);font-weight:600}
+
+/* Fixed layout so the quoted sentence — the only cell that should wrap — gets
+   whatever the five fixed columns leave, instead of forcing the table wider
+   than the panel and pushing the evidence off-screen. */
+.expotable table{font-size:12px;table-layout:fixed}
+.expotable th,.expotable td{overflow:hidden;text-overflow:ellipsis}
+.expotable th:nth-child(1),.expotable td:nth-child(1){width:74px}
+.expotable th:nth-child(2),.expotable td:nth-child(2){width:22%;text-align:left}
+.expotable th:nth-child(3),.expotable td:nth-child(3){width:100px;text-align:left}
+.expotable th:nth-child(4),.expotable td:nth-child(4){width:86px}
+.expotable th:nth-child(5),.expotable td:nth-child(5){width:132px;text-align:left}
+.expotable td.sym{font-family:'IBM Plex Mono',monospace}
+.expotable td.num{text-align:right;font-family:'IBM Plex Mono',monospace}
+.expotable td.side{font-size:11px;letter-spacing:.5px}
+.expotable td.side.supplier{color:var(--blue)}
+.expotable td.side.customer{color:var(--amber)}
+.expotable td.side.peer{color:var(--muted)}
+.expotable td.quote{white-space:normal;overflow:visible;text-align:left;
+  color:var(--soft);font-size:11.5px;line-height:1.5}
+.expotable td.quote a{font-size:11px;white-space:nowrap;margin-left:4px}
+
+@media (max-width:980px){
+  /* Below this the fan-out stops reading as a diagram, so the columns stack and
+     the connector layer is left empty rather than drawing lines across a fold. */
+  .expo-grid{grid-template-columns:1fr}
+  .expo-hub{flex-direction:row;justify-content:center;margin:10px 0}
+  .expo-peerrow{max-width:100%}
+  .expo-side-h.r{text-align:left}
+}
+
+/* ==========================================================================
+   6d. Financials — the fourth stock mode: the three statements as filed.
+
+   A statement is a document, not a grid: the indentation and the ruled-off
+   subtotals are what make it readable at a glance, so they carry as much
+   styling weight here as the numbers do.
+   ========================================================================== */
+.fs-toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:2px 0 14px}
+.fstable{max-height:none}
+.fstable table{font-size:12.5px;table-layout:fixed}
+.fstable th,.fstable td{padding:5px 10px;border-bottom:none}
+.fstable thead th{position:sticky;top:0;z-index:2;background:var(--panel);
+  border-bottom:1px solid var(--line);padding-bottom:8px;
+  font-family:'IBM Plex Mono',monospace;font-size:11px}
+.fstable th:first-child,.fstable td:first-child{text-align:left;width:38%;min-width:210px}
+.fstable td.v{text-align:right;font-family:'IBM Plex Mono',monospace;
+  font-variant-numeric:tabular-nums}
+.fstable tbody tr:hover td{background:var(--deep)}
+
+/* A section head ("Assets") and a statement's own lines. */
+.fstable tr.fs-section td{padding:16px 10px 5px;color:var(--faint);
+  font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:1.4px}
+.fstable tr.fs-section:first-child td{padding-top:2px}
+.fstable td.lbl{color:var(--soft)}
+.fstable tr.indent-1 td.lbl{padding-left:26px;color:var(--muted)}
+
+/* Weight: a subtotal is ruled off above, a total is ruled and bold. */
+.fstable tr.w-subtotal td{border-top:1px solid var(--line)}
+.fstable tr.w-subtotal td.lbl,.fstable tr.w-subtotal td.v{color:var(--text)}
+.fstable tr.w-total td{border-top:1px solid var(--line)}
+.fstable tr.w-total td.lbl,.fstable tr.w-total td.v{color:var(--text);font-weight:600}
+.fstable tr.derived td.lbl{color:var(--muted);font-style:italic}
+.fstable tr.derived td.lbl::after{content:"  ·  computed";font-style:normal;
+  font-size:9.5px;letter-spacing:.8px;color:var(--faint)}
+.fstable td.v.neg{color:var(--red)}
+.fstable td.v.pos{color:var(--green)}
+.fstable td.v.none{color:var(--faint)}
+
+/* The estimated year. Set apart down its whole length, because the one thing
+   that must never happen on this table is an estimate being read as filed. */
+.fstable th.fs-est,.fstable td.fs-est{background:var(--deep);
+  border-left:1px dashed var(--line);border-right:1px dashed var(--line)}
+.fstable tbody tr:hover td.fs-est{background:var(--line)}
+
+.fs-foot{display:flex;flex-wrap:wrap;gap:16px;margin-top:16px;padding-top:12px;
+  border-top:1px solid var(--line);font-size:11px;color:var(--muted)}
+.fs-foot b{color:var(--soft);font-weight:600}
+
+@media (max-width:900px){
+  .fstable th:first-child,.fstable td:first-child{width:auto;min-width:170px}
+  .fstable table{table-layout:auto}
+}
+
+/* ==========================================================================
+   7. Modeling — a DCF you drive.
+
+   The screen is one long argument: what you assumed, what that projects, what
+   it is worth, and how fragile that is. The answer sits at the top because it
+   is what changes as you type; the reasoning runs underneath it.
+   ========================================================================== */
+.md-layout{display:grid;grid-template-columns:270px minmax(0,1fr);gap:18px;align-items:start}
+.md-rail{position:sticky;top:0}
+.md-main{display:flex;flex-direction:column;gap:18px;min-width:0}
+.md-build{display:flex;gap:8px}
+.md-build input{flex:1;min-width:0;text-transform:uppercase}
+.md-placeholder{color:var(--muted)}
+.md-placeholder p{margin:0 0 8px}
+
+.md-saved{display:flex;flex-direction:column;gap:6px;max-height:52vh;overflow:auto}
+.md-saved-item{background:var(--deep);border:1px solid var(--line);border-radius:6px;
+  padding:8px 10px;cursor:pointer}
+.md-saved-item:hover{border-color:var(--muted)}
+.md-saved-item.active{border-color:var(--green);background:rgba(0,200,5,.07)}
+.md-saved-item .t{display:flex;align-items:baseline;gap:6px}
+.md-saved-item .nm{font-size:12.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap}
+.md-saved-item .sy{font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--amber);
+  margin-left:auto}
+.md-saved-item .m{font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--muted);
+  margin-top:3px;display:flex;gap:8px}
+.md-saved-item .del{margin-left:auto;color:var(--faint)}
+.md-saved-item .del:hover{color:var(--red)}
+
+/* The headline: identity, the answer, and the bridge that produced it. */
+.md-headline{display:grid;grid-template-columns:minmax(160px,1.1fr) auto minmax(220px,1.2fr) auto;
+  gap:24px;align-items:center}
+.md-sym{font-size:24px;font-weight:600;color:var(--green)}
+.md-answer{text-align:right}
+.md-answer-l{font-size:10px;letter-spacing:1.4px;color:var(--faint);
+  font-family:'IBM Plex Mono',monospace}
+.md-value{font-size:30px;font-weight:600;line-height:1.15}
+.md-upside{font-size:12px;margin-top:2px}
+.md-upside.pos{color:var(--green)} .md-upside.neg{color:var(--red)}
+.md-bridge{display:flex;flex-direction:column;gap:3px;font-family:'IBM Plex Mono',monospace;
+  font-size:11px;color:var(--muted);border-left:1px solid var(--line);padding-left:20px}
+.md-bridge .r{display:flex;gap:12px}
+.md-bridge .r span:last-child{margin-left:auto;color:var(--soft)}
+.md-bridge .r.tot span{color:var(--text)}
+.md-save{display:flex;flex-direction:column;gap:6px;min-width:190px}
+.md-save input{width:100%}
+.md-save .msg{min-height:0;font-size:11px}
+
+.md-warnings{display:flex;flex-direction:column;gap:6px}
+.md-warnings .w{background:rgba(255,214,10,.07);border:1px solid rgba(255,214,10,.3);
+  border-radius:6px;padding:8px 12px;font-size:12px;color:#ffd60a}
+
+.md-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;align-items:start}
+
+/* One control per row: label, input, and the filed history it came from. */
+.md-assumptions{display:flex;flex-direction:column;gap:2px}
+.md-row{display:grid;grid-template-columns:1fr 124px;gap:10px;align-items:center;
+  padding:5px 0;border-bottom:1px dotted var(--line)}
+.md-row:last-child{border-bottom:none}
+.md-row label{font-size:12px;color:var(--soft)}
+.md-row .was{display:block;font-size:10px;color:var(--faint);
+  font-family:'IBM Plex Mono',monospace;margin-top:2px}
+.md-row input[type=number],.md-row select{width:100%;padding:5px 8px;font-size:12px;
+  font-family:'IBM Plex Mono',monospace;text-align:right}
+.md-row select{text-align:left}
+.md-row.wide{grid-template-columns:1fr}
+.md-row .peryear{display:flex;gap:5px;margin-top:6px}
+.md-row .peryear div{flex:1;min-width:0}
+.md-row .peryear label{display:block;font-size:9.5px;color:var(--faint);text-align:center;
+  font-family:'IBM Plex Mono',monospace;margin-bottom:2px}
+.md-row .peryear input{width:100%;padding:4px 4px;font-size:11px;text-align:center}
+.md-row .unit{color:var(--faint);font-size:10px;margin-left:4px}
+
+.mdtable table{font-size:12px}
+.mdtable th,.mdtable td{white-space:nowrap;padding:6px 10px}
+.mdtable td.num,.mdtable th.num{text-align:right;font-family:'IBM Plex Mono',monospace}
+.mdtable td.lbl{color:var(--soft);text-align:left}
+.mdtable tr.tot td{border-top:1px solid var(--line);color:var(--text);font-weight:600}
+
+/* Sensitivity: one cell per pair, shaded by how far it sits from today's price. */
+.mdtable td.cellv{font-family:'IBM Plex Mono',monospace;text-align:right;cursor:default}
+.mdtable td.cellv.here{outline:1px solid var(--amber);outline-offset:-1px}
+.mdtable th.axis{color:var(--faint);font-size:10.5px;letter-spacing:.5px}
+
+@media (max-width:1100px){
+  .md-layout{grid-template-columns:1fr}
+  .md-rail{position:static}
+  .md-grid{grid-template-columns:1fr}
+  .md-headline{grid-template-columns:1fr;gap:14px}
+  .md-answer{text-align:left}
+  .md-bridge{border-left:none;padding-left:0;border-top:1px solid var(--line);padding-top:12px}
 }
 
 /* Valuation history — a VALUATION row opens its own multi-year chart. */
@@ -685,3 +973,108 @@ dialog.sim-dialog{width:min(1180px,calc(100vw - 32px))}
 .hg-scenario .hintline{margin-top:10px;line-height:1.6}
 .hg-scenario .hintline div{margin-top:2px}
 @media (max-width:760px){ .hg-chartwrap{height:230px} }
+
+/* --------------------------------------------------------------------------
+   Calendar — the event grid, its type rail and the macro list.
+
+   Event types carry their own colours rather than the app's green/red pair:
+   red-versus-green here would read as "good day / bad day" when the only thing
+   a colour distinguishes is which feed the row came from. The seven hues below
+   are picked to stay separable on the black canvas at pill size.
+   -------------------------------------------------------------------------- */
+:root{
+  --ev-earnings:#00c805; --ev-dividend_ex:#4aa3ff; --ev-dividend_pay:#2f7fd0;
+  --ev-split:#c084fc; --ev-ipo:#ffd60a; --ev-economic:#ff8a3d; --ev-custom:#9aa0a6;
+}
+.cal-layout{display:grid;grid-template-columns:262px minmax(0,1fr);gap:16px;align-items:start}
+.cal-rail .panel{padding:18px}
+.cal-main{min-width:0}
+
+/* Type checkboxes */
+.cal-group{color:var(--faint);font-size:10px;letter-spacing:1.5px;text-transform:uppercase;
+  margin:12px 0 4px}
+.cal-group:first-child{margin-top:0}
+.cal-type{display:flex;align-items:center;gap:8px;padding:4px 6px;border-radius:5px;
+  font-size:13px;color:var(--soft);cursor:pointer;user-select:none}
+.cal-type:hover{background:rgba(255,255,255,.045)}
+.cal-type input{accent-color:var(--amber);margin:0;cursor:pointer}
+.cal-badge{width:17px;height:17px;flex:none;border-radius:3px;display:grid;place-items:center;
+  font-family:'IBM Plex Mono',monospace;font-size:9.5px;font-weight:700;color:#000}
+.cal-type .lbl{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* A type with no free source: shown, explained on hover, never selectable —
+   an omitted filter reads as "nothing scheduled", which would be a lie. */
+.cal-type.off{opacity:.42;cursor:help}
+.cal-type.off:hover{background:none}
+.cal-type.off .cal-badge{background:var(--line)!important;color:var(--faint)}
+.cal-typecount{margin-left:auto;color:var(--faint);font-size:10.5px;font-family:'IBM Plex Mono',monospace}
+
+.cal-noteform{display:flex;flex-direction:column;gap:8px}
+.cal-noteform input{width:100%}
+.cal-noteform .msg{min-height:14px;font-size:11px}
+
+/* Month grid */
+.cal-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:1px;
+  background:var(--line);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.cal-dow{background:var(--deep);color:var(--muted);font-size:10px;letter-spacing:1px;
+  text-align:center;padding:7px 4px}
+.cal-day{background:var(--panel);min-height:106px;padding:6px;display:flex;
+  flex-direction:column;gap:3px;min-width:0}
+.cal-day.out{background:var(--deep)}
+.cal-day.out .cal-daynum{opacity:.35}
+.cal-daynum{align-self:flex-start;font-size:11px;font-weight:600;color:var(--muted);
+  font-family:'IBM Plex Mono',monospace;padding:0 4px;line-height:16px}
+.cal-day.today .cal-daynum{background:var(--amber);color:#000;border-radius:4px}
+.cal-pill{display:block;width:100%;text-align:left;background:var(--deep);border:none;
+  border-left:2px solid var(--line);color:var(--soft);font-size:10px;line-height:1.35;
+  padding:2px 5px;border-radius:0 3px 3px 0;white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis;font-family:inherit}
+.cal-pill:hover{background:#1a1d1f;color:var(--text)}
+.cal-pill .p-sym{font-family:'IBM Plex Mono',monospace;font-weight:700}
+.cal-more{background:none;border:none;color:var(--faint);font-size:10px;padding:1px 5px;
+  text-align:left;font-family:inherit}
+.cal-more:hover{color:var(--text)}
+
+/* Agenda list */
+.cal-agenda{display:flex;flex-direction:column}
+.cal-agenda-day{display:grid;grid-template-columns:104px minmax(0,1fr);gap:14px;
+  padding:10px 0;border-top:1px solid var(--line)}
+.cal-agenda-day:first-child{border-top:none}
+.cal-agenda-date{font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:var(--muted);
+  padding-top:2px}
+.cal-agenda-date .d-num{display:block;color:var(--text);font-size:18px;font-weight:600;line-height:1.2}
+.cal-agenda-date.is-today .d-num{color:var(--amber)}
+.cal-agenda-rows{display:flex;flex-direction:column;gap:1px;min-width:0}
+.cal-ev{display:grid;grid-template-columns:16px 78px 96px minmax(0,1fr);gap:10px;align-items:baseline;
+  padding:5px 8px;border-radius:4px;font-size:12.5px;min-width:0}
+.cal-ev:hover{background:rgba(255,255,255,.035)}
+.cal-ev .ev-dot{width:8px;height:8px;border-radius:2px;align-self:center}
+.cal-ev .ev-sym{font-family:'IBM Plex Mono',monospace;font-weight:700;color:var(--text);
+  overflow:hidden;text-overflow:ellipsis}
+.cal-ev .ev-sym.plain{font-weight:400;color:var(--muted);font-size:11px}
+.cal-ev .ev-type{color:var(--faint);font-size:10.5px;letter-spacing:.5px;text-transform:uppercase;
+  overflow:hidden;text-overflow:ellipsis}
+.cal-ev .ev-what{color:var(--soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cal-ev .ev-detail{color:var(--muted);font-size:11.5px}
+.cal-ev .ev-time{color:var(--faint);font-size:10.5px;font-family:'IBM Plex Mono',monospace}
+.cal-ev .ev-del{background:none;border:none;color:var(--faint);font-size:14px;padding:0 4px;line-height:1}
+.cal-ev .ev-del:hover{color:var(--red)}
+/* Rank shows as weight, not another colour — the colours are already spoken for. */
+.cal-ev.imp-3 .ev-what{color:var(--text);font-weight:600}
+.cal-ev.imp-1{opacity:.78}
+
+.cal-legend{display:flex;flex-wrap:wrap;gap:12px;margin-top:14px;padding-top:12px;
+  border-top:1px solid var(--line)}
+.cal-legend span{display:inline-flex;align-items:center;gap:6px;color:var(--muted);font-size:11px}
+.cal-legend i{width:9px;height:9px;border-radius:2px;display:inline-block}
+
+@media (max-width:1000px){
+  .cal-layout{grid-template-columns:1fr}
+  .cal-day{min-height:84px}
+}
+@media (max-width:760px){
+  .cal-grid{font-size:9px}
+  .cal-day{min-height:64px;padding:3px}
+  .cal-ev{grid-template-columns:16px 1fr;row-gap:2px}
+  .cal-ev .ev-type{display:none}
+  .cal-agenda-day{grid-template-columns:64px minmax(0,1fr);gap:8px}
+}

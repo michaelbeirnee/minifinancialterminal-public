@@ -76,6 +76,12 @@ class User(Base):
     alerts: Mapped[List["Alert"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
+    calendar_events: Mapped[List["CalendarEvent"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+    valuation_models: Mapped[List["ValuationModel"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
     portfolios: Mapped[List["Portfolio"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
@@ -273,6 +279,38 @@ class Alert(Base):
     trigger_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
     user: Mapped[User] = relationship(back_populates="alerts")
+
+
+class CalendarEvent(Base):
+    """A dated note the user put on their own calendar.
+
+    The "Custom / Notes" event type. Everything else on the calendar is fetched
+    from a public feed on demand and never stored; this is the one type that is
+    the user's own writing, so it lives here and is scoped to their account.
+
+    ``event_date`` is a plain ``YYYY-MM-DD`` string rather than a Date column
+    because that is what the feeds normalise to and what the calendar grid keys
+    on — storing a datetime would invite a timezone shifting a note onto the
+    wrong day, which for a calendar is the whole ballgame.
+    """
+
+    __tablename__ = "calendar_events"
+    __table_args__ = (Index("ix_calendar_events_user_id_event_date", "user_id", "event_date"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    event_date: Mapped[str] = mapped_column(String(10), nullable=False)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    symbol: Mapped[Optional[str]] = mapped_column(String(32), index=True, nullable=True)
+    detail: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    time: Mapped[Optional[str]] = mapped_column(String(24), nullable=True)
+    importance: Mapped[int] = mapped_column(Integer, default=2, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, onupdate=_utcnow)
+
+    user: Mapped[User] = relationship(back_populates="calendar_events")
 
 
 class BacktestRun(Base):
@@ -473,6 +511,12 @@ class Thesis(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, onupdate=_utcnow)
     closed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    #: When a human last looked at this. NULL means nobody has — which is the
+    #: state a deep-dive draft is born in, and the only thing separating a
+    #: machine's proposal from a claim someone owns. Drafts are graded from
+    #: creation regardless: review decides whether a thesis is *yours*, never
+    #: whether it counts.
+    reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
     evidence: Mapped[List["ThesisEvidence"]] = relationship(
         back_populates="thesis", cascade="all, delete-orphan"
@@ -698,3 +742,41 @@ class HedgeRecord(Base):
     executed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     closed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, onupdate=_utcnow)
+
+
+class ValuationModel(Base):
+    """One saved DCF: the assumptions, and what they were worth when saved.
+
+    The assumptions are the model — they are what the operator actually
+    authored, and re-running them against today's statements is the point of
+    coming back. The valuation is stored alongside them anyway, frozen, so a
+    model opened in six months shows what it said at the time next to what it
+    says now. A model whose answer has moved without its assumptions changing
+    is telling you something about the business.
+    """
+
+    __tablename__ = "valuation_models"
+    __table_args__ = (
+        UniqueConstraint("user_id", "name", name="uq_valuation_models_user_id_name"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    symbol: Mapped[str] = mapped_column(String(32), index=True, nullable=False)
+    kind: Mapped[str] = mapped_column(String(32), default="dcf", nullable=False)
+
+    #: Every input the operator controls — see backend/valuation/dcf.Assumptions.
+    assumptions: Mapped[Dict[str, Any]] = mapped_column(JSON, default=dict)
+    #: The result as saved, and the market it was saved against.
+    valuation: Mapped[Dict[str, Any]] = mapped_column(JSON, default=dict)
+    value_per_share: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    price_at_save: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, onupdate=_utcnow)
+
+    user: Mapped[User] = relationship(back_populates="valuation_models")

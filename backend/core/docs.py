@@ -29,8 +29,10 @@ MENU_GUIDES: Dict[str, str] = {
     ),
     "equity": (
         "Everything about individual stocks. price/* pulls quotes and history, "
-        "fundamental/* reads income statements, balance sheets and ratios straight "
-        "from SEC filings (or Yahoo), estimates/* covers analyst targets, "
+        "fundamental/* reads income statements, balance sheets, ratios and the "
+        "revenue split by segment, geography and product straight "
+        "from SEC filings (or Yahoo), compare/* builds a peer group and puts it "
+        "side by side, estimates/* covers analyst targets, "
         "ownership/* shows who holds the stock, calendar/* lists earnings and IPO "
         "dates, discovery/* runs pre-built screens like day gainers, and shorts/* "
         "tracks short volume and fails-to-deliver. Most commands take a symbol — "

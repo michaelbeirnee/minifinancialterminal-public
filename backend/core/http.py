@@ -50,6 +50,9 @@ _THROTTLE: Dict[str, float] = {
     # Sentiment-history rebuilds walk the Google News archive window by
     # window — space the calls so a long backfill never reads as abuse.
     "news.google.com": 0.5,
+    # A congressional sweep opens one document per filing; the Senate's search
+    # service is small and there is no hurry.
+    "efdsearch.senate.gov": 0.4,
 }
 _last_call: Dict[str, float] = {}
 _throttle_lock = threading.Lock()

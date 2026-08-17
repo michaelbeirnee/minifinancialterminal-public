@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, EmailStr, Field
 
@@ -223,6 +223,44 @@ class AlertOut(BaseModel):
     last_triggered_at: Optional[datetime] = None
     last_value: Optional[float] = None
     trigger_count: int = 0
+
+    model_config = ORM
+
+
+# --- Calendar (the user's own "Custom / Notes" events) ---
+#: The calendar grid keys on plain dates, so the API takes and returns them as
+#: ``YYYY-MM-DD`` strings — no timezone can shift a note onto the wrong day.
+EVENT_DATE_PATTERN = r"^\d{4}-\d{2}-\d{2}$"
+
+
+class CalendarEventCreate(BaseModel):
+    event_date: str = Field(pattern=EVENT_DATE_PATTERN)
+    title: str = Field(min_length=1, max_length=200)
+    symbol: Optional[str] = Field(default=None, max_length=32)
+    detail: Optional[str] = None
+    time: Optional[str] = Field(default=None, max_length=24)
+    importance: int = Field(default=2, ge=1, le=3)
+
+
+class CalendarEventUpdate(BaseModel):
+    event_date: Optional[str] = Field(default=None, pattern=EVENT_DATE_PATTERN)
+    title: Optional[str] = Field(default=None, min_length=1, max_length=200)
+    symbol: Optional[str] = Field(default=None, max_length=32)
+    detail: Optional[str] = None
+    time: Optional[str] = Field(default=None, max_length=24)
+    importance: Optional[int] = Field(default=None, ge=1, le=3)
+
+
+class CalendarEventOut(BaseModel):
+    id: int
+    event_date: str
+    title: str
+    symbol: Optional[str] = None
+    detail: Optional[str] = None
+    time: Optional[str] = None
+    importance: int = 2
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
 
     model_config = ORM
 
@@ -502,6 +540,9 @@ class ThesisUpdate(BaseModel):
     notes: Optional[str] = None
     status: Optional[str] = Field(default=None, pattern="^(open|closed)$")
     outcome_note: Optional[str] = None
+    #: Sets or clears ``reviewed_at``: a human taking ownership of a draft, or
+    #: putting it back on the queue.
+    reviewed: Optional[bool] = None
 
 
 class ThesisOut(BaseModel):
@@ -519,6 +560,9 @@ class ThesisOut(BaseModel):
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     closed_at: Optional[datetime] = None
+    #: NULL means no human has reviewed it — the state a deep-dive draft
+    #: starts in.
+    reviewed_at: Optional[datetime] = None
 
     model_config = ORM
 
@@ -670,3 +714,78 @@ class HedgeRecordOut(BaseModel):
     updated_at: Optional[datetime] = None
 
     model_config = ORM
+
+
+# --------------------------------------------------------------------------- #
+# Valuation models (Modeling tab)
+# --------------------------------------------------------------------------- #
+class DCFAssumptions(BaseModel):
+    """Every input the operator controls. Rates are decimals: 0.08 is 8%.
+
+    The per-year fields take either one number (held flat across the forecast)
+    or one number per year, which is what lets a model fade growth or step a
+    margin without needing a different shape of request.
+    """
+
+    revenue_base: float = Field(gt=0)
+    shares_diluted: float = Field(gt=0)
+    years: int = Field(default=5, ge=1, le=20)
+
+    revenue_growth: Union[float, List[float]] = 0.05
+    operating_margin: Union[float, List[float]] = 0.20
+    tax_rate: float = Field(default=0.21, ge=0, le=0.99)
+    depreciation_pct_revenue: Union[float, List[float]] = 0.04
+    capex_pct_revenue: Union[float, List[float]] = 0.05
+    nwc_pct_revenue_change: Union[float, List[float]] = 0.10
+
+    #: Set this to drive the model directly, or leave it null and set the weights.
+    discount_rate: Optional[float] = Field(default=None, gt=0, le=1)
+    equity_weight: float = Field(default=1.0, ge=0, le=1)
+    cost_of_equity: float = Field(default=0.09, gt=0, le=1)
+    cost_of_debt: float = Field(default=0.05, ge=0, le=1)
+
+    terminal_method: Literal["perpetuity", "exit_multiple"] = "perpetuity"
+    terminal_growth: float = Field(default=0.025, ge=-0.05, le=0.10)
+    exit_multiple: float = Field(default=12.0, gt=0, le=100)
+
+    net_debt: float = 0.0
+    mid_year: bool = True
+
+
+class ValuationRequest(BaseModel):
+    symbol: str = Field(min_length=1, max_length=32)
+    assumptions: DCFAssumptions
+    #: Adds the discount-rate x terminal grid alongside the single answer.
+    sensitivity: bool = True
+
+
+class ValuationModelCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=128)
+    symbol: str = Field(min_length=1, max_length=32)
+    assumptions: DCFAssumptions
+    note: Optional[str] = None
+
+
+class ValuationModelUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, min_length=1, max_length=128)
+    assumptions: Optional[DCFAssumptions] = None
+    note: Optional[str] = None
+
+
+class ValuationModelOut(BaseModel):
+    id: int
+    name: str
+    symbol: str
+    kind: str = "dcf"
+    assumptions: Dict[str, Any] = Field(default_factory=dict)
+    value_per_share: Optional[float] = None
+    price_at_save: Optional[float] = None
+    note: Optional[str] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    model_config = ORM
+
+
+class ValuationModelFull(ValuationModelOut):
+    valuation: Dict[str, Any] = Field(default_factory=dict)

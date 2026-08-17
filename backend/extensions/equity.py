@@ -208,23 +208,9 @@ def market_status(market: str = "US", provider: Optional[str] = None) -> Result:
 # --------------------------------------------------------------------------- #
 # Comparison
 # --------------------------------------------------------------------------- #
-@command("/equity/compare/peers", providers=("yahoo",), summary="Peer companies in the same industry")
-def compare_peers(symbol: str, limit: int = 25, provider: Optional[str] = None) -> Result:
-    src = resolve_provider(provider, ("yahoo",))
-    sym = one_symbol(symbol)
-    info = yahoo.info(sym)
-    industry_key = info.get("industryKey")
-    sector_key = info.get("sectorKey")
-    if industry_key:
-        df = yahoo.industry(industry_key, "top_companies")
-    elif sector_key:
-        df = yahoo.sector(sector_key, "top_companies")
-    else:
-        raise EmptyDataError("Yahoo does not classify {} into an industry".format(sym))
-    df = pd.DataFrame(df)
-    df.insert(0, "peer_of", sym)
-    return Result(df.head(limit), provider=src, index_name="symbol",
-                  extra={"industry": info.get("industry"), "sector": info.get("sector")})
+# /equity/compare/peers, /table and /revenue_mix live in ``compare.py``: they are
+# one feature about a named company and its comparables, while the commands here
+# compare whole groups against each other.
 
 
 @command("/equity/compare/groups", providers=("yahoo",),

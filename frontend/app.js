@@ -139,6 +139,7 @@ document.querySelectorAll(".navbtn").forEach((b) => {
     if (b.dataset.view === "sectors") loadSectors();
     if (b.dataset.view === "screener") loadScreener();
     if (b.dataset.view === "thesis") loadThesisView();
+    if (b.dataset.view === "modeling") loadModelingView();
     if (b.dataset.view === "assets") loadAssets();
     if (b.dataset.view === "news") loadNewsInit();
     if (b.dataset.view === "sentiment") loadSentimentInit();
@@ -768,13 +769,18 @@ let stAdvRange = "1Y", stChartType = "candles";
 const stOverlays = { sma50: true, sma200: true, bollinger: false };
 let stQuote = null;
 
+// Simple is the narrow reading view; the other two are diagrams and tables that
+// want the full window.
+const ST_MODES = ["simple", "advanced", "exposure", "financials", "compare"];
+const stWide = () => stMode !== "simple";
+
 function switchToView(id) {
   document.querySelectorAll(".navbtn").forEach((x) => x.classList.remove("active"));
   document.querySelectorAll(".view").forEach((x) => x.classList.remove("active"));
   $(id).classList.add("active");
   const container = document.querySelector(".container");
   container.classList.toggle("workspace-open", id === "view-workspace");
-  container.classList.toggle("stock-wide", id === "view-stock" && stMode === "advanced");
+  container.classList.toggle("stock-wide", id === "view-stock" && stWide());
   document.querySelector(".content").scrollTop = 0;
 }
 
@@ -784,11 +790,11 @@ function switchToView(id) {
 const ST_MODE_KEY = "mft_stock_mode";
 async function loadStockMode() {
   const local = localStorage.getItem(ST_MODE_KEY);
-  if (local === "simple" || local === "advanced") stMode = local;
+  if (ST_MODES.includes(local)) stMode = local;
   try {
     const rows = await api("/api/user/settings");
     const saved = (rows || []).find((r) => r.key === ST_MODE_KEY);
-    if (saved && (saved.value === "simple" || saved.value === "advanced")) {
+    if (saved && ST_MODES.includes(saved.value)) {
       stMode = saved.value;
       localStorage.setItem(ST_MODE_KEY, stMode);
       if ($("view-stock").classList.contains("active")) applyStockMode();
@@ -806,13 +812,18 @@ function setStockMode(mode) {
 }
 
 function applyStockMode() {
-  const advanced = stMode === "advanced";
   document.querySelectorAll("#st-mode .chip").forEach((c) =>
     c.classList.toggle("active", c.dataset.mode === stMode));
-  $("st-simple").style.display = advanced ? "none" : "";
-  $("st-advanced").style.display = advanced ? "" : "none";
-  document.querySelector(".container").classList.toggle("stock-wide", advanced);
-  if (advanced) openStockAdvanced();
+  $("st-simple").style.display = stMode === "simple" ? "" : "none";
+  $("st-advanced").style.display = stMode === "advanced" ? "" : "none";
+  $("st-exposure").style.display = stMode === "exposure" ? "" : "none";
+  $("st-financials").style.display = stMode === "financials" ? "" : "none";
+  $("st-compare").style.display = stMode === "compare" ? "" : "none";
+  document.querySelector(".container").classList.toggle("stock-wide", stWide());
+  if (stMode === "advanced") openStockAdvanced();
+  else if (stMode === "exposure") openStockExposure();
+  else if (stMode === "financials") openStockFinancials();
+  else if (stMode === "compare") openStockCompare();
   else stResizeCharts();          // the simple chart was laid out while hidden
 }
 document.querySelectorAll("#st-mode .chip").forEach((c) => {
@@ -838,6 +849,9 @@ function openStock(sym, from = "market") {
     $(id).innerHTML = `<div class="empty">Loading…</div>`;
   });
   resetStockAdvanced();
+  resetStockExposure();
+  resetStockFinancials();
+  resetStockCompare();
   loadStockChart();
   loadStockSummary();
   loadStockQuote();
@@ -1145,7 +1159,9 @@ let stChainRows = {}, stChainSpan = 12, stChainView = "quotes", stExpiryShowAll 
 let stHoverFrame = null;
 
 function stResizeCharts() {
-  ["st-chart", ...ST_PANES].forEach((id) => { if (charts[id]) charts[id].resize(); });
+  ["st-chart", "st-cmp-chart", ...ST_PANES].forEach((id) => {
+    if (charts[id]) charts[id].resize();
+  });
 }
 
 function resetStockAdvanced() {
@@ -2313,17 +2329,21 @@ $("sim-close").onclick = () => $("sim-dialog").close();
 $("sim-dialog").onclick = (e) => { if (e.target === $("sim-dialog")) $("sim-dialog").close(); };
 
 // --- d. peers ---------------------------------------------------------------
-// The peer list is the terminal's own industry classification; the columns are
-// filled from one batched quote call and one batched history call, so a peer
-// table of eight names costs two requests rather than sixteen.
+// Who the comparables are is decided by three sources that disagree (industry
+// classification, SIC registration, and the filings that name this company as
+// competition) — the ranking and the evidence come back with the list. The
+// columns are filled from one batched quote call and one batched history call,
+// so a table of ten names costs two requests rather than twenty.
 async function loadAdvPeers() {
   try {
-    const d = await api(`/api/v1/equity/compare/peers?symbol=${encodeURIComponent(stSym)}&limit=8`);
-    const peers = (d.results || []).map((r) => String(r.symbol).toUpperCase()).filter(Boolean);
-    const symbols = [stSym, ...peers.filter((s) => s !== stSym)].slice(0, 8);
-    if (symbols.length < 2) throw new Error("no peers classified");
-    $("st-peers-note").textContent = [d.extra && d.extra.industry, d.extra && d.extra.sector]
-      .filter(Boolean).join(" · ") || "same industry";
+    const d = await api(`/api/v1/equity/compare/peers?symbol=${encodeURIComponent(stSym)}&limit=10`);
+    const rows = d.results || [];
+    const peers = rows.map((r) => String(r.symbol).toUpperCase()).filter(Boolean);
+    const symbols = [stSym, ...peers.filter((s) => s !== stSym)].slice(0, 11);
+    if (symbols.length < 2) throw new Error("no comparables found");
+    const subject = (d.extra && d.extra.subject) || {};
+    $("st-peers-note").textContent =
+      [subject.industry, subject.sic_description].filter(Boolean).join(" · ") || "same industry";
     const list = symbols.join(",");
     const [quotes, perf] = await Promise.all([
       api(`/api/v1/equity/price/quote?symbol=${encodeURIComponent(list)}`)
@@ -2333,19 +2353,22 @@ async function loadAdvPeers() {
     ]);
     const byQuote = new Map(quotes.map((q) => [q.symbol, q]));
     const byPerf = new Map(perf.map((p) => [p.symbol, p]));
+    const byPeer = new Map(rows.map((r) => [String(r.symbol).toUpperCase(), r]));
     const body = symbols.map((sym) => {
-      const q = byQuote.get(sym) || {}, p = byPerf.get(sym) || {};
+      const q = byQuote.get(sym) || {}, p = byPerf.get(sym) || {}, peer = byPeer.get(sym) || {};
       return `<tr class="${sym === stSym ? "subject" : ""}" data-sym="${escapeHtml(sym)}">
         <td class="sym">${escapeHtml(sym)}</td>
-        <td class="num">${fmtBig(q.market_cap)}</td>
+        <td class="num">${fmtBig(q.market_cap ?? peer.market_cap)}</td>
         <td class="num">${stNum(q.pe_ratio, 1)}</td>
         <td class="num ${p.total_return == null ? "" : cls(p.total_return)}">${stPct1(p.total_return)}</td>
         <td class="num">${stPct2(p.annualised_volatility)}</td>
-        <td class="num">${stNum(q.beta)}</td></tr>`;
+        <td class="num">${stNum(q.beta)}</td>
+        <td class="why">${escapeHtml(sym === stSym ? "the company being compared" : (peer.why || ""))}</td></tr>`;
     }).join("");
     $("st-peers").innerHTML = `<table class="clickrows">
       <tr><th>Symbol</th><th class="num">Mkt cap</th><th class="num">P/E</th>
-          <th class="num">1Y</th><th class="num">Vol</th><th class="num">Beta</th></tr>${body}</table>`;
+          <th class="num">1Y</th><th class="num">Vol</th><th class="num">Beta</th>
+          <th>Why it is here</th></tr>${body}</table>`;
     $("st-peers").querySelectorAll("tr[data-sym]").forEach((tr) => {
       tr.style.cursor = "pointer";
       tr.onclick = () => { if (tr.dataset.sym !== stSym) openStock(tr.dataset.sym, stFrom); };
@@ -2354,6 +2377,8 @@ async function loadAdvPeers() {
     $("st-peers").innerHTML = `<div class="empty">No peer group for ${escapeHtml(stSym)}.</div>`;
   }
 }
+
+$("st-peers-compare").onclick = () => setStockMode("compare");
 
 // --- e. fundamentals --------------------------------------------------------
 async function loadAdvFundamentals() {
@@ -2428,6 +2453,964 @@ async function loadAdvSentiment() {
     $("st-advnews").innerHTML = "";
   }
 }
+
+// ---------- stock page: exposure mode ----------
+// A map of who this company trades with, built from what companies are obliged
+// to disclose: any counterparty past a concentration threshold, named, with a
+// percentage. The backend does the reading (see backend/providers/supplychain);
+// this draws it, and always keeps the sentence a relationship came from within
+// one click, because a mined relationship the reader cannot check is a rumour.
+let stExpoSym = null, stExpoRows = [];
+
+function resetStockExposure() {
+  stExpoSym = null;
+  stExpoRows = [];
+  $("st-expo-note").textContent = "";
+  $("st-expo-lede").textContent = "";
+  $("st-expo-legend").innerHTML = "";
+  $("st-expo-map").innerHTML = `<div class="empty">Loading…</div>`;
+  $("st-expo-table").innerHTML = `<div class="empty">Loading…</div>`;
+}
+
+async function openStockExposure() {
+  if (stExpoSym === stSym) { drawExposureLinks(); return; }
+  stExpoSym = stSym;
+  const symbolAtStart = stSym;
+  $("st-expo-map").innerHTML =
+    `<div class="empty">Reading SEC filings that name ${escapeHtml(stSym)}. ` +
+    `The first look at a company takes a few seconds; after that it is cached.</div>`;
+  $("st-expo-table").innerHTML = `<div class="empty">Loading…</div>`;
+  try {
+    const d = await api(`/api/v1/equity/relationships/graph?symbol=${encodeURIComponent(stSym)}`);
+    if (symbolAtStart !== stSym) return;   // moved on while the filings were read
+    stExpoRows = d.results || [];
+    renderExposure(d);
+    paintExposureQuotes(symbolAtStart);
+  } catch (e) {
+    if (symbolAtStart !== stSym) return;
+    stExpoSym = null;                       // a retry should be allowed to re-run
+    $("st-expo-map").innerHTML =
+      `<div class="empty">No disclosed relationships for ${escapeHtml(stSym)} (${escapeHtml(e.message)}).<br>
+       Only SEC filers appear here, and only when a filing puts a percentage next to a company's name.</div>`;
+    $("st-expo-table").innerHTML = "";
+  }
+}
+
+const EXPO_SIDE_LABEL = { supplier: "SUPPLIER", customer: "CUSTOMER", peer: "COMPARABLE" };
+
+function renderExposure(payload) {
+  const subject = ((payload.extra || {}).subject) || {};
+  const rows = stExpoRows;
+  const suppliers = rows.filter((r) => r.relationship === "supplier");
+  const customers = rows.filter((r) => r.relationship === "customer");
+  const peers = rows.filter((r) => r.relationship === "peer");
+
+  $("st-expo-note").textContent = [subject.sector, subject.industry].filter(Boolean).join(" · ");
+  $("st-expo-lede").innerHTML =
+    `Every company below names ${escapeHtml(stSym)} in an SEC filing, or is named by it, with a ` +
+    `percentage attached. <b>Suppliers</b> sell to ${escapeHtml(stSym)}; <b>customers</b> buy from it. ` +
+    `Each percentage is a share of the books of whichever company disclosed it — the node says whose.`;
+
+  $("st-expo-map").innerHTML = `
+    <svg class="expo-svg" id="st-expo-svg" aria-hidden="true"></svg>
+    <div class="expo-grid">
+      <div class="expo-col" id="st-expo-sup">
+        <div class="expo-side-h">SUPPLIERS — SELL TO ${escapeHtml(stSym)}</div>
+        ${suppliers.map(expoNodeHtml).join("") ||
+          `<div class="empty">No filer discloses ${escapeHtml(stSym)} as a customer.</div>`}
+      </div>
+      ${expoHubHtml("st-expo-hub-sup", suppliers.length, "Supplier")}
+      <div id="st-expo-subject">${expoSubjectHtml(subject, suppliers, customers)}</div>
+      ${expoHubHtml("st-expo-hub-cus", customers.length, "Customer")}
+      <div class="expo-col" id="st-expo-cus">
+        <div class="expo-side-h r">CUSTOMERS — BUY FROM ${escapeHtml(stSym)}</div>
+        ${customers.map(expoNodeHtml).join("") ||
+          `<div class="empty">No filer discloses buying from ${escapeHtml(stSym)}.</div>`}
+      </div>
+    </div>
+    ${peers.length ? `<div class="expo-below">
+      ${expoHubHtml("st-expo-hub-peer", peers.length, "Comparable")}
+      <div class="expo-peerrow" id="st-expo-peers">${peers.map(expoNodeHtml).join("")}</div>
+    </div>` : ""}`;
+
+  const sources = (payload.extra || {}).sources || {};
+  const leg = (key, label) => {
+    const s = sources[key];
+    if (!s) return "";
+    return `<span><b>${label}:</b> ${s.error ? "nothing found" : s.rows + " found"}</span>`;
+  };
+  $("st-expo-legend").innerHTML =
+    leg("counterparty_filings", "From other companies' annual reports") +
+    leg("own_filing", `From ${escapeHtml(stSym)}'s own annual report`) +
+    leg("peers", "Industry comparables") +
+    `<span>Border colour is today's price move. Click any company to open it.</span>`;
+
+  renderExposureTable(rows);
+  requestAnimationFrame(drawExposureLinks);
+}
+
+function expoHubHtml(id, count, noun) {
+  return `<div class="expo-hub ${count ? "" : "empty-hub"}" id="${id}">
+    <span class="hub-label">${count} ${escapeHtml(noun)}${count === 1 ? "" : "s"}</span>
+    <span class="hub-dot"></span>
+  </div>`;
+}
+
+function expoSubjectHtml(subject, suppliers, customers) {
+  const row = (k, v) => v ? `<div class="s-row"><span>${k}</span><span>${v}</span></div>` : "";
+  // The two averages say how concentrated the disclosed relationships are —
+  // the number a supply-chain screen exists to surface.
+  const avg = (list) => {
+    const vals = list.map((r) => r.exposure_pct).filter((v) => v != null);
+    return vals.length ? (vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(1) + "%" : null;
+  };
+  return `<div class="expo-subject" id="st-expo-center">
+    <div class="s-sym">${escapeHtml(stSym)}</div>
+    <div class="s-name">${escapeHtml(subject.name || "")}</div>
+    ${row("Market cap", subject.market_cap ? fmtBig(subject.market_cap) : null)}
+    ${row("Revenue TTM", subject.revenue_ttm ? fmtBig(subject.revenue_ttm) : null)}
+    ${row("Gross margin", subject.gross_margin != null ? fmtPct(subject.gross_margin) : null)}
+    ${row("Avg supplier exposure", avg(suppliers))}
+    ${row("Avg customer exposure", avg(customers))}
+  </div>`;
+}
+
+function expoNodeHtml(r) {
+  const sym = r.symbol ? String(r.symbol).toUpperCase() : "";
+  const pct = r.exposure_pct != null
+    ? `<b>${r.exposure_pct}%</b> of ${escapeHtml(String(r.pct_of || sym))} ${escapeHtml(r.exposure_basis || "revenue")}`
+    : escapeHtml(r.exposure_basis || "same industry");
+  return `<button class="expo-node flat" data-expo-sym="${escapeHtml(sym)}"
+      title="${escapeHtml(r.quote || r.company || sym)}">
+    <span class="n-name">${escapeHtml(r.company || sym)}</span>
+    <span class="n-meta"><span class="n-chg" data-expo-chg="${escapeHtml(sym)}"></span>${pct}</span>
+  </button>`;
+}
+
+// Colour every node by the day's move, in one batched quote call rather than
+// one per company.
+async function paintExposureQuotes(symbolAtStart) {
+  const symbols = [...new Set(stExpoRows.map((r) => r.symbol).filter(Boolean))].slice(0, 40);
+  if (!symbols.length) return;
+  let quotes = [];
+  try {
+    const d = await api(`/api/v1/equity/price/quote?symbol=${encodeURIComponent(symbols.join(","))}`);
+    quotes = d.results || [];
+  } catch { return; }
+  if (symbolAtStart !== stSym) return;
+  const bySym = new Map(quotes.map((q) => [String(q.symbol).toUpperCase(), q]));
+  document.querySelectorAll("#st-expo-map [data-expo-sym]").forEach((node) => {
+    const q = bySym.get(node.dataset.expoSym);
+    const chg = q && q.change_percent;
+    if (chg == null) return;
+    node.classList.remove("flat");
+    node.classList.add(chg >= 0 ? "up" : "down");
+    const slot = node.querySelector("[data-expo-chg]");
+    if (slot) slot.textContent = fmtPct(chg, true);
+  });
+}
+
+// The connectors are measured, never authored: read where the browser actually
+// put each node and join it to its hub. Re-run on resize for the same reason.
+function drawExposureLinks() {
+  const svg = $("st-expo-svg"), map = $("st-expo-map");
+  if (!svg || !map) return;
+  const box = map.getBoundingClientRect();
+  if (box.width < 2) return;
+  svg.setAttribute("viewBox", `0 0 ${box.width} ${box.height}`);
+  // Where to anchor a connector on an element, in the map's own coordinates.
+  const at = (el, edge) => {
+    const r = el.getBoundingClientRect();
+    const midY = r.top - box.top + r.height / 2;
+    const midX = r.left - box.left + r.width / 2;
+    if (edge === "left") return [r.left - box.left, midY];
+    if (edge === "right") return [r.right - box.left, midY];
+    if (edge === "top") return [midX, r.top - box.top];
+    if (edge === "bottom") return [midX, r.bottom - box.top];
+    return [midX, midY];
+  };
+  const stacked = getComputedStyle($("st-expo-map").querySelector(".expo-grid"))
+    .gridTemplateColumns.split(" ").length < 5;
+  if (stacked) { svg.innerHTML = ""; return; }   // narrow layout: no diagram to wire
+
+  const centre = $("st-expo-center");
+  const paths = [];
+  const hubDot = (id) => $(id) && $(id).querySelector(".hub-dot");
+  const fan = (hubId, colId, side) => {
+    const hub = hubDot(hubId), col = $(colId);
+    if (!hub || !col || !centre) return;
+    const [hx, hy] = at(hub);
+    col.querySelectorAll("[data-expo-sym]").forEach((node) => {
+      const [nx, ny] = at(node, side === "left" ? "right" : "left");
+      paths.push(`M ${nx} ${ny} L ${hx} ${hy}`);
+    });
+    const [cx, cy] = at(centre, side === "left" ? "left" : "right");
+    paths.push(`M ${hx} ${hy} L ${cx} ${cy}`);
+  };
+  fan("st-expo-hub-sup", "st-expo-sup", "left");
+  fan("st-expo-hub-cus", "st-expo-cus", "right");
+
+  const peerHub = hubDot("st-expo-hub-peer");
+  if (peerHub && centre) {
+    const [px, py] = at(peerHub);
+    const [cx, cy] = at(centre, "bottom");
+    paths.push(`M ${cx} ${cy} L ${px} ${py}`);
+    ($("st-expo-peers") || map).querySelectorAll("[data-expo-sym]").forEach((node) => {
+      const [nx, ny] = at(node, "top");
+      paths.push(`M ${px} ${py} L ${nx} ${ny}`);
+    });
+  }
+  svg.innerHTML = paths
+    .map((d) => `<path d="${d}" fill="none" stroke="#2b6f4a" stroke-width="1" opacity=".75"/>`)
+    .join("");
+}
+
+function renderExposureTable(rows) {
+  const disclosed = rows.filter((r) => r.quote);
+  if (!disclosed.length) {
+    $("st-expo-table").innerHTML =
+      `<div class="empty">Nothing on the map came from a filing — only industry comparables.</div>`;
+    return;
+  }
+  const body = disclosed.map((r) => {
+    const sym = String(r.symbol || "").toUpperCase();
+    const link = r.filing_url
+      ? ` <a href="${escapeHtml(r.filing_url)}" target="_blank" rel="noopener">${escapeHtml(r.form || "filing")}
+          ${escapeHtml(String(r.filing_date || "").slice(0, 10))} →</a>`
+      : "";
+    return `<tr data-sym="${escapeHtml(sym)}">
+      <td class="sym">${escapeHtml(sym)}</td>
+      <td>${escapeHtml(r.company || "")}</td>
+      <td class="side ${escapeHtml(r.relationship)}">${EXPO_SIDE_LABEL[r.relationship] || ""}</td>
+      <td class="num">${r.exposure_pct != null ? r.exposure_pct + "%" : "-"}</td>
+      <td>${escapeHtml(String(r.pct_of || ""))} ${escapeHtml(r.exposure_basis || "")}</td>
+      <td class="quote">“${escapeHtml(r.quote)}”${link}</td></tr>`;
+  }).join("");
+  $("st-expo-table").innerHTML = `<table class="clickrows">
+    <tr><th>Symbol</th><th>Company</th><th>Side</th><th class="num">Disclosed</th>
+        <th>Share of</th><th>What the filing says</th></tr>${body}</table>`;
+}
+
+// One delegated handler for the whole mode: nodes and table rows both open the
+// company they name.
+$("st-exposure").addEventListener("click", (event) => {
+  const node = event.target.closest("[data-expo-sym]");
+  const row = event.target.closest("#st-expo-table tr[data-sym]");
+  if (event.target.closest("a")) return;         // filing links open in a new tab
+  const sym = node ? node.dataset.expoSym : row ? row.dataset.sym : null;
+  if (sym && sym !== stSym) openStock(sym, stFrom);
+});
+
+window.addEventListener("resize", () => {
+  if (stMode === "exposure" && $("view-stock").classList.contains("active")) drawExposureLinks();
+});
+
+// ---------- stock page: financials mode ----------
+// The three statements as filed, straight off the company's own XBRL (Yahoo
+// stands in where a filer reports under IFRS and tags no us-gaap). One fetch
+// covers all three statements and every period; the tab, period and view chips
+// then re-render what is already here rather than going back for it.
+let stFsSym = null, stFsPeriod = "annual", stFsTab = "income", stFsView = "reported";
+let stFsRows = [], stFsMeta = null;
+
+function resetStockFinancials() {
+  stFsSym = null;
+  stFsRows = [];
+  stFsMeta = null;
+  resetStockSegments();
+  stFsTab = "income";
+  stFsView = "reported";
+  syncFsChips();
+  $("st-fs-note").textContent = "";
+  $("st-fs-scale").textContent = "";
+  $("st-fs-foot").innerHTML = "";
+  $("st-fs-table").innerHTML = `<div class="empty">Loading…</div>`;
+}
+
+function syncFsChips() {
+  const set = (sel, attr, value) => document.querySelectorAll(sel).forEach((c) =>
+    c.classList.toggle("active", c.dataset[attr] === value));
+  set("#st-fs-tabs .chip", "fs", stFsTab);
+  set("#st-fs-periods .chip", "fsperiod", stFsPeriod);
+  set("#st-fs-views .chip", "fsview", stFsView);
+}
+
+async function openStockFinancials() {
+  const key = `${stSym}:${stFsPeriod}`;
+  if (stFsSym === key) { renderFinancials(); return; }
+  stFsSym = key;
+  const symbolAtStart = stSym;
+  $("st-fs-table").innerHTML = `<div class="empty">Reading ${escapeHtml(stSym)}'s filings…</div>`;
+  try {
+    // The year-to-date view is four columns that are not periods, so it has an
+    // endpoint of its own; everything downstream of the fetch is shared.
+    const d = await api(stFsPeriod === "ytd"
+      ? `/api/v1/equity/fundamental/statements_ytd?symbol=${encodeURIComponent(stSym)}`
+      : `/api/v1/equity/fundamental/statements?symbol=${encodeURIComponent(stSym)}` +
+        `&period=${stFsPeriod}&limit=${stFsPeriod === "annual" ? 8 : 10}`);
+    if (symbolAtStart !== stSym) return;
+    stFsRows = d.results || [];
+    stFsMeta = d.extra || {};
+    renderFinancials();
+  } catch (e) {
+    if (symbolAtStart !== stSym) return;
+    stFsSym = null;
+    stFsMeta = null;
+    $("st-fs-note").textContent = "";
+    $("st-fs-scale").textContent = "";
+    $("st-fs-foot").innerHTML = "";
+    $("st-fs-table").innerHTML =
+      `<div class="empty">No filed statements for ${escapeHtml(stSym)}.<br>
+       Indexes, ETFs and crypto do not file with the SEC. (${escapeHtml(e.message)})</div>`;
+  }
+}
+
+const FS_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+// Columns are labelled by the date the period ends. Quarters deliberately do
+// not get a "Q3" label: fiscal quarters only line up with calendar ones for a
+// December year-end, and the quarter ending June is Apple's third, not its
+// second. The month is unambiguous for every filer; the full date is on hover.
+// The year-to-date view's columns are not periods at all, so it names its own —
+// except on the balance sheet, where nothing is added up and the column is a
+// date the company stood somewhere rather than a stretch of the year.
+function fsPeriodLabel(iso) {
+  const named = (stFsMeta || {}).period_labels;
+  if (named && named[iso]) {
+    return stFsTab === "balance" ? named[iso].replace(/^YTD /, "At ") : named[iso];
+  }
+  const year = iso.slice(2, 4);
+  if (stFsPeriod === "annual") return `FY${year}`;
+  return `${FS_MONTHS[Number(iso.slice(5, 7)) - 1]} ${year}`;
+}
+
+function fsPeriodTitle(iso) {
+  const titles = (stFsMeta || {}).period_titles;
+  return (titles && titles[iso]) || iso;
+}
+
+// One scale for the whole statement, chosen from its largest number, so the
+// columns can be read against each other without re-checking a unit per row.
+function fsScale(values) {
+  const max = Math.max(0, ...values.map((v) => Math.abs(v || 0)));
+  if (max >= 1e12) return { div: 1e9, unit: "$ billions" };
+  if (max >= 1e9) return { div: 1e6, unit: "$ millions" };
+  if (max >= 1e6) return { div: 1e3, unit: "$ thousands" };
+  return { div: 1, unit: "$" };
+}
+
+const fsNum = (x, digits = 0) =>
+  x == null ? "—"
+    : (x < 0 ? "(" + Math.abs(x).toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits }) + ")"
+             : x.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits }));
+
+// One cell, under whichever view is selected. Shared by the statements and the
+// segment table, which are the same shape: a labelled row, one value a period.
+// ``ctx`` carries what differs — the common-size base, the scale the columns
+// were sized to, the period axis, and any explicit pairing for the growth view.
+function fsCell(row, period, ctx) {
+  const raw = row[period];
+  // The estimate is not a filed number and is marked wherever it appears.
+  const est = period === "projected_fy"
+    ? ` fs-est" title="${escapeHtml(row.projection_basis === "runrate"
+        ? "Run rate: the year so far scaled to four quarters, for want of a comparable year"
+        : row.projection_basis === "seasonal"
+          ? "Estimated from what the rest of the year added in previous years"
+          : "Estimated from the lines above")}`
+    : "";
+  if (raw == null) return `<td class="v none">—</td>`;
+  if (stFsView === "common") {
+    const base = ctx.baseRow && ctx.baseRow[period];
+    if (!base || ["pershare", "shares"].includes(row.weight)) return `<td class="v none">—</td>`;
+    return `<td class="v${est}">${(raw / base * 100).toFixed(1)}%</td>`;
+  }
+  if (stFsView === "growth") {
+    // Newest first, so the period being compared against is the next one
+    // along — except where the columns are not a timeline and the server
+    // says which pairs off against which.
+    const against = (ctx.compareTo || {})[period];
+    if (ctx.compareTo && !against) return `<td class="v none">—</td>`;
+    const prior = row[against || ctx.allPeriods[ctx.allPeriods.indexOf(period) + 1]];
+    // Percentage change across a sign flip is not a meaningful number —
+    // a loss turning into a profit is not "up 240%".
+    if (prior == null || prior === 0 || Math.sign(prior) !== Math.sign(raw)) {
+      return `<td class="v none">—</td>`;
+    }
+    const change = raw / prior - 1;
+    return `<td class="v ${cls(change)}${est}">${change >= 0 ? "+" : ""}${(change * 100).toFixed(1)}%</td>`;
+  }
+  if (row.weight === "pershare") return `<td class="v${est}">${fsNum(raw, 2)}</td>`;
+  if (row.weight === "shares") return `<td class="v${est}">${fsNum(raw / 1e6, 0)}M</td>`;
+  return `<td class="v ${raw < 0 ? "neg" : ""}${est}">${fsNum(raw / ctx.scale.div)}</td>`;
+}
+
+// Rows arrive grouped, each carrying the heading it belongs under.
+function fsBody(rows, periods, ctx) {
+  let section = null;
+  return rows.map((row) => {
+    let head = "";
+    if (row.section && row.section !== section) {
+      section = row.section;
+      head = `<tr class="fs-section"><td colspan="${periods.length + 1}">${escapeHtml(section)}</td></tr>`;
+    }
+    const classes = ["indent-" + row.indent, row.weight ? "w-" + row.weight : "",
+                     row.derived ? "derived" : ""].filter(Boolean).join(" ");
+    // A statement line is labelled; a segment row is named for the segment.
+    return head + `<tr class="${classes}"><td class="lbl">${escapeHtml(row.label || row.segment)}</td>` +
+      periods.map((p) => fsCell(row, p, ctx)).join("") + `</tr>`;
+  }).join("");
+}
+
+function fsTable(rows, periods, ctx) {
+  return `<table>
+    <thead><tr><th></th>${periods.map((p) =>
+      `<th class="v ${p === "projected_fy" ? "fs-est" : ""}" title="${escapeHtml(fsPeriodTitle(p))}"
+        >${escapeHtml(fsPeriodLabel(p))}</th>`).join("")}</tr></thead>
+    <tbody>${fsBody(rows, periods, ctx)}</tbody></table>`;
+}
+
+function renderFinancials() {
+  syncFsChips();
+  if (stFsTab === "segments") { renderSegments(); return; }
+  const meta = stFsMeta || {};
+  const allPeriods = meta.periods || [];
+  const rows = stFsRows.filter((r) => r.statement === stFsTab);
+  // The period axis spans all three statements, so one of them can be missing a
+  // year the others have. Drop the columns this statement has nothing in —
+  // but keep the full axis for growth, which needs the period before the first
+  // one shown to have something to compare against.
+  const periods = allPeriods.filter((p) => rows.some((r) => r[p] != null));
+  if (!rows.length || !periods.length) {
+    $("st-fs-table").innerHTML =
+      `<div class="empty">No ${escapeHtml(stFsTab === "cash" ? "cash-flow" : stFsTab)} statement
+       filed for ${escapeHtml(stSym)} on this basis.</div>`;
+    $("st-fs-scale").textContent = "";
+    renderFinancialsFoot();
+    return;
+  }
+
+  // Per-share and share-count lines are not money and must not be scaled with
+  // the rest of the statement.
+  const money = rows.filter((r) => !["pershare", "shares"].includes(r.weight));
+  const scale = fsScale(money.flatMap((r) => periods.map((p) => r[p])));
+  // A common-size income statement is a share of revenue; a common-size
+  // balance sheet is a share of total assets, because a balance sheet has no
+  // revenue on it.
+  const baseRow = stFsRows.find((r) =>
+    r.line_item === (stFsTab === "balance" ? "total_assets" : "revenue"));
+
+  $("st-fs-table").innerHTML =
+    fsTable(rows, periods, { baseRow, scale, allPeriods, compareTo: meta.compare_to });
+
+  $("st-fs-scale").textContent =
+    stFsView === "common" ? (stFsTab === "balance" ? "PERCENT OF TOTAL ASSETS" : "PERCENT OF REVENUE")
+      : stFsView === "growth" ? (stFsPeriod === "ytd" ? "CHANGE VS A YEAR AGO" : "CHANGE VS PRIOR PERIOD")
+        : scale.unit.toUpperCase();
+  renderFinancialsFoot();
+}
+
+function renderFinancialsFoot() {
+  const meta = stFsMeta || {};
+  const served = meta.provider_by_statement || {};
+  const source = served[stFsTab];
+  const projection = meta.projection || {};
+  $("st-fs-note").textContent = stFsPeriod === "annual"
+    ? "fiscal years, newest first"
+    : stFsPeriod === "quarter" ? "three-month periods, newest first"
+      : `${meta.quarters_elapsed || 0} quarter${meta.quarters_elapsed === 1 ? "" : "s"}` +
+        ` filed since ${meta.fiscal_year_opened || ""}`;
+  const notes = [];
+  notes.push(`<span><b>Columns</b> are labelled by the date the period ends — hover for it.</span>`);
+  if (stFsPeriod === "ytd") {
+    // One statement can lag the other two. Its columns are still compared
+    // like for like, but they cover less of the year than the header says.
+    const mine = (meta.quarters_by_statement || {})[stFsTab];
+    if (mine && mine !== meta.quarters_elapsed) {
+      notes.push(`<span><b>This statement is a quarter behind:</b> it is filed only to
+        ${escapeHtml((meta.through_by_statement || {})[stFsTab] || "")}, so its columns cover
+        ${mine} quarter${mine === 1 ? "" : "s"} — compared against the same ${mine} a year ago,
+        not the ${meta.quarters_elapsed} in the heading.</span>`);
+    }
+    notes.push(stFsTab === "balance"
+      // Worth being blunt: a balance sheet is not a running total, and the
+      // estimate column is deliberately empty rather than quietly wrong.
+      ? `<span><b>The balance sheet is a position, not a total:</b> the year-to-date column is
+         where ${escapeHtml(stSym)} stood at the latest quarter end, not a sum of quarters. There
+         is no estimate — a year-end balance sheet is a roll-forward, not an extrapolation.</span>`
+      : `<span><b>Year to date</b> adds up the quarters filed since the fiscal year opened.</span>`);
+    if (stFsTab !== "balance") {
+      notes.push(projection.method === "seasonal"
+        ? `<span><b>${escapeHtml(meta.period_labels?.projected_fy || "The estimate")}</b> scales the
+           year so far by what the rest of the year added over the last
+           ${projection.seasonal_years} year${projection.seasonal_years === 1 ? "" : "s"} — the median,
+           so one odd year does not set it.</span>`
+        : `<span><b>${escapeHtml(meta.period_labels?.projected_fy || "The estimate")}</b> is a plain
+           run rate — the year so far scaled to four quarters. No comparable earlier year was filed,
+           so any seasonality in the business is not in this number.</span>`);
+      if (projection.method === "seasonal" && projection.lines_by_method?.runrate) {
+        notes.push(`<span>${projection.lines_by_method.runrate} line${
+          projection.lines_by_method.runrate === 1 ? " falls" : "s fall"} back to a run rate for
+          want of a comparable year — hover the estimate to see which.</span>`);
+      }
+      notes.push(`<span>The estimate assumes the year behaves like the ones before it. It is not a
+        forecast, and it knows nothing of guidance, orders or anything else since the last filing.</span>`);
+    }
+  }
+  notes.push(source === "sec"
+    ? `<span><b>Source:</b> SEC XBRL — the company's own tags, as filed</span>`
+    : source === "yahoo"
+      ? `<span><b>Source:</b> Yahoo Finance — used where a filer reports no us-gaap XBRL</span>`
+      : "");
+  notes.push(`<span><b>Italic rows</b> are computed here, not filed.</span>`);
+  notes.push(`<span>Cash outflows are shown negative, in (brackets).</span>`);
+  if (stFsPeriod === "quarter" && stFsTab === "income") {
+    // Worth saying plainly: nobody files fiscal Q4 on its own.
+    notes.push(`<span>Fiscal Q4 is the full year less the first three quarters, so
+      per-share and share-count rows are blank for it.</span>`);
+  }
+  const missing = Object.keys(meta.missing || {});
+  if (missing.length) {
+    notes.push(`<span><b>Not filed:</b> ${escapeHtml(missing.join(", "))}</span>`);
+  }
+  $("st-fs-foot").innerHTML = notes.filter(Boolean).join("");
+}
+
+// ---------- stock page: revenue segments ----------
+// A fourth tab on the same table. The three statements come from one call and
+// this one from another, so it is fetched when the tab is first opened rather
+// than alongside them — a segment table is read out of the filings themselves
+// and there is no reason to pay for it unless it is being looked at.
+let stSegKey = null, stSegRows = [], stSegMeta = null, stSegError = "";
+
+function resetStockSegments() {
+  stSegKey = null;
+  stSegRows = [];
+  stSegMeta = null;
+  stSegError = "";
+}
+
+async function openStockSegments() {
+  // Year to date is a running total of the quarters filed so far; segments are
+  // filed by year or by quarter, and there is no year-to-date version of them.
+  if (stFsPeriod === "ytd") { renderSegments(); return; }
+  const key = `${stSym}:${stFsPeriod}`;
+  if (stSegKey === key) { renderSegments(); return; }
+  resetStockSegments();
+  stSegKey = key;
+  const symbolAtStart = stSym;
+  $("st-fs-note").textContent = "";
+  $("st-fs-scale").textContent = "";
+  $("st-fs-foot").innerHTML = "";
+  $("st-fs-table").innerHTML =
+    `<div class="empty">Reading ${escapeHtml(stSym)}'s segment tables out of its filings…</div>`;
+  try {
+    const d = await api(`/api/v1/equity/fundamental/revenue_segments?symbol=${encodeURIComponent(stSym)}` +
+                        `&period=${stFsPeriod}&limit=${stFsPeriod === "annual" ? 6 : 8}`);
+    if (symbolAtStart !== stSym) return;
+    stSegRows = d.results || [];
+    stSegMeta = d.extra || {};
+    stSegMeta.warnings = d.warnings || [];
+  } catch (e) {
+    if (symbolAtStart !== stSym) return;
+    stSegError = e.message;
+  }
+  renderSegments();
+}
+
+function renderSegments() {
+  syncFsChips();
+  const meta = stSegMeta || {};
+  const allPeriods = meta.periods || [];
+  const periods = allPeriods.filter((p) => stSegRows.some((r) => r[p] != null));
+  if (stFsPeriod === "ytd" || !periods.length) {
+    $("st-fs-table").innerHTML = stFsPeriod === "ytd"
+      ? `<div class="empty">Segments are filed by fiscal year or by quarter.<br>
+         Pick <b>Annual</b> or <b>Quarterly</b> to see them.</div>`
+      : `<div class="empty">${escapeHtml(stSym)} files no revenue breakdown in XBRL.<br>
+         A single-segment company has nothing to split, and filings before about 2010
+         predate the tagging.${stSegError ? ` (${escapeHtml(stSegError)})` : ""}</div>`;
+    $("st-fs-note").textContent = "";
+    $("st-fs-scale").textContent = "";
+    $("st-fs-foot").innerHTML = "";
+    return;
+  }
+
+  const scale = fsScale(stSegRows.flatMap((r) => periods.map((p) => r[p])));
+  // Common size is a share of consolidated revenue, which is the row the table
+  // closes on — so a group that does not add up to it reads as it should.
+  const baseRow = stSegRows.find((r) => r.dimension === "total");
+  $("st-fs-table").innerHTML = fsTable(stSegRows, periods, { baseRow, scale, allPeriods });
+
+  $("st-fs-scale").textContent =
+    stFsView === "common" ? "PERCENT OF REVENUE"
+      : stFsView === "growth" ? "CHANGE VS PRIOR PERIOD"
+        : scale.unit.toUpperCase();
+  $("st-fs-note").textContent = stFsPeriod === "annual"
+    ? "fiscal years, newest first" : "three-month periods, newest first";
+  renderSegmentsFoot();
+}
+
+function renderSegmentsFoot() {
+  const meta = stSegMeta || {};
+  const notes = [`<span><b>Source:</b> SEC XBRL — read from the filings themselves. The
+    company-facts API every other statement here uses drops the segment tagging.</span>`];
+  (meta.dimensions || []).forEach((d) => {
+    if (d.coverage == null) return;
+    notes.push(`<span><b>${escapeHtml(d.section)}:</b> ${d.members} reported,
+      ${(d.coverage * 100).toFixed(0)}% of revenue${d.table ? ` · ${escapeHtml(d.table)}` : ""}</span>`);
+  });
+  (meta.warnings || []).forEach((w) => notes.push(`<span>${escapeHtml(w)}</span>`));
+  if ((meta.superseded || []).length) {
+    notes.push(`<span><b>Replaced by a finer split:</b>
+      ${escapeHtml(meta.superseded.join(", "))}</span>`);
+  }
+  const filings = (meta.filings || []).filter((f) => f.url && f.segment_facts);
+  if (filings.length) {
+    notes.push(`<span><b>Filings read:</b> ` + filings.map((f) =>
+      `<a href="${escapeHtml(f.url)}" target="_blank" rel="noopener">${escapeHtml(f.form)}
+       ${escapeHtml(String(f.filed || "").slice(0, 4))}</a>`).join(", ") + `</span>`);
+  }
+  $("st-fs-foot").innerHTML = notes.join("");
+}
+
+document.querySelectorAll("#st-fs-tabs .chip").forEach((c) => {
+  c.onclick = () => {
+    stFsTab = c.dataset.fs;
+    if (stFsTab === "segments") openStockSegments();
+    else renderFinancials();
+  };
+});
+document.querySelectorAll("#st-fs-views .chip").forEach((c) => {
+  c.onclick = () => { stFsView = c.dataset.fsview; renderFinancials(); };
+});
+document.querySelectorAll("#st-fs-periods .chip").forEach((c) => {
+  c.onclick = () => {
+    if (stFsPeriod === c.dataset.fsperiod) return;
+    stFsPeriod = c.dataset.fsperiod;      // a different basis, so a new fetch
+    syncFsChips();
+    if (stFsTab === "segments") openStockSegments();
+    else openStockFinancials();
+  };
+});
+
+// ---------- stock page: compare mode ----------
+// The peer list is a judgement, so it is editable and the edit is remembered
+// per symbol. Everything below it — the chart, the metric table, the revenue
+// mix — is a function of whichever group is on screen, so changing the group
+// reloads the three of them and nothing else.
+let stCmpSym = null;            // the symbol the loaded group belongs to
+let stCmpGroup = [];            // peers, subject excluded
+let stCmpSuggested = [];        // rows from /equity/compare/peers
+let stCmpMeta = null;
+let stCmpEdited = false;        // has this group been changed from the suggestion?
+
+const CMP_MAX = 7;              // peers, so eight columns with the subject
+const cmpKey = (sym) => `mft_peers_${sym}`;
+
+function resetStockCompare() {
+  stCmpSym = null;
+  stCmpGroup = [];
+  stCmpSuggested = [];
+  stCmpMeta = null;
+  stCmpEdited = false;
+  $("st-cmp-group").innerHTML = "";
+  $("st-cmp-lede").textContent = "";
+  $("st-cmp-note").textContent = "";
+  $("st-cmp-suggested").innerHTML = `<div class="empty">Loading…</div>`;
+  $("st-cmp-table").innerHTML = `<div class="empty">Loading…</div>`;
+  $("st-cmp-foot").innerHTML = "";
+  $("st-cmp-mix").innerHTML = `<div class="empty">Loading…</div>`;
+}
+
+async function openStockCompare() {
+  if (stCmpSym === stSym) { stResizeCharts(); return; }
+  stCmpSym = stSym;
+  const symbolAtStart = stSym;
+  $("st-cmp-suggested").innerHTML =
+    `<div class="empty">Reading who ${escapeHtml(stSym)} competes with…</div>`;
+  try {
+    const d = await api(`/api/v1/equity/compare/peers?symbol=${encodeURIComponent(stSym)}&limit=14`);
+    if (symbolAtStart !== stSym) return;
+    stCmpSuggested = d.results || [];
+    stCmpMeta = d.extra || {};
+  } catch (e) {
+    if (symbolAtStart !== stSym) return;
+    stCmpSuggested = [];
+    stCmpMeta = { error: e.message };
+  }
+  const saved = await loadPeerGroup(stSym);
+  if (symbolAtStart !== stSym) return;
+  stCmpEdited = Boolean(saved);
+  stCmpGroup = saved || stCmpSuggested.slice(0, 4).map((r) => r.symbol);
+  renderCompareGroup();
+  loadCompareViews();
+}
+
+// The saved group lives on the account so it follows you to another browser;
+// localStorage answers first so the panel is not empty while that call is out.
+async function loadPeerGroup(symbol) {
+  const local = localStorage.getItem(cmpKey(symbol));
+  let group = null;
+  if (local) { try { group = JSON.parse(local); } catch { group = null; } }
+  try {
+    const rows = await api("/api/user/settings");
+    const saved = (rows || []).find((r) => r.key === cmpKey(symbol));
+    if (saved && Array.isArray(saved.value)) group = saved.value;
+  } catch { /* the local copy is enough */ }
+  return Array.isArray(group) && group.length ? group.slice(0, CMP_MAX) : null;
+}
+
+async function savePeerGroup() {
+  const value = stCmpGroup.slice(0, CMP_MAX);
+  localStorage.setItem(cmpKey(stCmpSym), JSON.stringify(value));
+  try {
+    await api("/api/user/settings", { method: "PUT", body: { key: cmpKey(stCmpSym), value } });
+  } catch { /* a failed write is not worth interrupting anyone over */ }
+}
+
+async function forgetPeerGroup() {
+  localStorage.removeItem(cmpKey(stCmpSym));
+  try {
+    await api(`/api/user/settings/${encodeURIComponent(cmpKey(stCmpSym))}`, { method: "DELETE" });
+  } catch { /* it may never have been saved */ }
+}
+
+function renderCompareGroup() {
+  const subject = `<span class="cmp-chip subject">${escapeHtml(stSym)}<small>subject</small></span>`;
+  const chips = stCmpGroup.map((sym) =>
+    `<span class="cmp-chip" data-cmp-sym="${escapeHtml(sym)}">${escapeHtml(sym)}
+     <button class="cmp-x" type="button" title="Remove ${escapeHtml(sym)}">×</button></span>`).join("");
+  $("st-cmp-group").innerHTML = subject + chips ||
+    `<div class="empty">No companies in the group yet — add one below.</div>`;
+  $("st-cmp-group").querySelectorAll(".cmp-x").forEach((btn) => {
+    btn.onclick = () => removeFromGroup(btn.parentElement.dataset.cmpSym);
+  });
+
+  const subjectInfo = (stCmpMeta && stCmpMeta.subject) || {};
+  $("st-cmp-note").textContent = [subjectInfo.industry, subjectInfo.sic_description]
+    .filter(Boolean).join(" · ");
+  $("st-cmp-lede").innerHTML = stCmpSuggested.length
+    ? `Three sources, none of them paid: the industry classification, every SEC registrant
+       filing under the same SIC code, and the filings that name ${escapeHtml(stSym)} as
+       competition. Agreement between them ranks the list, and size settles the rest —
+       everyone names the giant in their industry. ${stCmpEdited
+        ? "<b>This group has been edited</b> and is remembered for this symbol."
+        : "Tick a row to add it to the comparison."}`
+    : "";
+  renderSuggested();
+}
+
+function renderSuggested() {
+  if (!stCmpSuggested.length) {
+    $("st-cmp-suggested").innerHTML = `<div class="empty">No comparables found for
+      ${escapeHtml(stSym)}${stCmpMeta && stCmpMeta.error ? ` (${escapeHtml(stCmpMeta.error)})` : ""}.
+      Add tickers by hand to compare anyway.</div>`;
+    return;
+  }
+  const body = stCmpSuggested.map((r) => {
+    const inGroup = stCmpGroup.includes(r.symbol);
+    const filing = r.filing_url
+      ? `<a href="${escapeHtml(r.filing_url)}" target="_blank" rel="noopener"
+          title="${escapeHtml(r.form || "")} filed ${escapeHtml(r.filed || "")}">filing</a>`
+      : "";
+    return `<tr data-sym="${escapeHtml(r.symbol)}" class="${inGroup ? "picked" : ""}">
+      <td><input type="checkbox" ${inGroup ? "checked" : ""} aria-label="Compare ${escapeHtml(r.symbol)}"></td>
+      <td class="sym">${escapeHtml(r.symbol)}</td>
+      <td>${escapeHtml(r.company || "")}</td>
+      <td class="num">${fmtBig(r.market_cap)}</td>
+      <td class="why">${escapeHtml(r.why || "")} ${filing}</td>
+      <td class="num">${stNum(r.score, 2)}</td></tr>`;
+  }).join("");
+  $("st-cmp-suggested").innerHTML = `<table>
+    <tr><th></th><th>Symbol</th><th>Company</th><th class="num">Mkt cap</th>
+        <th>Why it is here</th><th class="num">Score</th></tr>${body}</table>`;
+  $("st-cmp-suggested").querySelectorAll("tr[data-sym] input").forEach((box) => {
+    box.onchange = () => {
+      const sym = box.closest("tr").dataset.sym;
+      if (box.checked) addToGroup(sym); else removeFromGroup(sym);
+    };
+  });
+}
+
+function addToGroup(symbol) {
+  const sym = String(symbol || "").trim().toUpperCase();
+  if (!sym || sym === stSym || stCmpGroup.includes(sym)) return;
+  if (stCmpGroup.length >= CMP_MAX) {
+    $("st-cmp-note").textContent = `Eight columns is the most that stays readable — remove one first.`;
+    return;
+  }
+  stCmpGroup.push(sym);
+  stCmpEdited = true;
+  savePeerGroup();
+  renderCompareGroup();
+  loadCompareViews();
+}
+
+function removeFromGroup(symbol) {
+  stCmpGroup = stCmpGroup.filter((s) => s !== symbol);
+  stCmpEdited = true;
+  savePeerGroup();
+  renderCompareGroup();
+  loadCompareViews();
+}
+
+// One place that knows the group changed, so the three views below always
+// agree about who is in it.
+function loadCompareViews() {
+  const group = [stSym, ...stCmpGroup];
+  if (group.length < 2) {
+    const nothing = `<div class="empty">Add a company to compare ${escapeHtml(stSym)} against.</div>`;
+    $("st-cmp-table").innerHTML = nothing;
+    $("st-cmp-mix").innerHTML = nothing;
+    $("st-cmp-foot").innerHTML = "";
+    if (charts["st-cmp-chart"]) { charts["st-cmp-chart"].destroy(); delete charts["st-cmp-chart"]; }
+    return;
+  }
+  loadCompareRebased(group);
+  loadCompareTable(group);
+  loadCompareMix(group);
+}
+
+async function loadCompareRebased(group) {
+  const symbolAtStart = stSym;
+  try {
+    const info = await loadRebasedChart("st-cmp-chart", group.map((s) => [s, s]),
+                                        isoAgo(RANGE_DAYS["3Y"]));
+    if (symbolAtStart !== stSym) return;
+    $("st-cmp-chart-note").textContent = `${info.bars} sessions · ${info.series} series · ${info.provider}`;
+  } catch (e) {
+    if (symbolAtStart !== stSym) return;
+    $("st-cmp-chart-note").textContent = e.message;
+  }
+}
+
+async function loadCompareTable(group) {
+  const symbolAtStart = stSym;
+  $("st-cmp-table").innerHTML = `<div class="empty">Loading ${group.length} companies…</div>`;
+  try {
+    const d = await api(`/api/v1/equity/compare/table?symbol=${encodeURIComponent(group.join(","))}`);
+    if (symbolAtStart !== stSym) return;
+    renderCompareTable(d.results || [], d.extra || {}, d.warnings || []);
+  } catch (e) {
+    if (symbolAtStart !== stSym) return;
+    $("st-cmp-table").innerHTML = `<div class="empty">${escapeHtml(e.message)}</div>`;
+    $("st-cmp-foot").innerHTML = "";
+  }
+}
+
+// Values arrive raw and each row says how it should be read, so one formatter
+// serves market caps, multiples, percentages and ratios alike.
+function cmpValue(value, shape) {
+  if (value == null) return "—";
+  if (shape === "money") return fmtBig(value);
+  if (shape === "percent") return (value * 100).toFixed(1) + "%";
+  if (shape === "multiple") return value.toFixed(1) + "×";
+  return value.toFixed(2);
+}
+
+function renderCompareTable(rows, meta, warnings) {
+  const symbols = meta.symbols || [];
+  if (!rows.length || !symbols.length) {
+    $("st-cmp-table").innerHTML = `<div class="empty">Nothing to compare.</div>`;
+    return;
+  }
+  const head = `<tr><th></th>${symbols.map((s) =>
+    `<th class="v ${s === meta.subject ? "cmp-subject" : ""}"
+      title="${escapeHtml((meta.names || {})[s] || s)}">${escapeHtml(s)}</th>`).join("")}
+    <th class="v cmp-median">Median</th></tr>`;
+
+  let section = null;
+  const body = rows.map((row) => {
+    let header = "";
+    if (row.section !== section) {
+      section = row.section;
+      header = `<tr class="fs-section"><td colspan="${symbols.length + 2}">${escapeHtml(section)}</td></tr>`;
+    }
+    // Returns are read against zero, so they keep the platform's colouring;
+    // a multiple is not better for being bigger and stays plain.
+    const signed = ["total_return", "cagr", "max_drawdown", "revenue_growth",
+                    "earnings_growth"].includes(row.metric);
+    const cells = symbols.map((s) => {
+      const v = row[s];
+      return `<td class="v ${s === meta.subject ? "cmp-subject" : ""} ${
+        signed && v != null ? cls(v) : ""}">${escapeHtml(cmpValue(v, row.format))}</td>`;
+    }).join("");
+    return header + `<tr class="indent-1"><td class="lbl">${escapeHtml(row.label)}</td>${cells}
+      <td class="v cmp-median">${escapeHtml(cmpValue(row.median, row.format))}</td></tr>`;
+  }).join("");
+
+  $("st-cmp-table").innerHTML = `<table><thead>${head}</thead><tbody>${body}</tbody></table>`;
+  const window = meta.window || {};
+  const notes = [
+    `<span><b>Median</b> is of the peers, ${escapeHtml(meta.subject || "")} excluded.</span>`,
+    `<span><b>Valuation and growth</b> are the vendor's trailing-twelve-month snapshot.</span>`,
+    `<span><b>Returns, risk and correlation</b> are computed here from
+      ${escapeHtml(String(window.observations || 0))} sessions since ${escapeHtml(window.start || "")}.</span>`,
+  ];
+  warnings.forEach((w) => notes.push(`<span>${escapeHtml(w)}</span>`));
+  $("st-cmp-foot").innerHTML = notes.join("");
+}
+
+async function loadCompareMix(group) {
+  const symbolAtStart = stSym;
+  $("st-cmp-mix").innerHTML = `<div class="empty">Reading ${group.length} companies' filings…</div>`;
+  try {
+    const d = await api(`/api/v1/equity/compare/revenue_mix?symbol=${encodeURIComponent(group.join(","))}`);
+    if (symbolAtStart !== stSym) return;
+    renderCompareMix(d.results || [], d.extra || {}, group);
+  } catch (e) {
+    if (symbolAtStart !== stSym) return;
+    $("st-cmp-mix").innerHTML = `<div class="empty">${escapeHtml(e.message)}</div>`;
+  }
+}
+
+// One bar per company, split by segment. Two companies in the same industry
+// bucket earning their money in different places is the thing this panel is
+// for, so the segment names sit on the bar rather than in a legend.
+function renderCompareMix(rows, meta, group) {
+  if (!rows.length) {
+    $("st-cmp-mix").innerHTML = `<div class="empty">None of these companies files a revenue split.</div>`;
+    return;
+  }
+  const bySymbol = new Map();
+  rows.forEach((r) => {
+    if (!bySymbol.has(r.symbol)) bySymbol.set(r.symbol, []);
+    bySymbol.get(r.symbol).push(r);
+  });
+  const bars = group.filter((s) => bySymbol.has(s)).map((sym) => {
+    const parts = bySymbol.get(sym);
+    const segments = parts.map((p, i) => {
+      const pct = (p.share || 0) * 100;
+      const colour = PALETTE[i % PALETTE.length];
+      return `<span class="cmp-seg" style="width:${pct.toFixed(2)}%;background:${colour}"
+        title="${escapeHtml(p.segment)} · ${pct.toFixed(1)}% of revenue">
+        <em>${escapeHtml(p.segment)}</em></span>`;
+    }).join("");
+    return `<div class="cmp-mixrow">
+      <div class="cmp-mixhead"><b>${escapeHtml(sym)}</b>
+        <span>${escapeHtml((parts[0] || {}).section || "")} · ${escapeHtml((parts[0] || {}).period_ending || "")}</span></div>
+      <div class="cmp-bar">${segments}</div></div>`;
+  }).join("");
+  const missing = Object.keys(meta.missing || {});
+  $("st-cmp-mix").innerHTML = bars + (missing.length
+    ? `<div class="cmp-missing">No filed split for ${escapeHtml(missing.join(", "))}.</div>` : "");
+  $("st-cmp-mix-note").textContent =
+    `revenue split, newest filed year · ${escapeHtml(String((meta.covered || []).length))} of ${group.length} companies`;
+}
+
+$("st-cmp-add-form").onsubmit = (event) => {
+  event.preventDefault();
+  addToGroup($("st-cmp-add").value);
+  $("st-cmp-add").value = "";
+};
+$("st-cmp-reset").onclick = async () => {
+  await forgetPeerGroup();
+  stCmpEdited = false;
+  stCmpGroup = stCmpSuggested.slice(0, 4).map((r) => r.symbol);
+  renderCompareGroup();
+  loadCompareViews();
+};
 
 // ---------- multi-symbol comparison (rebased to 100) ----------
 async function loadRebasedChart(canvasId, symbolMap, start) {
@@ -3598,6 +4581,432 @@ $("cx-csv").onclick = () => {
   a.download = (currentCmd ? currentCmd.path.replace(/\//g, "_").replace(/^_/, "") : "export") + ".csv";
   a.click();
   URL.revokeObjectURL(a.href);
+};
+
+// ---------- modeling (DCF) ----------
+// A model is one object — `mdAssumptions` — and the whole screen is a function
+// of it. Editing any control writes into that object and re-values; nothing on
+// screen holds state of its own. The valuation itself is computed server-side
+// so the arithmetic has exactly one implementation (backend/valuation/dcf.py).
+let mdSymbol = null, mdAssumptions = null, mdEvidence = null, mdValuation = null;
+let mdSavedModels = [], mdActiveId = null, mdTimer = null;
+
+const MD_PCT = (x, digits = 1) => x == null ? "—" : (x * 100).toFixed(digits) + "%";
+const mdMoney = (x) => x == null ? "—" : (x < 0 ? "-" : "") + "$" + fmtBig(Math.abs(x));
+
+async function loadModelingView() {
+  await loadSavedModels();
+  if (!mdSymbol) {
+    const seededFrom = $("md-symbol").value.trim();
+    if (!seededFrom) $("md-symbol").focus();
+  }
+}
+
+async function loadSavedModels() {
+  try {
+    mdSavedModels = await api("/api/modeling/models");
+  } catch { mdSavedModels = []; }
+  renderSavedModels();
+}
+
+function renderSavedModels() {
+  if (!mdSavedModels.length) {
+    $("md-saved").innerHTML = `<div class="empty">Nothing saved yet. Build a model and name it.</div>`;
+    return;
+  }
+  $("md-saved").innerHTML = mdSavedModels.map((m) => {
+    const gap = m.value_per_share && m.price_at_save ? m.value_per_share / m.price_at_save - 1 : null;
+    return `<div class="md-saved-item ${m.id === mdActiveId ? "active" : ""}" data-model="${m.id}">
+      <div class="t"><span class="nm">${escapeHtml(m.name)}</span>
+        <span class="sy">${escapeHtml(m.symbol)}</span></div>
+      <div class="m">
+        <span>$${(m.value_per_share ?? 0).toFixed(2)}</span>
+        ${gap == null ? "" : `<span class="${cls(gap)}">${gap >= 0 ? "+" : ""}${(gap * 100).toFixed(0)}%</span>`}
+        <span class="del" data-del="${m.id}" title="Delete">✕</span>
+      </div></div>`;
+  }).join("");
+  $("md-saved").querySelectorAll("[data-model]").forEach((el) => {
+    el.onclick = (event) => {
+      if (event.target.dataset.del) return;
+      openSavedModel(Number(el.dataset.model));
+    };
+  });
+  $("md-saved").querySelectorAll("[data-del]").forEach((el) => {
+    el.onclick = async (event) => {
+      event.stopPropagation();
+      const model = mdSavedModels.find((m) => m.id === Number(el.dataset.del));
+      if (!confirm(`Delete “${model ? model.name : "this model"}”?`)) return;
+      try { await api(`/api/modeling/models/${el.dataset.del}`, { method: "DELETE" }); } catch { /* gone already */ }
+      if (mdActiveId === Number(el.dataset.del)) mdActiveId = null;
+      loadSavedModels();
+    };
+  });
+}
+
+async function buildModel(symbol) {
+  const sym = String(symbol || "").trim().toUpperCase();
+  if (!sym) return;
+  $("md-build-msg").className = "msg";
+  $("md-build-msg").textContent = `Reading ${sym}'s filings…`;
+  try {
+    const d = await api(`/api/modeling/seed?symbol=${encodeURIComponent(sym)}`);
+    mdSymbol = d.symbol;
+    mdAssumptions = d.assumptions;
+    mdEvidence = d.evidence;
+    mdValuation = d.valuation;
+    mdActiveId = null;
+    $("md-build-msg").textContent = "";
+    $("md-name-input").value = `${mdSymbol} base case`;
+    showModel();
+  } catch (e) {
+    $("md-build-msg").textContent = e.message;
+  }
+}
+
+async function openSavedModel(id) {
+  const saved = mdSavedModels.find((m) => m.id === id);
+  if (!saved) return;
+  $("md-build-msg").textContent = "";
+  mdActiveId = id;
+  mdSymbol = saved.symbol;
+  $("md-name-input").value = saved.name;
+  // Re-seed for the evidence panel (the filings may have moved on), but keep
+  // the saved assumptions — those are the model.
+  try {
+    const seeded = await api(`/api/modeling/seed?symbol=${encodeURIComponent(saved.symbol)}`);
+    mdEvidence = seeded.evidence;
+  } catch { mdEvidence = null; }
+  const full = await api(`/api/modeling/models/${id}`);
+  mdAssumptions = full.assumptions;
+  showModel();
+  renderSavedModels();
+  revalue();
+}
+
+function showModel() {
+  $("md-empty").style.display = "none";
+  $("md-model").style.display = "";
+  renderModel();
+}
+
+// Typing in a box should not fire a request per keystroke.
+function scheduleRevalue() {
+  clearTimeout(mdTimer);
+  mdTimer = setTimeout(revalue, 320);
+}
+
+async function revalue() {
+  if (!mdSymbol || !mdAssumptions) return;
+  try {
+    mdValuation = await api("/api/modeling/value", {
+      method: "POST",
+      body: { symbol: mdSymbol, assumptions: mdAssumptions, sensitivity: true },
+    });
+    $("md-save-msg").className = "msg";
+    $("md-save-msg").textContent = "";
+    renderAnswer();
+  } catch (e) {
+    // An impossible corner (r ≤ g, say) is a normal thing to type on the way
+    // to a sensible one: say so and leave the last good answer on screen.
+    $("md-save-msg").className = "msg";
+    $("md-save-msg").textContent = e.message;
+  }
+}
+
+function renderModel() {
+  renderAssumptions();
+  renderAnswer();
+  renderEvidence();
+}
+
+function renderAnswer() {
+  const v = mdValuation;
+  if (!v) return;
+  const ev = mdEvidence || {};
+  $("md-sym").textContent = mdSymbol;
+  $("md-name").textContent = ev.name || "";
+  $("md-source").textContent = ev.periods
+    ? `seeded from ${ev.periods.length} filed periods · ${Object.values(ev.provider_by_statement || {})
+        .filter(Boolean).join("/") || "sec"}`
+    : "";
+
+  $("md-value").textContent = "$" + (v.value_per_share ?? 0).toLocaleString("en-US",
+    { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const up = $("md-upside");
+  if (v.price) {
+    up.className = "md-upside mono " + cls(v.upside);
+    up.textContent = `${v.upside >= 0 ? "+" : ""}${(v.upside * 100).toFixed(1)}% vs $${v.price.toFixed(2)}`;
+  } else { up.className = "md-upside mono dim"; up.textContent = "no live price"; }
+
+  const row = (k, val, cssClass = "") =>
+    `<div class="r ${cssClass}"><span>${k}</span><span>${val}</span></div>`;
+  $("md-bridge").innerHTML =
+    row("PV of forecast", mdMoney(v.pv_explicit)) +
+    row("PV of terminal", `${mdMoney(v.pv_terminal)} <span class="dim">(${MD_PCT(v.terminal_share, 0)})</span>`) +
+    row("Enterprise value", mdMoney(v.enterprise_value), "tot") +
+    row("Less net debt", mdMoney(-v.net_debt)) +
+    row("Equity value", mdMoney(v.equity_value), "tot") +
+    row("Discount rate", MD_PCT(v.discount_rate, 2));
+
+  $("md-warnings").innerHTML = (v.warnings || [])
+    .map((w) => `<div class="w">${escapeHtml(w)}</div>`).join("");
+
+  renderProjection(v);
+  renderSensitivity(v);
+  $("md-wacc-note").textContent = mdAssumptions.discount_rate != null
+    ? "set directly" : `weighted: ${MD_PCT(v.discount_rate, 2)}`;
+  $("md-terminal-note").textContent = MD_PCT(v.terminal_share, 0) + " of enterprise value";
+}
+
+function renderProjection(v) {
+  const rows = v.projections || [];
+  if (!rows.length) { $("md-projection").innerHTML = ""; return; }
+  const line = (label, pick, money = true) =>
+    `<tr><td class="lbl">${label}</td>` +
+    rows.map((p) => `<td class="num">${money ? mdMoney(pick(p)) : pick(p)}</td>`).join("") + `</tr>`;
+  $("md-projection").innerHTML = `<table>
+    <tr><th></th>${rows.map((p) => `<th class="num">Year ${p.year}</th>`).join("")}</tr>
+    ${line("Revenue", (p) => p.revenue)}
+    ${line("Operating income", (p) => p.ebit)}
+    ${line("NOPAT (after tax)", (p) => p.nopat)}
+    ${line("+ Depreciation", (p) => p.depreciation)}
+    ${line("− Capital expenditure", (p) => -p.capex)}
+    ${line("− Change in working capital", (p) => -p.nwc_change)}
+    <tr class="tot"><td class="lbl">Free cash flow</td>${
+      rows.map((p) => `<td class="num">${mdMoney(p.free_cash_flow)}</td>`).join("")}</tr>
+    ${line("Discount factor", (p) => p.discount_factor.toFixed(3), false)}
+    <tr class="tot"><td class="lbl">Present value</td>${
+      rows.map((p) => `<td class="num">${mdMoney(p.present_value)}</td>`).join("")}</tr>
+  </table>`;
+}
+
+function renderSensitivity(v) {
+  const s = v.sensitivity;
+  if (!s) { $("md-sensitivity").innerHTML = ""; return; }
+  const byGrowth = s.terminal_axis === "terminal_growth";
+  $("md-sens-note").textContent =
+    `value per share across discount rate and ${byGrowth ? "terminal growth" : "exit multiple"}`;
+  const head = s.terminal_values.map((t) =>
+    `<th class="num axis">${byGrowth ? MD_PCT(t, 2) : t.toFixed(1) + "×"}</th>`).join("");
+  const body = s.grid.map((row, i) => {
+    const rate = s.discount_rates[i];
+    const cells = row.map((cell, j) => {
+      if (cell == null) return `<td class="cellv dim">—</td>`;
+      // Shade by upside against the live price: this is the question the grid
+      // is being asked, not the absolute dollar value.
+      const gap = v.price ? cell / v.price - 1 : 0;
+      const strength = Math.min(Math.abs(gap), 0.6) / 0.6 * 0.28;
+      const tint = v.price ? (gap >= 0 ? `rgba(0,200,5,${strength})` : `rgba(255,80,0,${strength})`) : "";
+      const here = Math.abs(rate - v.discount_rate) < 1e-9 &&
+        Math.abs(s.terminal_values[j] - (byGrowth ? mdAssumptions.terminal_growth
+                                                  : mdAssumptions.exit_multiple)) < 1e-9;
+      return `<td class="cellv ${here ? "here" : ""}" style="background:${tint}"
+        title="${v.price ? (gap >= 0 ? "+" : "") + (gap * 100).toFixed(0) + "% vs price" : ""}"
+        >$${cell.toFixed(2)}</td>`;
+    }).join("");
+    return `<tr><td class="lbl">${MD_PCT(rate, 2)}</td>${cells}</tr>`;
+  }).join("");
+  $("md-sensitivity").innerHTML = `<table>
+    <tr><th class="axis">WACC \\ ${byGrowth ? "g" : "EV/EBITDA"}</th>${head}</tr>${body}</table>`;
+}
+
+// --- the controls ------------------------------------------------------------
+function mdSet(key, value) {
+  mdAssumptions[key] = value;
+  scheduleRevalue();
+}
+
+// Percentages are typed as percentages and money is typed in millions — a
+// twelve-digit raw figure neither fits the box nor is what anyone means when
+// they say "net debt". `scale` records the multiplier so the value written back
+// into the model is still in units.
+function mdNumberRow(key, label, { pct = false, step = 0.5, hint = "", digits = 2,
+                                   scale = 1, unit = "" } = {}) {
+  const raw = mdAssumptions[key];
+  const shown = pct ? (raw * 100).toFixed(digits) : (raw / scale).toFixed(digits);
+  return `<div class="md-row">
+    <label>${label}${unit ? ` <span class="unit">${unit}</span>` : ""}
+      ${hint ? `<span class="was">${escapeHtml(hint)}</span>` : ""}</label>
+    <input type="number" step="${step}" value="${shown}"
+      data-md="${key}" data-pct="${pct ? 1 : 0}" data-scale="${scale}" />
+  </div>`;
+}
+
+function mdPerYearRow(key, label, hint) {
+  const years = mdAssumptions.years;
+  const values = Array.isArray(mdAssumptions[key])
+    ? mdAssumptions[key] : Array(years).fill(mdAssumptions[key]);
+  const boxes = Array.from({ length: years }, (_, i) => `<div>
+      <label>Y${i + 1}</label>
+      <input type="number" step="0.5" value="${((values[i] ?? values[values.length - 1]) * 100).toFixed(1)}"
+        data-mdyear="${key}" data-i="${i}" />
+    </div>`).join("");
+  return `<div class="md-row wide">
+    <label>${label} <span class="unit">% per year</span>
+      ${hint ? `<span class="was">${escapeHtml(hint)}</span>` : ""}</label>
+    <div class="peryear">${boxes}</div>
+  </div>`;
+}
+
+function renderAssumptions() {
+  const h = mdEvidence && mdEvidence.history ? mdEvidence.history : {};
+  const avg = (list) => (list && list.length)
+    ? `filed: ${list.map((v) => (v * 100).toFixed(1) + "%").join(", ")}` : "";
+
+  $("md-assumptions").innerHTML =
+    `<div class="md-row">
+      <label>Forecast years</label>
+      <select data-md-years>${[3, 5, 7, 10].map((y) =>
+        `<option value="${y}" ${y === mdAssumptions.years ? "selected" : ""}>${y}</option>`).join("")}</select>
+    </div>` +
+    mdPerYearRow("revenue_growth", "Revenue growth",
+      h.revenue_cagr != null ? `trailing CAGR ${(h.revenue_cagr * 100).toFixed(1)}%` : "") +
+    mdPerYearRow("operating_margin", "Operating margin", avg(h.operating_margin)) +
+    mdNumberRow("tax_rate", "Tax rate", { pct: true, hint: avg(h.effective_tax_rate) }) +
+    mdNumberRow("depreciation_pct_revenue", "Depreciation, % of revenue",
+      { pct: true, hint: avg(h.depreciation_pct_revenue) }) +
+    mdNumberRow("capex_pct_revenue", "Capital expenditure, % of revenue",
+      { pct: true, hint: avg(h.capex_pct_revenue) }) +
+    mdNumberRow("nwc_pct_revenue_change", "Working capital, % of revenue growth",
+      { pct: true, hint: "charged on the increase in revenue, not its level" }) +
+    mdNumberRow("net_debt", "Net debt", { step: 100, digits: 0, scale: 1e6, unit: "$m",
+      hint: `${mdMoney(mdAssumptions.net_debt)} — debt less cash and short-term investments` }) +
+    mdNumberRow("shares_diluted", "Diluted shares", { step: 1, digits: 1, scale: 1e6, unit: "m",
+      hint: fmtBig(mdAssumptions.shares_diluted) + " shares" }) +
+    mdNumberRow("revenue_base", "Base revenue (last filed year)",
+      { step: 100, digits: 0, scale: 1e6, unit: "$m", hint: mdMoney(mdAssumptions.revenue_base) });
+
+  const override = mdAssumptions.discount_rate != null;
+  $("md-wacc").innerHTML =
+    `<div class="md-row">
+      <label>Set the rate directly<span class="was">otherwise it is built from the weights below</span></label>
+      <input type="checkbox" data-md-override ${override ? "checked" : ""} />
+    </div>` +
+    (override
+      ? mdNumberRow("discount_rate", "Discount rate", { pct: true })
+      : mdNumberRow("equity_weight", "Equity weight", { pct: true,
+          hint: `debt weight ${MD_PCT(1 - mdAssumptions.equity_weight, 1)}` }) +
+        mdNumberRow("cost_of_equity", "Cost of equity", { pct: true,
+          hint: mdEvidence ? `CAPM: ${MD_PCT(mdEvidence.risk_free_rate, 2)} + ${
+            (mdEvidence.beta ?? 1).toFixed(2)}β × ${MD_PCT(mdEvidence.equity_risk_premium, 1)}` : "" }) +
+        mdNumberRow("cost_of_debt", "Cost of debt (pre-tax)", { pct: true,
+          hint: "interest expense over total debt" }));
+
+  const perpetuity = mdAssumptions.terminal_method === "perpetuity";
+  $("md-terminal").innerHTML =
+    `<div class="md-row">
+      <label>Method</label>
+      <select data-md-terminal>
+        <option value="perpetuity" ${perpetuity ? "selected" : ""}>Perpetuity</option>
+        <option value="exit_multiple" ${!perpetuity ? "selected" : ""}>Exit multiple</option>
+      </select>
+    </div>` +
+    (perpetuity
+      ? mdNumberRow("terminal_growth", "Terminal growth", { pct: true, step: 0.1,
+          hint: "must stay below the discount rate" })
+      : mdNumberRow("exit_multiple", "Exit EV / EBITDA", { step: 0.5, digits: 1 })) +
+    `<div class="md-row">
+      <label>Mid-year discounting<span class="was">cash arrives across the year, not on its last day</span></label>
+      <input type="checkbox" data-md-midyear ${mdAssumptions.mid_year ? "checked" : ""} />
+    </div>`;
+
+  wireAssumptionInputs();
+}
+
+function wireAssumptionInputs() {
+  document.querySelectorAll("#view-modeling [data-md]").forEach((el) => {
+    el.oninput = () => {
+      const raw = parseFloat(el.value);
+      if (Number.isNaN(raw)) return;
+      const scale = Number(el.dataset.scale || 1);
+      mdSet(el.dataset.md, el.dataset.pct === "1" ? raw / 100 : raw * scale);
+    };
+  });
+  document.querySelectorAll("#view-modeling [data-mdyear]").forEach((el) => {
+    el.oninput = () => {
+      const raw = parseFloat(el.value);
+      if (Number.isNaN(raw)) return;
+      const key = el.dataset.mdyear;
+      const years = mdAssumptions.years;
+      const current = Array.isArray(mdAssumptions[key])
+        ? mdAssumptions[key].slice() : Array(years).fill(mdAssumptions[key]);
+      while (current.length < years) current.push(current[current.length - 1]);
+      current[Number(el.dataset.i)] = raw / 100;
+      mdSet(key, current.slice(0, years));
+    };
+  });
+  const years = document.querySelector("#view-modeling [data-md-years]");
+  if (years) years.onchange = () => {
+    mdAssumptions.years = Number(years.value);
+    renderAssumptions();            // the per-year rows change shape
+    scheduleRevalue();
+  };
+  const override = document.querySelector("#view-modeling [data-md-override]");
+  if (override) override.onchange = () => {
+    mdAssumptions.discount_rate = override.checked
+      ? Number((mdValuation ? mdValuation.discount_rate : 0.09).toFixed(4)) : null;
+    renderAssumptions();
+    scheduleRevalue();
+  };
+  const terminal = document.querySelector("#view-modeling [data-md-terminal]");
+  if (terminal) terminal.onchange = () => {
+    mdAssumptions.terminal_method = terminal.value;
+    renderAssumptions();
+    scheduleRevalue();
+  };
+  const midYear = document.querySelector("#view-modeling [data-md-midyear]");
+  if (midYear) midYear.onchange = () => mdSet("mid_year", midYear.checked);
+}
+
+function renderEvidence() {
+  const ev = mdEvidence;
+  if (!ev) { $("md-evidence").innerHTML = ""; return; }
+  const h = ev.history || {};
+  const line = (label, values, format) => {
+    const list = values || [];
+    if (!list.length) return "";
+    return `<tr><td class="lbl">${label}</td>` +
+      ev.periods.slice(0, list.length).map((p, i) =>
+        `<td class="num">${format(list[i])}</td>`).join("") + `</tr>`;
+  };
+  const money = (x) => mdMoney(x);
+  const pct = (x) => MD_PCT(x, 1);
+  $("md-evidence").innerHTML = `<table>
+    <tr><th></th>${(ev.periods || []).slice(0, 6).map((p) =>
+      `<th class="num">${escapeHtml(String(p).slice(0, 7))}</th>`).join("")}</tr>
+    ${line("Revenue", h.revenue, money)}
+    ${line("Operating margin", h.operating_margin, pct)}
+    ${line("Effective tax rate", h.effective_tax_rate, pct)}
+    ${line("Depreciation, % revenue", h.depreciation_pct_revenue, pct)}
+    ${line("Capital expenditure, % revenue", h.capex_pct_revenue, pct)}
+  </table>
+  <div class="fs-foot">${(ev.notes || []).map((n) => `<span>${escapeHtml(n)}</span>`).join("")}</div>`;
+}
+
+$("md-build").onclick = () => buildModel($("md-symbol").value);
+$("md-symbol").onkeydown = (e) => { if (e.key === "Enter") buildModel($("md-symbol").value); };
+$("md-reseed").onclick = () => { if (mdSymbol) buildModel(mdSymbol); };
+
+$("md-save").onclick = async () => {
+  if (!mdSymbol || !mdAssumptions) return;
+  const name = $("md-name-input").value.trim();
+  const msg = $("md-save-msg");
+  if (!name) { msg.className = "msg"; msg.textContent = "Give the model a name."; return; }
+  try {
+    if (mdActiveId) {
+      await api(`/api/modeling/models/${mdActiveId}`, {
+        method: "PUT", body: { name, assumptions: mdAssumptions },
+      });
+    } else {
+      const created = await api("/api/modeling/models", {
+        method: "POST", body: { name, symbol: mdSymbol, assumptions: mdAssumptions },
+      });
+      mdActiveId = created.id;
+    }
+    msg.className = "msg ok";
+    msg.textContent = "Saved.";
+    loadSavedModels();
+  } catch (e) { msg.className = "msg"; msg.textContent = e.message; }
 };
 
 // ---------- insights (factors) ----------
@@ -4867,7 +6276,69 @@ function loadThesisView() {
   if (thLoaded) return;
   thLoaded = true;
   thLoadTheses();
+  thLoadSources();
   thTriageStatus();
+}
+
+// ---------- idea sources ----------
+// The funnel menu comes from the backend, so a source registered server-side
+// shows up here without a frontend change. Its params arrive with their own
+// kinds and clamps, which is what lets one panel drive every scanner.
+let thSources = null;
+
+function thSource() {
+  if (!thSources) return null;
+  return thSources.sources.find((s) => s.name === $("th-source").value) || null;
+}
+
+async function thLoadSources() {
+  try {
+    thSources = await api("/api/theses/triage/sources");
+  } catch (e) {
+    $("th-cand-note").textContent = e.message;
+    return;
+  }
+  $("th-source").innerHTML = thSources.sources.map((s) =>
+    `<option value="${escapeHtml(s.name)}"${s.name === thSources.default ? " selected" : ""}>${
+      escapeHtml(s.label)}</option>`).join("");
+  $("th-source").onchange = thRenderSource;
+  thRenderSource();
+}
+
+function thRenderSource() {
+  const src = thSource();
+  if (!src) return;
+  $("th-cand-note").textContent = src.scope;
+  $("th-params").innerHTML = Object.entries(src.params || {}).map(([name, spec]) => {
+    const id = `th-p-${name}`;
+    const label = escapeHtml(name.replace(/_/g, " "));
+    const title = escapeHtml(spec.help || "");
+    if (spec.kind === "bool") {
+      return `<label class="panel-note" style="margin-left:0" title="${title}">
+        <input type="checkbox" id="${id}"${spec.default ? " checked" : ""} /> ${label}</label>`;
+    }
+    const bounds = (spec.min == null ? "" : ` min="${spec.min}"`) +
+                   (spec.max == null ? "" : ` max="${spec.max}"`);
+    return `<label class="panel-note" style="margin-left:0" title="${title}">${label}
+      <input type="${spec.kind === "str" ? "text" : "number"}" id="${id}" class="mono"
+        style="width:120px;margin-left:6px"
+        value="${spec.default == null ? "" : escapeHtml(String(spec.default))}"${bounds} /></label>`;
+  }).join("");
+  $("th-cand-warn").innerHTML = "";
+  $("th-cands").innerHTML = `<div class="empty">Press “Find candidates” to scan.</div>`;
+}
+
+function thParams() {
+  const src = thSource();
+  const qs = new URLSearchParams();
+  if (!src) return qs;
+  qs.set("source", src.name);
+  for (const [name, spec] of Object.entries(src.params || {})) {
+    const el = $(`th-p-${name}`);
+    if (!el) continue;
+    qs.set(name, spec.kind === "bool" ? String(el.checked) : el.value);
+  }
+  return qs;
 }
 
 async function thTriageStatus() {
@@ -4894,14 +6365,7 @@ async function thTriageRun() {
   btn.disabled = true;
   box.innerHTML = `<div class="empty">Running the funnel and asking the model… this is one call but it reads every card.</div>`;
   try {
-    const qs = new URLSearchParams({
-      quarters: $("th-quarters").value,
-      min_officers: $("th-minoff").value || "2",
-      min_officer_value: $("th-minval").value || "1000000",
-      fresh_days: $("th-fresh").checked ? "5" : "0",
-      limit: "20",
-    });
-    const d = await api(`/api/theses/triage?${qs}`, { method: "POST" });
+    const d = await api(`/api/theses/triage?${thParams()}`, { method: "POST" });
     thRenderTriage(d);
   } catch (e) {
     box.innerHTML = `<div class="empty">${escapeHtml(e.message)}</div>`;
@@ -4918,14 +6382,19 @@ function thRenderTriage(d) {
   }
   const srcTag = (leg) => leg.source === "world_knowledge"
     ? `<span class="badge">needs verifying</span>` : `<span class="dim">from the data</span>`;
+  // Which funnel these came from is part of reading the verdict: the model was
+  // told that source's characteristic failure mode and argued against it.
+  const ran = thSources && thSources.sources.find((s) => s.name === d.source);
   box.innerHTML =
-    `<div class="explain">${escapeHtml(d.disclaimer || "")}</div>` +
+    `<div class="explain">${ran ? `<strong>${escapeHtml(ran.label)}</strong> · ` : ""}${
+      escapeHtml(d.disclaimer || "")}</div>` +
     cands.map((c, i) => `
     <div class="panel" style="margin-top:10px">
       <div class="panel-h">
         <span class="mono">${escapeHtml(c.symbol)}</span>
         <span class="${c.promote ? "pos" : "dim"}" style="margin-left:10px">${c.promote ? "PROMOTED" : "passed over"}</span>
-        <span class="panel-note">confidence ${escapeHtml(c.confidence || "?")} · calendar-artifact risk ${escapeHtml(c.calendar_artifact_risk || "?")}</span>
+        <span class="${c.direction === "long" ? "pos" : c.direction === "short" ? "neg" : "dim"}" style="margin-left:10px">${escapeHtml((c.direction || "neutral").toUpperCase())}</span>
+        <span class="panel-note">confidence ${escapeHtml(c.confidence || "?")} · scanner-artifact risk ${escapeHtml(c.calendar_artifact_risk || "?")}</span>
         ${c.promote ? `<button class="ghost panel-btn" data-dive="${i}">Deep dive → draft thesis</button>` : ""}
       </div>
       ${c.claim_sketch ? `<p class="explain">${escapeHtml(c.claim_sketch)}</p>` : ""}
@@ -4956,8 +6425,13 @@ async function thDeepDive(candidate, i, btn) {
     });
     const dossier = d.dossier || {};
     if (d.draft_thesis_id) {
-      msg.innerHTML = `<span class="pos">Draft thesis created</span> — ${d.evidence_frozen || 0} evidence snapshot(s) frozen.` +
-        (d.skipped_citations ? ` <span class="dim">Skipped: ${escapeHtml(d.skipped_citations.join(", "))}</span>` : "");
+      msg.innerHTML = `<span class="pos">Draft thesis created</span> — ${d.evidence_frozen || 0} evidence snapshot(s) frozen, ` +
+        `${d.checks_installed || 0} falsifier(s) installed.` +
+        (d.skipped_citations ? ` <span class="dim">Skipped: ${escapeHtml(d.skipped_citations.join(", "))}</span>` : "") +
+        // Every proposed falsifier is run before it is kept, so a rejection is
+        // a fact about live data and worth reading rather than hiding.
+        (d.rejected_checks ? `<div class="dim" style="margin-top:4px">Rejected falsifiers: ` +
+          escapeHtml(d.rejected_checks.map((c) => `${c.name} (${c.reason})`).join("; ")) + `</div>` : "");
       await thLoadTheses();
       thShowThesis(d.draft_thesis_id);
       $("th-detail").scrollIntoView({ behavior: "smooth" });
@@ -4970,38 +6444,50 @@ async function thDeepDive(candidate, i, btn) {
   btn.disabled = false;
 }
 
+//: Column names whose values are dollars rather than counts.
+const TH_MONEY = /(^|_)(value|amount|amount_floor|usd)$/;
+
+function thCell(column, value) {
+  if (value == null || value === "") return `<td class="dim"></td>`;
+  if (typeof value === "boolean") return `<td>${value ? "yes" : "no"}</td>`;
+  if (typeof value === "number") {
+    return `<td class="num">${TH_MONEY.test(column) ? fmt$(value) : value.toLocaleString()}</td>`;
+  }
+  // Families are written machine-side (board_backed_strategic); everything else
+  // is a name or a date and must survive intact.
+  const text = column === "family" ? String(value).replace(/_/g, " ") : String(value);
+  return `<td class="${column === "symbol" ? "mono" : "dim"}">${escapeHtml(text)}</td>`;
+}
+
 async function thRunCandidates() {
+  const src = thSource();
+  if (!src) return;
   const box = $("th-cands");
-  box.innerHTML = `<div class="empty">Scanning SEC filings… the first run downloads a quarter of data and can take a minute.</div>`;
+  box.innerHTML = `<div class="empty">Scanning… a cold run downloads source data and can take a minute.</div>`;
   $("th-cand-warn").innerHTML = "";
   try {
-    const qs = new URLSearchParams({
-      quarters: $("th-quarters").value,
-      min_officers: $("th-minoff").value || "2",
-      min_officer_value: $("th-minval").value || "1000000",
-      fresh_days: $("th-fresh").checked ? "5" : "0",
-      limit: "40",
-    });
-    const d = await api(`/api/v1/thesis/insider_clusters?${qs}`);
+    // The funnel is a registry command, so it takes the source's params but
+    // not the source name itself.
+    const qs = thParams();
+    qs.delete("source");
+    const d = await api(`/api/v1${src.command}?${qs}`);
     if (d.warnings && d.warnings.length)
       $("th-cand-warn").innerHTML = `<div class="explain">${escapeHtml(d.warnings[0])}</div>`;
     const rows = d.results || [];
-    if (!rows.length) { box.innerHTML = `<div class="empty">No clusters met the gate.</div>`; return; }
-    box.innerHTML = `<table><thead><tr>
-        <th>Symbol</th><th>Company</th><th>What fired</th><th>Last filing</th>
-        <th class="num">Officers</th><th class="num">Officer $</th><th class="num">Board-backed $</th><th>Who</th>
-      </tr></thead><tbody>` + rows.map((r) => `
-      <tr class="clickrow" data-sym="${escapeHtml(r.symbol)}">
-        <td class="mono">${escapeHtml(r.symbol)}</td>
-        <td>${escapeHtml(r.issuer || "")}</td>
-        <td>${escapeHtml((r.family || "").replace(/_/g, " "))}${r.board_backed_via ? ` <span class="dim">via ${escapeHtml(r.board_backed_via)}</span>` : ""}</td>
-        <td class="mono">${escapeHtml(r.last_filing || "")}</td>
-        <td class="num">${r.officer_buyers ?? ""}</td>
-        <td class="num">${fmt$(r.officer_value || 0)}</td>
-        <td class="num">${fmt$(r.board_backed_value || 0)}</td>
-        <td class="dim">${escapeHtml(r.buyers || "")}</td>
-      </tr>`).join("") + `</tbody></table>`;
+    if (!rows.length) { box.innerHTML = `<div class="empty">Nothing met the gate.</div>`; return; }
+
+    // Columns are whatever this source emitted — the scanner already decided
+    // what is worth showing, so a new funnel needs no table of its own.
+    const cols = Object.keys(rows[0]).filter((c) => c !== "action");
+    box.innerHTML = `<table><thead><tr>` +
+      cols.map((c) => `<th${typeof rows[0][c] === "number" ? ` class="num"` : ""}>${
+        escapeHtml(c.replace(/_/g, " "))}</th>`).join("") +
+      `</tr></thead><tbody>` +
+      rows.map((r) => `<tr class="clickrow" data-sym="${escapeHtml(r.symbol || "")}">` +
+        cols.map((c) => thCell(c, r[c])).join("") + `</tr>`).join("") +
+      `</tbody></table>`;
     box.querySelectorAll("tr.clickrow").forEach((tr) => {
+      if (!tr.dataset.sym) return;
       tr.style.cursor = "pointer";
       tr.onclick = () => { $("th-act-symbol").value = tr.dataset.sym; thShowActivity(tr.dataset.sym); };
     });
@@ -5016,6 +6502,7 @@ async function thShowActivity(sym) {
   const box = $("th-activity");
   box.innerHTML = `<div class="empty">Reading ${escapeHtml(sym)}'s Form 4 filings…</div>`;
   $("th-holders").innerHTML = `<div class="empty">Checking watched funds…</div>`;
+  $("th-congress").innerHTML = `<div class="empty">Reading Senate disclosures…</div>`;
   try {
     const d = await api(`/api/v1/thesis/insider_activity?symbol=${encodeURIComponent(sym)}&days=400`);
     const x = d.extra || {};
@@ -5052,6 +6539,31 @@ async function thShowActivity(sym) {
   } catch (e) {
     $("th-holders").innerHTML = `<div class="empty">${escapeHtml(e.message)}</div>`;
   }
+  try {
+    const c = await api(`/api/v1/thesis/congress_trades?symbol=${encodeURIComponent(sym)}&days=365`);
+    // The bracket is printed whole. Collapsing it to a midpoint would put a
+    // number on screen that nobody disclosed and nobody traded.
+    const bracket = (r) => r.amount_low == null ? "—"
+      : r.amount_high == null ? `over ${fmt$(r.amount_low)}`
+      : `${fmt$(r.amount_low)}–${fmt$(r.amount_high)}`;
+    $("th-congress").innerHTML = `<table><thead><tr>
+        <th>Filed</th><th>Traded</th><th>Member</th><th>Account</th><th>Side</th>
+        <th class="num">Disclosed range</th><th></th>
+      </tr></thead><tbody>` + (c.results || []).map((r) => `
+      <tr>
+        <td class="mono">${escapeHtml(String(r.filing_date || "").slice(0, 10))}</td>
+        <td class="mono dim">${escapeHtml(String(r.transaction_date || "").slice(0, 10))}</td>
+        <td>${escapeHtml(r.member || "")}</td>
+        <td class="dim">${escapeHtml(r.owner || "")}</td>
+        <td class="${r.side === "buy" ? "pos" : r.side === "sell" ? "neg" : "dim"}">${escapeHtml(r.side || "")}</td>
+        <td class="num">${bracket(r)}</td>
+        <td>${r.filing_url ? `<a href="${escapeHtml(r.filing_url)}" target="_blank" rel="noopener" class="dim">filing</a>` : ""}</td>
+      </tr>`).join("") + `</tbody></table>`;
+  } catch (e) {
+    // Silence is the norm here: the Senate is 100 of 535 members, so nobody
+    // disclosing this name says nothing about whether anybody traded it.
+    $("th-congress").innerHTML = `<div class="empty">${escapeHtml(e.message)} — Senate coverage only, so this is not evidence that nobody traded it.</div>`;
+  }
 }
 
 const TH_STATUS = { open: "dim", supported: "pos", broken: "neg", expired: "dim", closed: "dim" };
@@ -5065,7 +6577,7 @@ async function thLoadTheses() {
         <th>Title</th><th>Symbols</th><th>Status</th><th>Review by</th><th>Made</th>
       </tr></thead><tbody>` + rows.map((t) => `
       <tr class="clickrow" data-id="${t.id}" style="cursor:pointer">
-        <td>${escapeHtml(t.title)}</td>
+        <td>${t.reviewed_at ? "" : `<span class="chip warn" title="No human has reviewed this yet">draft</span> `}${escapeHtml(t.title)}</td>
         <td class="mono">${escapeHtml(t.symbols || "")}</td>
         <td class="${TH_STATUS[t.status] || "dim"}">${escapeHtml(t.status)}</td>
         <td class="mono dim">${t.review_by ? escapeHtml(String(t.review_by).slice(0, 10)) : "—"}</td>
@@ -5086,9 +6598,17 @@ async function thShowThesis(id) {
     $("th-d-claim").textContent = t.claim;
     $("th-d-meta").innerHTML =
       `status <span class="${TH_STATUS[t.status] || "dim"}">${escapeHtml(t.status)}</span>` +
+      ` · direction <span class="${t.direction === "long" ? "pos" : t.direction === "short" ? "neg" : "dim"}">${escapeHtml(t.direction || "neutral")}</span>` +
       (t.review_by ? ` · review by ${escapeHtml(String(t.review_by).slice(0, 10))}` : "") +
       (t.source ? ` · from ${escapeHtml(t.source)}` : "") +
+      (t.reviewed_at
+        ? ` · <span class="dim">reviewed ${timeAgo(t.reviewed_at)}</span>`
+        : ` · <span class="warn">unreviewed — a machine proposed this and nobody has checked it</span>`) +
       (t.outcome_note ? ` · ${escapeHtml(t.outcome_note)}` : "");
+    // Grading is unaffected either way: review decides whether the thesis is
+    // yours, never whether it counts.
+    $("th-d-review").textContent = t.reviewed_at ? "Mark unreviewed" : "Mark reviewed";
+    $("th-d-review").dataset.reviewed = t.reviewed_at ? "1" : "";
     $("th-d-checks").innerHTML = (t.checks || []).length
       ? `<table><thead><tr><th>Check</th><th>Watches</th><th>Breaks if</th><th class="num">Last value</th><th>Status</th></tr></thead><tbody>` +
         t.checks.map((c) => `
@@ -5148,6 +6668,15 @@ function thBindOnce() {
     thLoadTheses();
   };
 
+  $("th-d-review").onclick = async () => {
+    if (!thCurrentId) return;
+    const reviewed = !$("th-d-review").dataset.reviewed;
+    try { await api(`/api/theses/${thCurrentId}`, { method: "PATCH", body: { reviewed } }); }
+    catch (e) { setStatus(e.message); return; }
+    thShowThesis(thCurrentId);
+    thLoadTheses();
+  };
+
   $("th-d-delete").onclick = async () => {
     if (!thCurrentId || !confirm("Delete this thesis and its record?")) return;
     try { await api(`/api/theses/${thCurrentId}`, { method: "DELETE" }); } catch (e) { setStatus(e.message); }
@@ -5161,15 +6690,26 @@ function thBindOnce() {
     let params = {};
     try { params = $("th-c-params").value.trim() ? JSON.parse($("th-c-params").value) : {}; }
     catch { setStatus("Check parameters must be JSON, e.g. {\"symbol\":\"MGM\"}"); return; }
+    const body = {
+      name: $("th-c-name").value.trim() || "check",
+      command_path: $("th-c-path").value.trim(),
+      parameters: params,
+      field: $("th-c-field").value.trim(),
+      comparator: $("th-c-cmp").value,
+      threshold: parseFloat($("th-c-threshold").value),
+    };
+    // The server runs the check before storing it. A field it cannot read is
+    // refused outright; one that is already true is refused until you say you
+    // meant it, because such a check breaks the thesis on the next sweep.
+    const post = (qs = "") => api(`/api/theses/${thCurrentId}/checks${qs}`, { method: "POST", body });
     try {
-      await api(`/api/theses/${thCurrentId}/checks`, { method: "POST", body: {
-        name: $("th-c-name").value.trim() || "check",
-        command_path: $("th-c-path").value.trim(),
-        parameters: params,
-        field: $("th-c-field").value.trim(),
-        comparator: $("th-c-cmp").value,
-        threshold: parseFloat($("th-c-threshold").value),
-      }});
+      try {
+        await post();
+      } catch (e) {
+        if (!/allow_breached=true/.test(e.message)) throw e;
+        if (!confirm(`${e.message.replace(/ — pass allow_breached=true.*/, "")}\n\nStore it anyway? The thesis will read as broken at the next check.`)) return;
+        await post("?allow_breached=true");
+      }
       ["th-c-name", "th-c-path", "th-c-params", "th-c-field", "th-c-threshold"].forEach((i) => { $(i).value = ""; });
       thShowThesis(thCurrentId);
     } catch (e) { setStatus(e.message); }

@@ -50,8 +50,10 @@
       <button class="navbtn" data-view="sectors">Sectors</button>
       <button class="navbtn" data-view="screener">Screener</button>
       <button class="navbtn" data-view="thesis">Thesis</button>
+      <button class="navbtn" data-view="modeling">Modeling</button>
       <button class="navbtn" data-view="assets">Assets</button>
       <button class="navbtn" data-view="news">News</button>
+      <button class="navbtn" data-view="calendar">Calendar</button>
       <button class="navbtn" data-view="sentiment">Sentiment</button>
       <button class="navbtn" data-view="portfolio">Portfolio</button>
       <button class="navbtn" data-view="data">Data</button>
@@ -200,6 +202,9 @@
           <div class="modetoggle" id="st-mode">
             <button class="chip sm active" data-mode="simple">Simple</button>
             <button class="chip sm" data-mode="advanced">Advanced</button>
+            <button class="chip sm" data-mode="exposure">Exposure</button>
+            <button class="chip sm" data-mode="financials">Financials</button>
+            <button class="chip sm" data-mode="compare">Compare</button>
           </div>
         </div>
 
@@ -310,7 +315,10 @@
               <div id="st-chain" class="tablewrap chaintable"><div class="empty">Loading…</div></div>
             </div>
             <div class="panel">
-              <div class="panel-h">PEERS <span id="st-peers-note" class="panel-note"></span></div>
+              <div class="panel-h">
+                <button class="chip sm ghost panel-btn" type="button" id="st-peers-compare">Compare →</button>
+                PEERS <span id="st-peers-note" class="panel-note"></span>
+              </div>
               <div id="st-peers" class="tablewrap peertable"><div class="empty">Loading…</div></div>
             </div>
           </div>
@@ -325,6 +333,107 @@
               <div id="st-senti"><div class="empty">Loading…</div></div>
               <div id="st-advnews" class="advfeed"></div>
             </div>
+          </div>
+        </div>
+
+        <!-- ===== Exposure ===== -->
+        <div id="st-exposure" class="stock-body" style="display:none">
+          <div class="panel">
+            <div class="panel-h">
+              EXPOSURE TO RELATED COMPANIES
+              <span id="st-expo-note" class="panel-note"></span>
+            </div>
+            <p id="st-expo-lede" class="explain"></p>
+            <div id="st-expo-map" class="expo-map"><div class="empty">Loading…</div></div>
+            <div id="st-expo-legend" class="expo-legend"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-h">
+              THE DISCLOSURES
+              <span class="panel-note">every relationship above, with the sentence it was read from</span>
+            </div>
+            <div id="st-expo-table" class="tablewrap expotable"><div class="empty">Loading…</div></div>
+          </div>
+        </div>
+
+        <!-- ===== Compare ===== -->
+        <div id="st-compare" class="stock-body" style="display:none">
+          <div class="panel">
+            <div class="panel-h">
+              THE GROUP
+              <span id="st-cmp-note" class="panel-note"></span>
+            </div>
+            <p id="st-cmp-lede" class="explain"></p>
+            <div id="st-cmp-group" class="cmp-group"></div>
+            <form id="st-cmp-add-form" class="cmp-add" autocomplete="off">
+              <input id="st-cmp-add" type="text" placeholder="Add a ticker…" maxlength="12"
+                     aria-label="Add a company to the comparison">
+              <button class="chip sm" type="submit">Add</button>
+              <span class="spacer"></span>
+              <button class="chip sm ghost" type="button" id="st-cmp-reset">Reset to suggested</button>
+            </form>
+            <div id="st-cmp-suggested" class="tablewrap peertable"><div class="empty">Loading…</div></div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-h">
+              PRICE, REBASED TO 100
+              <span id="st-cmp-chart-note" class="panel-note"></span>
+            </div>
+            <canvas id="st-cmp-chart" height="110"></canvas>
+          </div>
+
+          <div class="panel">
+            <div class="panel-h">
+              SIDE BY SIDE
+              <span class="panel-note">the median column is of the peers, not the group</span>
+            </div>
+            <div id="st-cmp-table" class="tablewrap fstable"><div class="empty">Loading…</div></div>
+            <div id="st-cmp-foot" class="fs-foot"></div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-h">
+              WHAT THEY SELL
+              <span id="st-cmp-mix-note" class="panel-note">revenue split, newest filed year</span>
+            </div>
+            <div id="st-cmp-mix" class="cmp-mix"><div class="empty">Loading…</div></div>
+          </div>
+        </div>
+
+        <!-- ===== Financials ===== -->
+        <div id="st-financials" class="stock-body" style="display:none">
+          <div class="panel">
+            <div class="panel-h">
+              FINANCIAL STATEMENTS
+              <span id="st-fs-note" class="panel-note"></span>
+            </div>
+
+            <div class="fs-toolbar">
+              <div class="chipgroup" id="st-fs-tabs">
+                <button class="chip sm active" data-fs="income">Income statement</button>
+                <button class="chip sm" data-fs="balance">Balance sheet</button>
+                <button class="chip sm" data-fs="cash">Cash flow</button>
+                <button class="chip sm" data-fs="segments">Segments</button>
+              </div>
+              <span class="advdiv"></span>
+              <div class="chipgroup" id="st-fs-periods">
+                <button class="chip sm active" data-fsperiod="annual">Annual</button>
+                <button class="chip sm" data-fsperiod="quarter">Quarterly</button>
+                <button class="chip sm" data-fsperiod="ytd">YTD &amp; estimate</button>
+              </div>
+              <span class="advdiv"></span>
+              <div class="chipgroup" id="st-fs-views">
+                <button class="chip sm active" data-fsview="reported">As reported</button>
+                <button class="chip sm" data-fsview="common">Common size</button>
+                <button class="chip sm" data-fsview="growth">Change</button>
+              </div>
+              <span class="spacer"></span>
+              <span id="st-fs-scale" class="advhint mono"></span>
+            </div>
+
+            <div id="st-fs-table" class="tablewrap fstable"><div class="empty">Loading…</div></div>
+            <div id="st-fs-foot" class="fs-foot"></div>
           </div>
         </div>
 
@@ -558,27 +667,21 @@
       <!-- Thesis -->
       <section id="view-thesis" class="view">
         <h1>Thesis</h1>
-        <p class="lede">Ideas you can grade. Insider-buying clusters surface names worth a look —
+        <p class="lede">Ideas you can grade. Each idea source surfaces names worth a look —
           an attention signal, never a buy signal — and a thesis pins a claim to frozen evidence
           and the conditions that would prove it wrong.</p>
 
         <div class="panel">
-          <div class="panel-h">CANDIDATES — WHO'S BUYING THEIR OWN STOCK
-            <span class="panel-note">from SEC Form 4 filings · click a row for the company's insider record</span>
+          <div class="panel-h">CANDIDATES
+            <span id="th-cand-note" class="panel-note">loading idea sources…</span>
           </div>
           <div class="row">
-            <select id="th-quarters">
-              <option value="1">Newest quarter</option>
-              <option value="2" selected>Two quarters</option>
-              <option value="4">Four quarters</option>
-            </select>
-            <input id="th-minoff" class="mono" value="2" style="width:110px" title="Minimum distinct officer/director buyers" />
-            <input id="th-minval" class="mono" value="1000000" style="width:140px" title="Minimum combined officer value ($)" />
-            <label class="panel-note" style="margin-left:0"><input type="checkbox" id="th-fresh" /> also sweep this week's filings (slow first run)</label>
-            <button id="th-run" class="primary">Find clusters</button>
+            <select id="th-source"></select>
+            <button id="th-run" class="primary">Find candidates</button>
           </div>
+          <div class="row" id="th-params"></div>
           <div id="th-cand-warn"></div>
-          <div id="th-cands" class="tablewrap"><div class="empty">Press “Find clusters” to scan.</div></div>
+          <div id="th-cands" class="tablewrap"><div class="empty">Choose an idea source, then press “Find candidates”.</div></div>
         </div>
 
         <div class="panel">
@@ -612,6 +715,14 @@
         </div>
 
         <div class="panel">
+          <div class="panel-h">CONGRESSIONAL DISCLOSURES
+            <span class="panel-note">Senate STOCK Act filings &mdash; a different population from the Form 4s above,
+              not a corroboration of them. Amounts are brackets; the filing can lag the trade by 45 days.</span>
+          </div>
+          <div id="th-congress" class="tablewrap"><div class="empty">Looks up automatically with the insider record.</div></div>
+        </div>
+
+        <div class="panel">
           <div class="panel-h">MY THESES
             <span class="panel-note">a claim, its frozen evidence, and the checks that can break it</span>
             <button id="th-refresh" class="ghost panel-btn">Refresh</button>
@@ -633,6 +744,7 @@
           <div class="panel">
             <div class="panel-h"><span id="th-d-title">THESIS</span>
               <button id="th-d-evaluate" class="ghost panel-btn">Re-check now</button>
+              <button id="th-d-review" class="ghost panel-btn">Mark reviewed</button>
               <button id="th-d-delete" class="ghost panel-btn danger">Delete</button>
             </div>
             <p id="th-d-claim" class="explain"></p>
@@ -670,6 +782,93 @@
       </section>
 
       <!-- Assets -->
+      <!-- Modeling -->
+      <section id="view-modeling" class="view">
+        <h1>Modeling</h1>
+        <p class="lede">
+          Build a discounted cash flow on any company. It opens pre-filled from what the
+          company actually filed — growth, margins, tax, capex, net debt, a CAPM cost of
+          equity — and then every assumption is yours to move. Save the ones worth keeping
+          and re-run them later against the same assumptions to see what the business did.
+        </p>
+
+        <div class="md-layout">
+          <aside class="panel md-rail">
+            <div class="panel-h">BUILD A MODEL</div>
+            <div class="md-build">
+              <input id="md-symbol" placeholder="Ticker, e.g. AAPL" maxlength="12" />
+              <button id="md-build" class="primary">Build</button>
+            </div>
+            <div id="md-build-msg" class="msg"></div>
+
+            <div class="panel-h" style="margin-top:22px">SAVED MODELS</div>
+            <div id="md-saved" class="md-saved"><div class="empty">Nothing saved yet.</div></div>
+          </aside>
+
+          <div class="md-main">
+            <div id="md-empty" class="panel md-placeholder">
+              <p>Enter a ticker to open a model.</p>
+              <p class="dim">Every input is seeded from the filings and then editable —
+                nothing here is a black box.</p>
+            </div>
+
+            <div id="md-model" style="display:none">
+              <div class="panel md-headline">
+                <div class="md-id">
+                  <div id="md-sym" class="md-sym mono"></div>
+                  <div id="md-name" class="dim"></div>
+                  <div id="md-source" class="hintline"></div>
+                </div>
+                <div class="md-answer">
+                  <div class="md-answer-l">VALUE PER SHARE</div>
+                  <div id="md-value" class="md-value mono"></div>
+                  <div id="md-upside" class="md-upside mono"></div>
+                </div>
+                <div class="md-bridge" id="md-bridge"></div>
+                <div class="md-save">
+                  <input id="md-name-input" placeholder="Name this model" maxlength="128" />
+                  <button id="md-save" class="primary">Save</button>
+                  <button id="md-reseed" class="ghost">Reset to filings</button>
+                  <div id="md-save-msg" class="msg"></div>
+                </div>
+              </div>
+
+              <div id="md-warnings" class="md-warnings"></div>
+
+              <div class="md-grid">
+                <div class="panel">
+                  <div class="panel-h">ASSUMPTIONS <span class="panel-note">every number here is yours to change</span></div>
+                  <div id="md-assumptions" class="md-assumptions"></div>
+                </div>
+
+                <div class="panel">
+                  <div class="panel-h">DISCOUNT RATE <span id="md-wacc-note" class="panel-note"></span></div>
+                  <div id="md-wacc" class="md-assumptions"></div>
+                  <div class="panel-h" style="margin-top:20px">TERMINAL VALUE <span id="md-terminal-note" class="panel-note"></span></div>
+                  <div id="md-terminal" class="md-assumptions"></div>
+                </div>
+              </div>
+
+              <div class="panel">
+                <div class="panel-h">PROJECTION <span class="panel-note">the forecast these assumptions produce</span></div>
+                <div id="md-projection" class="tablewrap mdtable"></div>
+              </div>
+
+              <div class="panel">
+                <div class="panel-h">SENSITIVITY
+                  <span id="md-sens-note" class="panel-note"></span></div>
+                <div id="md-sensitivity" class="tablewrap mdtable"></div>
+              </div>
+
+              <div class="panel">
+                <div class="panel-h">WHAT IT WAS SEEDED FROM <span class="panel-note">the filed history behind each default</span></div>
+                <div id="md-evidence" class="tablewrap mdtable"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <section id="view-assets" class="view">
         <h1>Asset classes</h1>
         <p class="lede">Stocks, bonds, gold, commodities and more — where money is flowing, via liquid ETF proxies.</p>
@@ -717,6 +916,115 @@
           <div id="nw-warn"></div>
           <div id="nw-feed" class="feed"><div class="empty">Loading…</div></div>
         </div>
+      </section>
+
+      <!-- Calendar -->
+      <section id="view-calendar" class="view">
+        <h1>Calendar</h1>
+        <p class="lede" style="max-width:760px">What lands on which day — earnings, ex-dividend and payment dates, splits, IPOs and macro releases, on one grid. Tick the event types you want on the left; add your own notes to any date.</p>
+
+        <div class="tabs" id="cal-tabs" style="max-width:440px">
+          <button class="tab active" data-caltab="events">All events</button>
+          <button class="tab" data-caltab="economic">Economic</button>
+        </div>
+
+        <!-- ---- Every event type on one grid ---- -->
+        <div id="caltab-events" class="setab active">
+        <div class="cal-layout">
+          <aside class="cal-rail">
+            <div class="panel">
+              <div class="panel-h">EVENT TYPES
+                <button id="cal-types-all" class="ghost panel-btn">All</button>
+                <button id="cal-types-none" class="ghost panel-btn">None</button>
+              </div>
+              <div id="cal-types"><div class="empty">Loading…</div></div>
+            </div>
+
+            <div class="panel">
+              <div class="panel-h">ADD A NOTE</div>
+              <div class="cal-noteform">
+                <input id="cal-n-date" type="date" class="mono" aria-label="Note date" />
+                <input id="cal-n-title" placeholder="What happens that day…" maxlength="200" />
+                <div class="row" style="gap:6px">
+                  <input id="cal-n-sym" class="mono" placeholder="SYMBOL" style="max-width:110px;text-transform:uppercase" />
+                  <button id="cal-n-add" class="primary" style="padding:9px 16px">Add</button>
+                </div>
+                <div id="cal-n-msg" class="msg"></div>
+              </div>
+            </div>
+          </aside>
+
+          <div class="cal-main">
+            <div class="panel">
+              <div class="panel-h">
+                <span id="cal-title">CALENDAR</span>
+                <span id="cal-count" class="panel-note"></span>
+                <button id="cal-prev" class="ghost panel-btn" aria-label="Previous period">‹ Prev</button>
+                <button id="cal-today" class="ghost panel-btn">Today</button>
+                <button id="cal-next" class="ghost panel-btn" aria-label="Next period">Next ›</button>
+              </div>
+
+              <div class="row wrap" style="gap:10px">
+                <label class="inline-label">Symbols
+                  <input id="cal-symbols" class="mono" placeholder="AAPL, MSFT" style="max-width:180px;text-transform:uppercase" />
+                </label>
+                <label class="inline-label">Importance
+                  <select id="cal-importance">
+                    <option value="1">All</option>
+                    <option value="2">Notable and up</option>
+                    <option value="3">Major only</option>
+                  </select>
+                </label>
+                <label class="inline-label">Source
+                  <select id="cal-provider">
+                    <option value="nasdaq">Nasdaq — US detail, dividends</option>
+                    <option value="yahoo">Yahoo — global, no dividends</option>
+                  </select>
+                </label>
+                <div class="chiprow" style="margin-left:auto">
+                  <button class="chip cal-mode active" data-mode="month">Month</button>
+                  <button class="chip cal-mode" data-mode="agenda">Agenda</button>
+                </div>
+              </div>
+
+              <div id="cal-warn"></div>
+              <div id="cal-body"><div class="empty">Loading…</div></div>
+              <div id="cal-legend" class="cal-legend"></div>
+            </div>
+          </div>
+        </div>
+        </div><!-- /caltab-events -->
+
+        <!-- ---- The macro calendar on its own, where region and rank matter ---- -->
+        <div id="caltab-economic" class="setab">
+        <p class="hintline" style="margin:0 0 14px">Scheduled macro statistics with consensus and prior where the feed publishes them. The source is global and unranked, so filter by region or importance unless you want every national statistic on earth in date order.</p>
+
+        <div class="panel">
+          <div class="panel-h">ECONOMIC RELEASES
+            <span id="ec-count" class="panel-note"></span>
+            <button id="ec-prev" class="ghost panel-btn" aria-label="Previous fortnight">‹ Prev</button>
+            <button id="ec-today" class="ghost panel-btn">Today</button>
+            <button id="ec-next" class="ghost panel-btn" aria-label="Next fortnight">Next ›</button>
+          </div>
+
+          <div class="row wrap" style="gap:10px">
+            <label class="inline-label">From <input id="ec-start" type="date" class="mono" /></label>
+            <label class="inline-label">To <input id="ec-end" type="date" class="mono" /></label>
+            <label class="inline-label">Importance
+              <select id="ec-importance">
+                <option value="2">Notable and up</option>
+                <option value="1">All</option>
+                <option value="3">Major only</option>
+              </select>
+            </label>
+            <button id="ec-go" class="primary">Show</button>
+          </div>
+
+          <div id="ec-regions" class="chiprow wrap"></div>
+          <div id="ec-warn"></div>
+          <div id="ec-body"><div class="empty">Loading…</div></div>
+        </div>
+        </div><!-- /caltab-economic -->
       </section>
 
       <!-- Sentiment -->

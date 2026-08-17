@@ -13,19 +13,46 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+#: The shipped placeholder. Named so the startup guard in backend.main can
+#: recognise it rather than repeating the literal.
+DEV_SECRET_KEY = "dev-insecure-secret-change-me"
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="MFT_", env_file=".env", extra="ignore")
 
     # --- App ---
     app_name: str = "Mini Financial Terminal"
+    # True marks a local development run. Set MFT_DEBUG=false when deploying:
+    # backend.main refuses to boot on the placeholder secret key below unless
+    # this is on, so a public deploy cannot silently ship forgeable tokens.
     debug: bool = True
 
     # --- Security ---
-    # NOTE: override MFT_SECRET_KEY in any real deployment.
-    secret_key: str = "dev-insecure-secret-change-me"
+    # NOTE: override MFT_SECRET_KEY in any real deployment. This value signs
+    # login tokens; anyone who knows it can mint one for any account.
+    secret_key: str = DEV_SECRET_KEY
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 60 * 24
+
+    # Browser origins allowed to call this API cross-origin, comma-separated.
+    # Empty means same-origin only, which is the arrangement the Dockerfile
+    # ships: one process serves both the UI and the API. Populate it only when
+    # the frontend moves to its own host.
+    cors_origins: str = ""
+
+    # Whether POST /api/auth/register accepts new accounts. Open sign-up on a
+    # public host hands strangers the Assistant tab, which spends your Anthropic
+    # credits; turn it off once your own account exists.
+    allow_registration: bool = True
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    @property
+    def using_dev_secret(self) -> bool:
+        return self.secret_key == DEV_SECRET_KEY
 
     # --- Persistence ---
     database_url: str = f"sqlite:///{BASE_DIR / 'terminal.db'}"

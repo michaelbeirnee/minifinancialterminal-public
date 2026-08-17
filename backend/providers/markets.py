@@ -124,7 +124,9 @@ def nasdaq_calendar(kind: str = "earnings", day: Optional[str] = None) -> pd.Dat
     """Nasdaq's public earnings/dividends/splits/IPO calendars."""
     day = day or str(date.today())
     if kind == "ipo":
-        data = _nasdaq("calendar/ipo", {"date": day[:7]})
+        # Note the path: the IPO calendar is served at ipo/calendar, not
+        # calendar/ipo like the other three. The symmetric-looking URL 404s.
+        data = _nasdaq("ipo/calendar", {"date": day[:7]})
         rows: List[Dict[str, Any]] = []
         for bucket in ("priced", "upcoming", "filed", "withdrawn"):
             node = data.get(bucket) or {}
@@ -139,25 +141,86 @@ def nasdaq_calendar(kind: str = "earnings", day: Optional[str] = None) -> pd.Dat
             raise EmptyDataError("Nasdaq listed no IPOs for {}".format(day[:7]))
         return pd.DataFrame(rows)
 
-    endpoint = {"earnings": "calendar/earnings", "dividends": "calendar/dividends",
-                "splits": "calendar/splits"}.get(kind)
-    if not endpoint:
-        raise ValueError("kind must be earnings, dividends, splits or ipo")
     # Nothing is scheduled on weekends and holidays, so roll forward to the next
     # session that actually has events rather than reporting "no data".
     start = pd.Timestamp(day)
     for offset in range(0, 7):
-        target = (start + pd.Timedelta(days=offset)).date()
-        data = _nasdaq(endpoint, {"date": str(target)})
-        # Earnings puts rows at the top level; dividends and splits nest them
-        # one level down under "calendar".
-        rows = data.get("rows") or (data.get("calendar") or {}).get("rows") or []
-        if rows:
-            df = pd.DataFrame(rows)
-            df.columns = [_snake(c) for c in df.columns]
-            df.insert(0, "calendar_date", str(target))
+        target = str((start + pd.Timedelta(offset, unit="D")).date())
+        df = _nasdaq_calendar_day(kind, target)
+        if not df.empty:
             return df
     raise EmptyDataError("Nasdaq listed no {} events in the week from {}".format(kind, day))
+
+
+_NASDAQ_CALENDAR_ENDPOINTS = {
+    "earnings": "calendar/earnings",
+    "dividends": "calendar/dividends",
+    "splits": "calendar/splits",
+}
+
+
+def _nasdaq_calendar_day(kind: str, day: str) -> pd.DataFrame:
+    """One calendar day, exactly as asked — empty frame if nothing is scheduled.
+
+    Kept separate from :func:`nasdaq_calendar` because that one rolls forward to
+    the next session with events, which is right for "what's next" and wrong for
+    walking a date range: the roll would re-report the same session under every
+    empty day before it.
+    """
+    endpoint = _NASDAQ_CALENDAR_ENDPOINTS.get(kind)
+    if not endpoint:
+        raise ValueError("kind must be earnings, dividends, splits or ipo")
+    data = _nasdaq(endpoint, {"date": day})
+    # Earnings puts rows at the top level; dividends and splits nest them one
+    # level down under "calendar".
+    rows = data.get("rows") or (data.get("calendar") or {}).get("rows") or []
+    if not rows:
+        return pd.DataFrame()
+    df = pd.DataFrame(rows)
+    df.columns = [_snake(c) for c in df.columns]
+    df.insert(0, "calendar_date", day)
+    return df
+
+
+def nasdaq_calendar_range(kind: str = "earnings", start: Optional[str] = None,
+                          end: Optional[str] = None, max_days: int = 45) -> pd.DataFrame:
+    """Every scheduled event between ``start`` and ``end``, inclusive.
+
+    Nasdaq serves one day per request, so a month costs a month of requests
+    (cached, but a cold month view is slow). ``max_days`` caps the walk and the
+    truncation is recorded in ``frame.attrs['days_truncated']`` rather than
+    silently shortening the window — a calendar that quietly stops halfway
+    reads as "nothing scheduled", which is the one thing it must never say by
+    accident.
+
+    Weekends are skipped without a request: US corporate calendars never
+    schedule into them, so asking is a guaranteed-empty round trip.
+    """
+    first = pd.Timestamp(start or date.today()).normalize()
+    last = pd.Timestamp(end or first).normalize()
+    if last < first:
+        first, last = last, first
+
+    days = [d for d in pd.date_range(first, last, freq="D") if d.weekday() < 5]
+    truncated = max(0, len(days) - max_days)
+    frames: List[pd.DataFrame] = []
+    errors: List[str] = []
+    for stamp in days[:max_days]:
+        try:
+            df = _nasdaq_calendar_day(kind, str(stamp.date()))
+        except ProviderError as exc:  # one bad day must not void the window
+            errors.append("{}: {}".format(stamp.date(), exc))
+            continue
+        if not df.empty:
+            frames.append(df)
+
+    if not frames:
+        raise EmptyDataError("Nasdaq listed no {} events between {} and {}".format(
+            kind, first.date(), last.date()))
+    out = pd.concat(frames, ignore_index=True)
+    out.attrs["days_truncated"] = truncated
+    out.attrs["errors"] = errors
+    return out
 
 
 def nasdaq_screener(exchange: Optional[str] = None, limit: int = 500) -> pd.DataFrame:

@@ -74,7 +74,7 @@ def ecb_yield_curve(as_of: Optional[str] = None) -> pd.DataFrame:
     key = "B.U2.EUR.4F.G_N_A.SV_C_YM.{}".format(
         "+".join("SR_{}".format(m) for m, _ in _ECB_CURVE_MATURITIES)
     )
-    start = as_of or str(pd.Timestamp("today").date() - pd.Timedelta(days=21))
+    start = as_of or str(pd.Timestamp("today").date() - pd.Timedelta(21, unit="D"))
     df = ecb_series("YC", key, start_date=start, end_date=as_of)
     df["maturity"] = df["series"].str.rsplit(".", n=1).str[-1].str.replace("SR_", "", regex=False)
     years = dict(_ECB_CURVE_MATURITIES)
