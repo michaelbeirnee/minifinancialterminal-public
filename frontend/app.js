@@ -155,6 +155,78 @@ document.querySelectorAll(".navbtn").forEach((b) => {
   };
 });
 
+// ---------- sidebar: breadcrumbs, the jump filter, a keyboard shortcut ----------
+// The sidebar's grouping is the one source of truth: each view's breadcrumb is
+// read off the group its nav item sits in, so moving an item moves its crumb.
+(function initSidebar() {
+  const sidebar = $("sidebar");
+  const jump = $("nav-jump");
+  if (!sidebar || !jump) return;
+
+  const groups = [...sidebar.querySelectorAll(".nav-group")];
+  const crumbFor = new Map();
+  groups.forEach((g) => g.querySelectorAll(".navbtn").forEach((b) => crumbFor.set(b.dataset.view, g.dataset.group)));
+  document.querySelectorAll(".navbtn[data-view]").forEach((b) => {
+    if (!crumbFor.has(b.dataset.view)) crumbFor.set(b.dataset.view, "TERMINAL");
+  });
+  crumbFor.forEach((label, view) => {
+    const section = $("view-" + view);
+    const h1 = section && section.querySelector("h1");
+    if (!h1) return;
+    // The workspace already carries its own eyebrow above the title.
+    const prev = h1.previousElementSibling;
+    if (prev && prev.classList.contains("workspace-eyebrow")) return;
+    const crumb = document.createElement("div");
+    crumb.className = "crumb";
+    crumb.textContent = label;
+    h1.before(crumb);
+  });
+
+  // Filter: case-insensitive substring on the label; a group with no match
+  // disappears with its items. Enter opens the first match, Escape clears.
+  let empty = null;
+  function applyFilter() {
+    const q = jump.value.trim().toLowerCase();
+    let shown = 0;
+    groups.forEach((g) => {
+      let any = false;
+      g.querySelectorAll(".navbtn").forEach((b) => {
+        const hit = !q || b.textContent.toLowerCase().includes(q);
+        b.classList.toggle("nav-hidden", !hit);
+        if (hit) any = true;
+      });
+      g.classList.toggle("nav-hidden", !any);
+      if (any) shown++;
+    });
+    if (!shown && !empty) {
+      empty = document.createElement("div");
+      empty.className = "nav-empty";
+      empty.textContent = "No view matches.";
+      sidebar.insertBefore(empty, sidebar.querySelector(".nav-foot"));
+    } else if (shown && empty) { empty.remove(); empty = null; }
+  }
+  function clearFilter() { jump.value = ""; applyFilter(); }
+  jump.addEventListener("input", applyFilter);
+  jump.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") { clearFilter(); jump.blur(); }
+    if (e.key === "Enter") {
+      const first = sidebar.querySelector(".nav-group:not(.nav-hidden) .navbtn:not(.nav-hidden)");
+      if (first) { first.click(); clearFilter(); jump.blur(); }
+    }
+  });
+  // "/" or Ctrl/Cmd-K focuses the jump box from anywhere that is not a field.
+  document.addEventListener("keydown", (e) => {
+    const t = e.target;
+    const typing = t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));
+    const cmdK = e.key.toLowerCase() === "k" && (e.metaKey || e.ctrlKey);
+    if (cmdK || (e.key === "/" && !typing && !e.metaKey && !e.ctrlKey && !e.altKey)) {
+      e.preventDefault();
+      jump.focus();
+      jump.select();
+    }
+  });
+})();
+
 // ---------- research workbench ----------
 // The workbench is a shell, not a one-off report. Its context packet keeps the
 // two evidence lanes independent and gives later modules a stable object to

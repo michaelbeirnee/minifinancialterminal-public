@@ -36,36 +36,60 @@
         <div class="brand">MFT</div>
         <div class="brand-sub">MINI FINANCIAL TERMINAL</div>
       </div>
+      <input id="nav-jump" class="nav-jump" placeholder="Jump to a view…" autocomplete="off" spellcheck="false" aria-label="Jump to a view" />
       <span class="spacer"></span>
+      <button class="navbtn assistant-btn" data-view="assistant">Assistant</button>
       <span id="who" class="who"></span>
       <button id="logout" class="ghost">Sign out</button>
     </header>
 
     <div id="tape" class="tape"></div>
 
-    <nav class="nav">
-      <button class="navbtn active" data-view="market">Markets</button>
-      <button class="navbtn" data-view="workspace">Workspace</button>
-      <button class="navbtn" data-view="assistant">Assistant</button>
-      <button class="navbtn" data-view="research">Research Workbench</button>
-      <button class="navbtn" data-view="sectors">Sectors</button>
-      <button class="navbtn" data-view="screener">Screener</button>
-      <button class="navbtn" data-view="thesis">Thesis Generation — Stocks</button>
-      <button class="navbtn" data-view="thesis-sectors">Thesis Generation — Sectors</button>
-      <button class="navbtn" data-view="flagged">Flagged</button>
-      <button class="navbtn" data-view="modeling">Modeling</button>
-      <button class="navbtn" data-view="assets">Assets</button>
-      <button class="navbtn" data-view="news">News</button>
-      <button class="navbtn" data-view="calendar">Calendar</button>
-      <button class="navbtn" data-view="sentiment">Sentiment</button>
-      <button class="navbtn" data-view="volatility">Volatility</button>
-      <button class="navbtn" data-view="portfolio">Portfolio</button>
-      <button class="navbtn" data-view="data">Data</button>
-      <button class="navbtn" data-view="factors">Insights</button>
-      <button class="navbtn" data-view="backtest">Test a strategy</button>
-      <button class="navbtn" data-view="saved">Saved</button>
-      <button class="navbtn" data-view="history">Past tests</button>
-      <button class="navbtn" data-view="system">System</button>
+    <div class="shell">
+    <nav class="sidebar" id="sidebar" aria-label="Views">
+      <div class="nav-group" data-group="MONITOR">
+        <div class="nav-group-label">MONITOR</div>
+        <div class="nav-items">
+          <button class="navbtn active" data-view="market">Markets</button>
+          <button class="navbtn" data-view="sectors">Sectors</button>
+          <button class="navbtn" data-view="assets">Assets</button>
+          <button class="navbtn" data-view="news">News</button>
+          <button class="navbtn" data-view="calendar">Calendar</button>
+          <button class="navbtn" data-view="sentiment">Sentiment</button>
+          <button class="navbtn" data-view="volatility">Volatility</button>
+        </div>
+      </div>
+      <div class="nav-group" data-group="IDEAS">
+        <div class="nav-group-label">IDEAS</div>
+        <div class="nav-items">
+          <button class="navbtn" data-view="screener">Screener</button>
+          <button class="navbtn" data-view="thesis">Thesis — Stocks</button>
+          <button class="navbtn" data-view="thesis-sectors">Thesis — Sectors</button>
+          <button class="navbtn" data-view="flagged">Flagged</button>
+          <button class="navbtn" data-view="factors">Insights</button>
+        </div>
+      </div>
+      <div class="nav-group" data-group="RESEARCH">
+        <div class="nav-group-label">RESEARCH</div>
+        <div class="nav-items">
+          <button class="navbtn" data-view="research">Workbench</button>
+          <button class="navbtn" data-view="modeling">Modeling</button>
+          <button class="navbtn" data-view="backtest">Test a strategy</button>
+          <button class="navbtn" data-view="history">Past tests</button>
+          <button class="navbtn" data-view="data">Data</button>
+        </div>
+      </div>
+      <div class="nav-group" data-group="YOUR BOOK">
+        <div class="nav-group-label">YOUR BOOK</div>
+        <div class="nav-items">
+          <button class="navbtn" data-view="portfolio">Portfolio</button>
+          <button class="navbtn" data-view="saved">Saved</button>
+          <button class="navbtn" data-view="workspace">Workspace</button>
+        </div>
+      </div>
+      <div class="nav-foot">
+        <button class="navbtn nav-system" data-view="system">System &amp; cache</button>
+      </div>
     </nav>
 
     <main class="content"><div class="container">
@@ -2099,6 +2123,7 @@
       </section>
 
     </div></main>
+    </div><!-- /shell -->
     <footer class="statusbar"><span id="status">READY</span></footer>
   </div>
 
