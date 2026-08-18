@@ -331,11 +331,19 @@ def discovery_filings(form_type: Optional[str] = None, limit: int = 40,
 # --------------------------------------------------------------------------- #
 @command("/equity/calendar/earnings", providers=("yahoo", "nasdaq"), summary="Upcoming earnings dates")
 def calendar_earnings(start_date: Optional[str] = None, end_date: Optional[str] = None,
-                      limit: int = 200, provider: Optional[str] = None) -> Result:
+                      limit: int = 200, most_active: bool = True,
+                      provider: Optional[str] = None) -> Result:
+    """``most_active`` is Yahoo's own filter: left on, the result is the handful
+    of widely-held names it considers active, which is a short list even over a
+    month. Turn it off for every issuer reporting in the window."""
     src = resolve_provider(provider, ("yahoo", "nasdaq"))
     if src == "nasdaq":
         return Result(markets.nasdaq_calendar("earnings", start_date), provider=src)
-    return Result(yahoo.market_calendar("earnings", start_date, end_date).head(limit), provider=src)
+    # `limit` has to reach the provider, not just trim what came back: Yahoo
+    # serves 12 rows per request unless asked for more, so trimming alone made
+    # every limit above 12 a no-op.
+    return Result(yahoo.market_calendar("earnings", start_date, end_date, limit=limit,
+                                        most_active=most_active).head(limit), provider=src)
 
 
 @command("/equity/calendar/dividends", providers=("nasdaq", "yahoo"), summary="Dividend calendar")
@@ -351,7 +359,8 @@ def calendar_splits(start_date: Optional[str] = None, end_date: Optional[str] = 
     src = resolve_provider(provider, ("yahoo", "nasdaq"))
     if src == "nasdaq":
         return Result(markets.nasdaq_calendar("splits", start_date).head(limit), provider=src)
-    return Result(yahoo.market_calendar("splits", start_date, end_date).head(limit), provider=src)
+    return Result(yahoo.market_calendar("splits", start_date, end_date, limit=limit).head(limit),
+                  provider=src)
 
 
 @command("/equity/calendar/ipo", providers=("yahoo", "nasdaq"), summary="IPO calendar")
@@ -360,14 +369,16 @@ def calendar_ipo(start_date: Optional[str] = None, end_date: Optional[str] = Non
     src = resolve_provider(provider, ("yahoo", "nasdaq"))
     if src == "nasdaq":
         return Result(markets.nasdaq_calendar("ipo", start_date).head(limit), provider=src)
-    return Result(yahoo.market_calendar("ipo", start_date, end_date).head(limit), provider=src)
+    return Result(yahoo.market_calendar("ipo", start_date, end_date, limit=limit).head(limit),
+                  provider=src)
 
 
 @command("/equity/calendar/economic", providers=("yahoo",), summary="Macro release calendar")
 def calendar_economic(start_date: Optional[str] = None, end_date: Optional[str] = None,
                       limit: int = 200, provider: Optional[str] = None) -> Result:
     src = resolve_provider(provider, ("yahoo",))
-    return Result(yahoo.market_calendar("economic", start_date, end_date).head(limit), provider=src)
+    return Result(yahoo.market_calendar("economic", start_date, end_date, limit=limit).head(limit),
+                  provider=src)
 
 
 # --------------------------------------------------------------------------- #

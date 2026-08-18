@@ -4,9 +4,9 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>MFT — Mini Financial Terminal</title>
-<meta name="description" content="An open-source financial research terminal: 244 commands across equities, macro, derivatives and filings, plus a factor engine and backtester. Every data source free. Zero API keys required." />
+<meta name="description" content="An open-source financial research terminal: 310 commands across equities, macro, derivatives and filings, plus a factor engine, research workbench and backtester. Every data source free. Zero API keys required." />
 <meta property="og:title" content="MFT — Mini Financial Terminal" />
-<meta property="og:description" content="244 commands. Four interfaces. Zero paid data vendors." />
+<meta property="og:description" content="310 commands. Four interfaces. Zero paid data vendors." />
 <meta property="og:type" content="website" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -230,16 +230,16 @@ footer{padding:46px 0 56px;color:var(--faint);font-size:13px}
 
 <div class="tape">
   <div class="tape-track">
-    <span>EQUITY<b>60</b></span><span>TECHNICAL<b>40</b></span><span>ECONOMY<b>34</b></span>
-    <span>QUANTITATIVE<b>18</b></span><span>FIXEDINCOME<b>15</b></span><span>ETF<b>11</b></span>
+    <span>EQUITY<b>70</b></span><span>TECHNICAL<b>40</b></span><span>ECONOMY<b>34</b></span>
+    <span>QUANTITATIVE<b>18</b></span><span>FIXEDINCOME<b>15</b></span><span>THESIS<b>14</b></span><span>ETF<b>11</b></span>
     <span>ECONOMETRICS<b>10</b></span><span>REGULATORS<b>10</b></span><span>CHARTING<b>9</b></span>
     <span>COMMODITY<b>8</b></span><span>DERIVATIVES<b>8</b></span><span>INDEX<b>7</b></span>
-    <span>CRYPTO<b>6</b></span><span>SENTIMENT<b>5</b></span><span>CURRENCY<b>4</b></span><span>NEWS<b>4</b></span>
-    <span aria-hidden="true">EQUITY<b>60</b></span><span aria-hidden="true">TECHNICAL<b>40</b></span><span aria-hidden="true">ECONOMY<b>34</b></span>
-    <span aria-hidden="true">QUANTITATIVE<b>18</b></span><span aria-hidden="true">FIXEDINCOME<b>15</b></span><span aria-hidden="true">ETF<b>11</b></span>
+    <span>CRYPTO<b>6</b></span><span>SENTIMENT<b>5</b></span><span>CURRENCY<b>4</b></span><span>NEWS<b>4</b></span><span>CALENDAR<b>3</b></span><span>SCREENER<b>2</b></span><span>OVERVIEW<b>1</b></span><span>RESEARCH<b>1</b></span><span>FLAGGED<b>5</b></span>
+    <span aria-hidden="true">EQUITY<b>70</b></span><span aria-hidden="true">TECHNICAL<b>40</b></span><span aria-hidden="true">ECONOMY<b>34</b></span>
+    <span aria-hidden="true">QUANTITATIVE<b>18</b></span><span aria-hidden="true">FIXEDINCOME<b>15</b></span><span aria-hidden="true">THESIS<b>14</b></span><span aria-hidden="true">ETF<b>11</b></span>
     <span aria-hidden="true">ECONOMETRICS<b>10</b></span><span aria-hidden="true">REGULATORS<b>10</b></span><span aria-hidden="true">CHARTING<b>9</b></span>
     <span aria-hidden="true">COMMODITY<b>8</b></span><span aria-hidden="true">DERIVATIVES<b>8</b></span><span aria-hidden="true">INDEX<b>7</b></span>
-    <span aria-hidden="true">CRYPTO<b>6</b></span><span aria-hidden="true">SENTIMENT<b>5</b></span><span aria-hidden="true">CURRENCY<b>4</b></span><span aria-hidden="true">NEWS<b>4</b></span>
+    <span aria-hidden="true">CRYPTO<b>6</b></span><span aria-hidden="true">SENTIMENT<b>5</b></span><span aria-hidden="true">CURRENCY<b>4</b></span><span aria-hidden="true">NEWS<b>4</b></span><span aria-hidden="true">CALENDAR<b>3</b></span><span aria-hidden="true">SCREENER<b>2</b></span><span aria-hidden="true">OVERVIEW<b>1</b></span><span aria-hidden="true">RESEARCH<b>1</b></span><span aria-hidden="true">FLAGGED<b>5</b></span>
   </div>
 </div>
 
@@ -249,7 +249,7 @@ footer{padding:46px 0 56px;color:var(--faint);font-size:13px}
       <div class="eyebrow">Open source · MIT</div>
       <h1>An OpenBB-style research terminal with <em>no paid vendor</em> anywhere in the stack.</h1>
       <p class="lede">
-        <strong>277 commands</strong> across equities, ETFs, crypto, FX, derivatives, macro,
+        <strong>310 commands</strong> across equities, ETFs, crypto, FX, derivatives, macro,
         fixed income and regulatory filings — plus a factor-model engine, two backtesters
         and HTML tearsheets. Every data source is free or public domain, and the platform
         is <strong>fully functional with zero API keys configured</strong>.
@@ -259,8 +259,8 @@ footer{padding:46px 0 56px;color:var(--faint);font-size:13px}
         <a class="btn ghost" href="#start">Quick start</a>
       </div>
       <div class="stats">
-        <div class="stat"><b>244</b><span>Commands</span></div>
-        <div class="stat"><b>16</b><span>Menus</span></div>
+        <div class="stat"><b>310</b><span>Commands</span></div>
+        <div class="stat"><b>22</b><span>Menus</span></div>
         <div class="stat"><b>4</b><span>Interfaces</span></div>
         <div class="stat"><b>0</b><span>Keys needed</span></div>
       </div>
@@ -340,17 +340,17 @@ localhost:8000</pre>
   <div class="wrap">
     <div class="shead">
       <span class="tag">Coverage</span>
-      <h2>244 commands across 16 menus.</h2>
+      <h2>310 commands across 22 menus.</h2>
       <p><code>GET /api/v1/_registry</code> returns the whole surface;
          <code>/api/v1/_search?query=…</code> finds a command.</p>
     </div>
     <div class="grid g4">
-      <div class="menu"><div class="menu-top"><span class="nm">equity</span><span class="ct">60</span></div>
-        <p>Prices, quotes, profiles, screener, 10 discovery screens, 5 calendars, 16 fundamentals, estimates, ownership, shorts, dark pool.</p></div>
+      <div class="menu"><div class="menu-top"><span class="nm">equity</span><span class="ct">70</span></div>
+        <p>Prices, quotes, profiles, screener, 10 discovery screens, 5 calendars, 20 fundamentals, estimates, ownership, relationships, peers, shorts and dark pool.</p></div>
       <div class="menu"><div class="menu-top"><span class="nm">technical</span><span class="ct">40</span></div>
         <p>35+ indicators — MAs, RSI, MACD, stochastic, ADX, Ichimoku, Supertrend, Bollinger, Keltner, VWAP, vol cones, Hurst.</p></div>
-      <div class="menu"><div class="menu-top"><span class="nm">economy</span><span class="ct">34</span></div>
-        <p>CPI, PCE, GDP, unemployment, payrolls, claims, money supply, Fed balance sheet, SLOOS, house prices, trade, debt.</p></div>
+      <div class="menu"><div class="menu-top"><span class="nm">economy</span><span class="ct">47</span></div>
+        <p>CPI, PCE, GDP, unemployment, payrolls, claims, money supply, Fed balance sheet, SLOOS, house prices, trade, debt — plus the whole Fed surface — every hike and cut since 1982, the cycles, the dot plot and its revision, the statement diff, speeches and testimony, the balance sheet and the emergency facilities.</p></div>
       <div class="menu"><div class="menu-top"><span class="nm">quantitative</span><span class="ct">18</span></div>
         <p>Normality battery, unit root, CAPM, rolling stats, Sharpe / Sortino / Calmar / Omega / Ulcer, VaR &amp; CVaR, drawdown.</p></div>
       <div class="menu"><div class="menu-top"><span class="nm">fixedincome</span><span class="ct">15</span></div>
@@ -375,8 +375,31 @@ localhost:8000</pre>
         <p>Lexicon-scored news sentiment: market mood, 11 GICS sectors, per-ticker summaries, historical weekly series.</p></div>
       <div class="menu"><div class="menu-top"><span class="nm">currency</span><span class="ct">4</span></div>
         <p>Pairs, history, ECB reference rates, cross-rate snapshots.</p></div>
-      <div class="menu"><div class="menu-top"><span class="nm">news</span><span class="ct">4</span></div>
-        <p>Company headlines, merged newswire tape from ~40 feeds, topic search, feed list.</p></div>
+      <div class="menu"><div class="menu-top"><span class="nm">news</span><span class="ct">5</span></div>
+        <p>Company headlines, a newswire tape merged from ~290 feeds in 20 desks (sector desks opt-in), topic search, feed and desk catalogues.</p></div>
+      <div class="menu"><div class="menu-top"><span class="nm">calendar</span><span class="ct">3</span></div>
+        <p>Earnings, dividends, splits, IPOs and macro releases on one dated row shape, filtered by
+           type, symbol and size — plus the event types no free source can fill, listed rather than
+           quietly dropped.</p></div>
+      <div class="menu"><div class="menu-top"><span class="nm">thesis</span><span class="ct">23</span></div>
+        <p>Stock and sector idea funnels — including one that walks the supply-chain graph mined from
+           filings, emitting candidates at the counterparties of a company where something just moved,
+           and one that runs cointegration only on pairs a filing joins, flagging spreads that have
+           left their history — model-assisted triage, executable falsifiers, evidence snapshots and
+           signal grading.</p></div>
+      <div class="menu"><div class="menu-top"><span class="nm">screener</span><span class="ct">2</span></div>
+        <p>ETF and mutual-fund screens over the free provider surface.</p></div>
+      <div class="menu"><div class="menu-top"><span class="nm">overview</span><span class="ct">1</span></div>
+        <p>Joined daily market brief with regime, movers, headlines and earnings.</p></div>
+      <div class="menu"><div class="menu-top"><span class="nm">research</span><span class="ct">1</span></div>
+        <p>Traceable top-down and bottom-up context with sector frameworks, an explicit exposure bridge and source manifest.</p></div>
+      <div class="menu"><div class="menu-top"><span class="nm">flagged</span><span class="ct">5</span></div>
+        <p>Change detection instead of levels: a filer's newest filing diffed against its own previous
+           one — risk factors added or dropped, a concentration appearing or vanishing, an auditor gone,
+           a share count moving against the buyback, receivables outrunning sales — each dated to the
+           day it became public; three accrual flags for the whole market from SEC's cross-company
+           frames; 13F flow at small caps in days of the name's own volume; peers' end-market
+           disclosures as a laggard's evidence; and a catalogue that states how every flag lies.</p></div>
     </div>
   </div>
 </section>
@@ -406,7 +429,7 @@ localhost:8000</pre>
       <div class="prov"><div class="body"><div class="nm">CoinGecko</div>
         <div class="ds">Crypto prices, market caps, dominance</div></div><span class="key none">No key</span></div>
       <div class="prov"><div class="body"><div class="nm">RSS newswires</div>
-        <div class="ds">~40 feeds — WSJ, FT, NYT, Economist, CNBC, MarketWatch, Fed, ECB, BoE, SEC, CoinDesk, plus Reuters and Bloomberg via Google News</div></div><span class="key none">No key</span></div>
+        <div class="ds">~290 feeds in 20 desks — Bloomberg, FT, NYT, Economist, CNBC, MarketWatch, a dozen central banks and regulators, the international business press, sector trades from energy to healthcare, economics blogs — plus Reuters, WSJ and Barron's via Google News</div></div><span class="key none">No key</span></div>
       <div class="prov"><div class="body"><div class="nm">FRED</div>
         <div class="ds">US macro, rates, credit spreads — via the key-free CSV endpoint</div></div><span class="key opt">Optional</span></div>
       <div class="prov"><div class="body"><div class="nm">BLS</div>
@@ -426,6 +449,10 @@ localhost:8000</pre>
       <h2>A research stack, not just a data feed.</h2>
     </div>
     <div class="grid g2">
+      <div class="feat"><h3>Research Workbench</h3>
+        <p>An expandable shell that keeps market and sector evidence separate from company evidence,
+           requires the causal exposure bridge to be written explicitly, and freezes the joined
+           packet into the thesis ledger.</p></div>
       <div class="feat"><h3>Factor models</h3>
         <p>Market, momentum and low-volatility factors built from the universe, with per-asset
            OLS exposures — alpha, betas, t-stats, R² — via <code>statsmodels</code>.</p></div>
@@ -475,7 +502,7 @@ localhost:8000</pre>
         <ul>
           <li><strong>core/</strong> — the registry, the FastAPI walker, the Python interface, cached HTTP with per-host throttles</li>
           <li><strong>providers/</strong> — one module per data source, no command logic</li>
-          <li><strong>extensions/</strong> — the 16 command menus</li>
+          <li><strong>extensions/</strong> — the 21 command menus</li>
           <li><strong>assistant/</strong> — a system prompt generated from the registry and four read-only tools</li>
           <li><strong>backtest/ · factors/ · portfolio/ · reports/</strong> — the research and accounting stack</li>
           <li><strong>frontend/</strong> — <code>index.html</code>, <code>styles.css</code>, <code>app.js</code> — no build step</li>

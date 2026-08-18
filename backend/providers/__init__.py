@@ -19,6 +19,9 @@ a documented key-free path so the platform is fully functional unconfigured.
 | ``govstats``    | EIA energy, BLS labour & prices           | optional  |
 | ``newsfeeds``   | RSS newswires, Google News                | no        |
 | ``congress``    | Senate STOCK Act transaction reports      | no        |
+| ``spdr``        | full daily holdings for SPDR ETF baskets   | no        |
+| ``thirteenf``   | SEC 13F data sets — every filer's holdings| no        |
+| ``fomc``        | the Fed's own FOMC meeting calendar       | no        |
 +-----------------+-------------------------------------------+-----------+
 """
 from __future__ import annotations
@@ -67,6 +70,10 @@ PROVIDERS: Dict[str, Dict[str, object]] = {
             "description": "Public financial newswire RSS feeds"},
     "senate": {"module": "congress", "requires_key": False,
                "description": "Senate EFD — STOCK Act periodic transaction reports"},
+    "ssga": {"module": "spdr", "requires_key": False,
+             "description": "State Street — full daily holdings for every SPDR fund"},
+    "federalreserve": {"module": "fomc", "requires_key": False,
+                       "description": "Federal Reserve Board — the FOMC meeting calendar"},
 }
 
 

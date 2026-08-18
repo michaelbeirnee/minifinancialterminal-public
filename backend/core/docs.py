@@ -41,7 +41,12 @@ MENU_GUIDES: Dict[str, str] = {
     "etf": (
         "Funds instead of single stocks: search ETFs, read their profile and fees, "
         "list holdings, sector and asset-class weights, and reverse-lookup which "
-        "big ETFs hold a given stock (equity_exposure)."
+        "big ETFs hold a given stock (equity_exposure). basket/* goes further for "
+        "SPDR funds, reading the sponsor's own daily file instead of Yahoo's top "
+        "ten: every line of the basket, how concentrated it is, what it splits "
+        "into by industry, which holdings produced the fund's move "
+        "(basket/contribution) and how much of it you already own via another "
+        "fund (basket/overlap)."
     ),
     "crypto": (
         "Digital assets. Prices come from Yahoo pair tickers (BTC-USD) or "
@@ -68,8 +73,11 @@ MENU_GUIDES: Dict[str, str] = {
     ),
     "news": (
         "Headlines from free public RSS: company pulls stories for a ticker, "
-        "world merges the newswire feeds (CNBC, MarketWatch, Fed, SEC…), search "
-        "queries Google News for any topic."
+        "world merges ~290 feeds grouped into desks — the market wires, business "
+        "and economy pages, central banks and regulators, international press, "
+        "and opt-in sector desks (energy, healthcare, tech, real estate, crypto…) "
+        "— search queries Google News for any topic, sources and categories list "
+        "the catalogue."
     ),
     "sentiment": (
         "How positive or negative the news reads, on a -1 to +1 scale. Every "
@@ -87,7 +95,17 @@ MENU_GUIDES: Dict[str, str] = {
         "money_measures…) — fred_series fetches any FRED id directly. "
         "Cross-country data comes from the World Bank and IMF (indicators, "
         "gdp_forecast, country_profile). transform=pc1 turns a level series into "
-        "year-over-year percent change."
+        "year-over-year percent change. fed/* reads the policy rate as decisions "
+        "rather than a line: every hike and cut since 1982 (rate_changes), the "
+        "tightening and easing cycles they group into (cycles), what assets did "
+        "across each one (cycle_performance), where policy stands now (stance) "
+        "and the FOMC's own meeting schedule (meetings). The rest of the Fed's "
+        "signals are there too — the SEP and the dot plot with the revision "
+        "against the last one (projections, dot_plot), the statement with its "
+        "vote, dissents and what changed in the wording (statement), speeches "
+        "and congressional testimony (communications), the balance sheet and "
+        "its runoff pace (balance_sheet), emergency lending facilities "
+        "(liquidity) and the days the expected path repriced (data_reaction)."
     ),
     "fixedincome": (
         "Rates and credit. government/* covers Treasury yield curves and "
@@ -137,6 +155,24 @@ MENU_GUIDES: Dict[str, str] = {
         "drawdown, correlation heatmaps, the yield curve. charting/command can "
         "chart the output of any other command. Mostly useful over the raw API; "
         "the web UI draws its own charts."
+    ),
+    "flagged": (
+        "Change detection rather than levels: what moved between a filer's "
+        "newest filing and its own previous one. scan runs every flag type for "
+        "one or more symbols — risk factors added or dropped, a customer "
+        "concentration appearing or vanishing, an auditor change, a share count "
+        "rising against buybacks, deferred revenue diverging from revenue, "
+        "receivables outrunning sales, a concept tagged for the first time, a "
+        "one-sided cluster of rating changes — each dated to the day it became "
+        "public. market computes the three accrual flags for every SEC filer "
+        "at once from the cross-company XBRL frames and ranks them by market "
+        "percentile. flows reads SEC's 13F data sets for every small cap where "
+        "last quarter's institutional entry or exit was days of the name's own "
+        "volume, with what the sellers still hold; read_through clusters a "
+        "company with the peers that disclose the same geography or product "
+        "line and names the member whose consensus has not caught up with the "
+        "inflection its peers reported. catalogue lists the flag types with the "
+        "way each one characteristically produces a false positive; read it first."
     ),
 }
 
@@ -207,21 +243,35 @@ PARAM_DOCS: Dict[str, str] = {
               "consumer-cyclical, consumer-defensive, industrials, basic-materials, "
               "utilities, real-estate, communication-services. For /screener/run: a "
               "sector name exactly as returned in the screen's sectors list.",
-    "symbols": "Comma-separated tickers to screen as a custom universe instead of an "
-               "index — a watchlist, say. Benchmarked against SPY.",
+    "symbols": "Comma-separated tickers. In /screener/run they are a custom universe "
+               "instead of an index — a watchlist, say, benchmarked against SPY; "
+               "elsewhere they are simply the list to measure.",
+    "move": "Which decisions to keep: all, hike or cut.",
+    "min_bps": "Smallest move to keep, in basis points (50 = half a point or more).",
+    "upcoming_only": "Drop meetings that have already happened.",
+    "year": "Calendar year, e.g. 2026.",
     "preset": "Named Yahoo screen — list them with screener_presets.",
     "filters": "Custom screen clauses 'operator,field,value' joined by semicolons, "
                "e.g. gt,intradaymarketcap,10000000000;lt,peratio,15.",
     "exchange": "Exchange filter: nasdaq, nyse or amex.",
     "sort_field": "Field to sort screen results by.",
     "day": "Calendar date YYYY-MM-DD; weekends roll forward to the next session.",
-    "days": "Number of trading days of history to fetch (one file per session).",
+    "days": "How far back to look. In the FINRA commands that is trading days, one file "
+            "per session; elsewhere it is a plain calendar look-back.",
+    "meeting": "FOMC meeting date, YYYY-MM-DD. Omitted, the most recent one that "
+               "published the document in question.",
+    "variable": "Projected variable to filter to: GDP, unemployment, PCE inflation, "
+                "core PCE or the federal funds rate. Blank returns all of them.",
+    "speaker": "Fed official's surname — the chair, a governor or a regional president. "
+               "Matches part of the name as the Board writes it.",
+    "compare": "Also return what changed against the previous release.",
+    "min_move_bps": "Ignore days the 2-year Treasury moved less than this, in basis points.",
     "months": "Months of history; each month is another archive download on a cold cache.",
     "summary_type": "FINRA table: ATS_W_SMBL per-symbol dark pool, OTC_W_SMBL non-ATS, "
                     "ATS_W_FIRM per-venue, ATS_W_VOL_STATS market-wide.",
     "vs_currency": "Quote currency for crypto prices, usually usd.",
     "coin_id": "CoinGecko coin id like bitcoin or ethereum — find it with crypto/search.",
-    "category": "CoinGecko category slug to filter the market table.",
+    "category": "Filter to one category: a CoinGecko category slug for crypto/market, a news desk name (markets, policy, energy…) for news/sources.",
     "base": "Base currency code, e.g. USD.",
     "counter_currencies": "Comma-separated quote currencies; defaults to the majors.",
     "currencies": "Comma-separated currency codes.",
@@ -236,7 +286,7 @@ PARAM_DOCS: Dict[str, str] = {
              "index/available lists them.",
     "series": "Which series to return — the command doc lists the options.",
     "group": "Grouping: sector, style, asset_class or country.",
-    "sources": "Comma-separated feed names — see news/sources.",
+    "sources": "Comma-separated feed names and/or desks (energy, policy,cnbc_top, all) — see news/sources and news/categories. Empty means the default newswire desks.",
     "language": "Locale for Google News, e.g. en-US.",
     "root": "Futures root symbol, e.g. CL (WTI), GC (gold), ES (S&P e-mini).",
     "anchor": "Reset the VWAP accumulation each D day, W week or M month.",
@@ -294,6 +344,27 @@ PARAM_DOCS: Dict[str, str] = {
             "selected timeframe.",
     "ascending": "Sort smallest first instead of largest first.",
     "status_filter": "Filter runs by status: ok or error.",
+    "kinds": "Comma-separated flag types to compute, or all — see /flagged/catalogue "
+             "for the slugs. The document flags (risk factors, concentration, the "
+             "auditor cover page) cost two filing downloads per symbol.",
+    "screen": "Which market-wide accrual flag: receivables, deferred_revenue or buybacks.",
+    "year": "Calendar year of the newer period; compared against the year before. "
+            "Defaults to the newest year whose annual XBRL frames are complete.",
+    "read_from": "Filter flag types by how they are computed: document, xbrl, index "
+                 "or estimates.",
+    "rating_window_days": "Days of sell-side rating actions the shift is measured over.",
+    "max_market_cap_bn": "Largest market value to include, in $ billions.",
+    "min_market_cap_mn": "Smallest market value to include, in $ millions.",
+    "min_days_of_volume": "Net 13F position change as days of the quarter's average daily volume.",
+    "min_dollar_volume": "Least average dollar volume a day for the name to count as tradeable.",
+    "include_spacs": "Keep blank-check companies in the flow screen (off by default).",
+    "include_suspect": "Keep rows labelled as probable issuance, a single implausible filer or "
+                       "disagreeing denominators (off by default).",
+    "peers": "Extra symbols to add to the hub's peer cluster, comma-separated.",
+    "peer_limit": "How many ranked peers to cluster around the hub.",
+    "min_inflection_pct": "Change in year-over-year growth, in points, before a line has inflected.",
+    "min_agreeing": "Confirmers required before an inflection is common to the cluster.",
+    "min_exposure_pct": "Least share of a laggard's revenue on the shared line.",
     "favorites_only": "Return only favourites.",
     "title": "Chart title.",
     "name": "Which named dataset to return — the command doc lists the options.",

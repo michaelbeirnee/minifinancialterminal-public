@@ -49,6 +49,9 @@ _COMPARATORS = {"lt", "le", "gt", "ge", "eq", "ne"}
 SYSTEM_PROMPT = """You verify an investment-idea candidate against a financial data platform.
 Your stance is REFUTATION: for each leg of the candidate, try to prove it wrong
 with data. A leg survives only if the data you actually retrieved supports it.
+The candidate may represent a company or a sector ETF. For a sector ETF, do not
+treat cap-weighted fund performance as evidence that the average constituent
+shares the setup; verify the proposed macro or fundamental mechanism and breadth.
 
 Method, per leg:
 - Run the suggested verify_with commands first, then whatever else the leg

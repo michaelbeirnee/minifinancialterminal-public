@@ -28,10 +28,49 @@ a{color:var(--blue);text-decoration:none} a:hover{filter:brightness(1.2)}
 .tabs{display:flex;gap:8px}
 .tab{flex:1;background:var(--panel);border:1px solid var(--line);color:var(--muted);padding:8px;border-radius:6px;font-weight:600}
 .tab.active{color:var(--amber);border-color:var(--amber);background:rgba(0,200,5,.12)}
-/* Sub-tabs inside a view (Sentiment: overall market vs your stocks & sectors). */
+/* Sub-tabs inside a view (Sentiment: overall market vs your stocks & sectors;
+   a sector: its chart-level overview vs the ETF basket underneath it). */
 #se-tabs{max-width:440px;margin:0 0 6px}
 .setab{display:none}
 .setab.active{display:block}
+#sx-tabs{max-width:360px;margin:4px 0 6px}
+.sxtab{display:none}
+.sxtab.active{display:block}
+.fedtab{display:none}
+.fedtab.active{display:block}
+/* Flagged: whole market vs one company vs the flag catalogue. */
+#fg-tabs{margin:4px 0 6px}
+.fgtab{display:none}
+.fgtab.active{display:block}
+
+/* Flagged: one card per flag. The change reads first, then the two states it
+   changed between, then the filing it was read from — provenance is a column,
+   not a footnote, because a change with no filing behind it is a claim. */
+.fg-card{border:1px solid var(--line);border-radius:8px;padding:14px 16px;margin-bottom:10px;background:var(--deep)}
+.fg-card-h{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:6px}
+.fg-card-h .fg-sym{font-family:'IBM Plex Mono',monospace;font-weight:600;color:var(--text);cursor:pointer}
+.fg-card-h .fg-sym:hover{color:var(--amber)}
+.fg-card-h .fg-flag{color:var(--amber);font-size:11px;letter-spacing:.8px;text-transform:uppercase;font-weight:600}
+.fg-card-h .fg-date{color:var(--muted);font-size:11px;font-family:'IBM Plex Mono',monospace;margin-left:auto}
+.fg-summary{color:var(--soft);font-size:13px;line-height:1.5}
+.fg-meta{color:var(--faint);font-size:11px;margin-top:6px;line-height:1.5}
+.fg-meta a{color:var(--muted)} .fg-meta a:hover{color:var(--amber)}
+.fg-paras{margin-top:8px;border-left:2px solid var(--line);padding-left:10px}
+.fg-para{font-size:12px;color:var(--muted);margin:5px 0;line-height:1.45}
+.fg-para b{color:var(--soft);font-weight:600}
+.fg-para .fg-match{color:var(--faint);font-family:'IBM Plex Mono',monospace;font-size:10.5px;margin-left:6px}
+.fg-artifact{color:#ffd60a;font-size:11.5px;line-height:1.5;margin-top:8px;padding:8px 10px;
+  background:rgba(255,214,10,.06);border-radius:6px}
+.fg-cat-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin:8px 0 4px}
+.fg-cat-grid .subhead{margin-bottom:4px}
+@media (max-width:980px){.fg-cat-grid{grid-template-columns:1fr}}
+.fg-kind{font-size:10px;color:var(--faint);padding:2px 7px;border:1px solid var(--line);border-radius:10px;font-family:'IBM Plex Mono',monospace}
+.fg-pctl{font-family:'IBM Plex Mono',monospace;color:var(--muted);font-size:11px}
+/* Statement diff: the added and dropped sentences, kept legible at length. */
+.fed-diff{font-size:12.5px;line-height:1.55;margin:6px 0 12px}
+.fed-diff div{padding:3px 0 3px 10px;border-left:2px solid var(--line);margin-bottom:3px}
+.fed-diff .pos{border-left-color:var(--green)}
+.fed-diff .neg{border-left-color:var(--red)}
 .primary{background:var(--amber);color:#000;border:none;padding:11px 20px;border-radius:6px;font-weight:700;font-size:14px}
 .primary:hover{filter:brightness(1.1)}
 .primary.big{padding:12px 28px;border-radius:8px;display:block}
@@ -91,8 +130,12 @@ th{color:var(--muted);font-weight:600;letter-spacing:.5px}
 td a{color:var(--blue);text-decoration:none}
 .pos{color:var(--green)} .neg{color:var(--red)}
 td.pos,.v.pos{color:var(--green)} td.neg,.v.neg{color:var(--red)}
-.clickrows tr[data-i]{cursor:pointer}
-.clickrows tr[data-i]:hover td{background:var(--deep)}
+.clickrows tr[data-i],.clickrows tr[data-sym]{cursor:pointer}
+.clickrows tr[data-i]:hover td,.clickrows tr[data-sym]:hover td{background:var(--deep)}
+/* A published basket runs to eighty-plus rows: scroll it inside its panel,
+   with the header pinned, rather than pushing the rest of the tab off-screen. */
+#sb-holdings{max-height:620px}
+#sb-holdings th{position:sticky;top:0;background:var(--panel);z-index:1}
 .perfbar{display:flex;align-items:center;gap:8px}
 .perfbar .bar{height:8px;border-radius:2px;min-width:1px}
 .perfbar .bar.pos{background:var(--green)}
@@ -132,7 +175,10 @@ td.pos,.v.pos{color:var(--green)} td.neg,.v.neg{color:var(--red)}
 .tile .t-name{color:var(--text);font-size:11px;margin:2px 0 6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .tile .t-px{font-size:17px;font-weight:700;font-family:'IBM Plex Mono',monospace}
 .tile .t-chg{font-size:12px;margin-top:2px;font-family:'IBM Plex Mono',monospace}
+/* min-width:0 so a wide table scrolls inside its own column instead of
+   stretching the grid and the page with it. */
 .market-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.market-grid>*{min-width:0}
 .market-grid3{display:grid;grid-template-columns:1fr 1.4fr 1fr;gap:18px}
 @media (max-width:980px){.market-grid,.market-grid3{grid-template-columns:1fr}}
 
@@ -154,6 +200,92 @@ td.pos,.v.pos{color:var(--green)} td.neg,.v.neg{color:var(--red)}
   padding:4px 0;border-bottom:1px dotted var(--line)}
 .mini-link:hover{color:var(--green)}
 .mini-src{display:block;color:var(--muted);font-size:10px;font-family:'IBM Plex Mono',monospace}
+
+/* Research Workbench — a reusable shell around independent evidence lanes. */
+.rw-shell{display:grid;grid-template-columns:208px minmax(0,1fr);gap:16px;align-items:start}
+.rw-rail{position:sticky;top:16px;background:var(--panel);border:1px solid var(--line);
+  border-radius:10px;padding:18px}
+.rw-module{display:block;width:100%;background:transparent;border:1px solid transparent;
+  border-radius:7px;color:var(--soft);padding:9px 10px;text-align:left;margin-bottom:3px}
+.rw-module:hover{background:var(--deep);border-color:var(--line)}
+.rw-module.active{background:rgba(0,200,5,.09);border-color:rgba(0,200,5,.35);color:var(--green)}
+.rw-module span{display:block;font-weight:600;font-size:12.5px}
+.rw-module small{display:block;color:var(--faint);font-size:10px;line-height:1.4;margin-top:2px}
+.rw-rail .hintline{display:block;border-top:1px solid var(--line);margin-top:14px;padding-top:12px;line-height:1.5}
+.rw-main{min-width:0}
+.rw-query{padding:18px 20px}
+.rw-control{display:flex;flex-direction:column;gap:5px;color:var(--muted);font-size:11px}
+.rw-control input{width:135px;text-transform:uppercase}
+.rw-control select{min-width:150px}
+.rw-query .primary{align-self:flex-end}
+.rw-empty{display:flex;align-items:center;justify-content:center;gap:18px;min-height:180px}
+.rw-empty-mark{width:50px;height:50px;border:1px solid var(--line);border-radius:50%;display:grid;
+  place-items:center;color:var(--amber);font-size:24px}
+.rw-empty strong{font-size:16px}
+.rw-empty p{color:var(--muted);margin:5px 0 0;line-height:1.5;max-width:520px}
+.rw-result-head{display:flex;justify-content:space-between;align-items:center;gap:16px;margin:24px 0 12px}
+.rw-title{font-size:20px;font-weight:700;margin-bottom:3px}
+.rw-assessment{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:16px}
+.rw-state{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:13px 14px}
+.rw-state-wide{grid-column:span 2}
+.rw-state-k{color:var(--muted);font-size:10px;letter-spacing:1px;text-transform:uppercase}
+.rw-state-v{font-family:'IBM Plex Mono',monospace;font-size:15px;font-weight:700;margin:4px 0}
+.rw-lanes{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}
+.rw-lane{min-width:0}
+.rw-lane-head{display:flex;gap:12px;align-items:flex-start;margin-bottom:14px}
+.rw-lane-head .panel-h{margin:1px 0 3px}
+.rw-lane-head p{color:var(--muted);font-size:11.5px;line-height:1.45;margin:0}
+.rw-step{display:grid;place-items:center;width:31px;height:31px;flex:none;border:1px solid var(--line);
+  border-radius:50%;color:var(--amber);font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700}
+.rw-reasons{display:flex;flex-direction:column;gap:5px;margin:0 0 18px}
+.rw-reason{background:var(--deep);border-left:2px solid var(--line);padding:7px 9px;
+  color:var(--soft);font-size:11.5px;line-height:1.45}
+.rw-lane .sigrow{grid-template-columns:repeat(2,minmax(0,1fr));margin-bottom:18px}
+.rw-lane .metrics{grid-template-columns:repeat(2,minmax(0,1fr));margin:0 0 18px}
+.rw-consensus{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1px;
+  background:var(--line);border:1px solid var(--line);border-radius:7px;overflow:hidden;margin-bottom:18px}
+.rw-consensus span{display:flex;flex-direction:column;gap:4px;background:var(--deep);padding:9px;min-width:0}
+.rw-consensus small{color:var(--faint);font-size:9.5px;text-transform:uppercase;letter-spacing:.5px}
+.rw-consensus b{font-size:11.5px;overflow:hidden;text-overflow:ellipsis}
+.rw-framework{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.rw-framework ul{margin:0;padding-left:16px;color:var(--muted);font-size:11px;line-height:1.5}
+.rw-framework li{margin-bottom:5px}
+.rw-bridge{border-color:#5e5200}
+.rw-bridge .rw-step{border-color:#7a6800;color:#ffd60a}
+.rw-bridge .panel-h{color:#ffd60a}
+.rw-bridge .chiprow{margin:0 0 14px}
+.rw-chain{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.rw-chain label{position:relative;display:flex;flex-direction:column;gap:6px;color:var(--soft);font-size:11px}
+.rw-chain label:not(:last-child)::after{content:'→';position:absolute;right:-9px;top:47%;z-index:2;
+  color:#ffd60a;background:var(--panel);width:16px;text-align:center}
+.rw-chain textarea,.rw-handoff textarea{width:100%;resize:vertical;background:var(--deep);border:1px solid var(--line);
+  border-radius:6px;color:var(--text);padding:10px;font:12px/1.5 'IBM Plex Sans',sans-serif}
+.rw-chain textarea:focus,.rw-handoff textarea:focus{outline:none;border-color:var(--amber)}
+.rw-sources{padding:16px 20px}
+.rw-sources summary{cursor:pointer;color:var(--soft);font-weight:600;font-size:12px}
+.rw-sources summary .dim{font-weight:400;margin-left:8px}
+.rw-sources[open] summary{margin-bottom:12px}
+.rw-handoff{border-left:3px solid var(--amber)}
+.rw-handoff .linkbtn{margin:0 0 0 5px}
+
+@media (max-width:1100px){
+  .rw-shell{grid-template-columns:1fr}
+  .rw-rail{position:static;display:flex;gap:5px;align-items:stretch;overflow:auto}
+  .rw-rail>.panel-h,.rw-rail>.hintline{display:none}
+  .rw-module{min-width:145px;margin:0}
+}
+@media (max-width:800px){
+  .rw-lanes,.rw-chain{grid-template-columns:1fr}
+  .rw-chain label:not(:last-child)::after{display:none}
+  .rw-assessment{grid-template-columns:1fr 1fr}
+  .rw-state-wide{grid-column:span 2}
+}
+@media (max-width:560px){
+  .rw-assessment{grid-template-columns:1fr}
+  .rw-state-wide{grid-column:auto}
+  .rw-framework,.rw-consensus{grid-template-columns:1fr}
+  .rw-result-head{align-items:flex-start;flex-direction:column}
+}
 
 /* Metrics */
 .metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:18px}
@@ -263,10 +395,21 @@ td.pos,.v.pos{color:var(--green)} td.neg,.v.neg{color:var(--red)}
 .feed-meta{display:flex;gap:10px;align-items:center;font-size:10px;color:var(--muted);
   margin-bottom:3px;letter-spacing:1px;text-transform:uppercase;font-family:'IBM Plex Mono',monospace}
 .src-badge{border:1px solid var(--line);border-radius:8px;padding:1px 7px;color:var(--green)}
+.src-badge.muted{color:var(--muted)}
 .feed-title{color:var(--text);text-decoration:none;font-size:14px;line-height:1.45;font-weight:500}
 .feed-title:hover{color:var(--green)}
 .feed-sum{color:var(--muted);font-size:12px;margin-top:3px;line-height:1.5}
 .chip.nw-chip{padding:5px 13px}
+/* Desk chips carry a feed count; feed chips sit in a quieter second row that
+   only shows the desks picked above, so 290 feeds never appear at once. */
+.chip.nw-desk small{color:var(--muted);font-weight:400;margin-left:5px}
+.chip.nw-desk.sel small{color:inherit;opacity:.75}
+.chip.nw-desk.dflt{border-style:dashed}
+.chip.nw-desk.dflt.sel{border-style:solid}
+.chiprow.nw-feeds{margin-top:-4px}
+.chiprow.nw-feeds:empty{display:none}
+.chip.nw-chip.sm{padding:3px 10px;font-size:11px;font-weight:500}
+.nw-hint{color:var(--muted);font-size:11.5px;align-self:center;margin-left:4px}
 
 /* Sentiment */
 .senti-hero{display:flex;align-items:center;gap:32px;flex-wrap:wrap}
@@ -985,6 +1128,7 @@ dialog.sim-dialog{width:min(1180px,calc(100vw - 32px))}
 :root{
   --ev-earnings:#00c805; --ev-dividend_ex:#4aa3ff; --ev-dividend_pay:#2f7fd0;
   --ev-split:#c084fc; --ev-ipo:#ffd60a; --ev-economic:#ff8a3d; --ev-custom:#9aa0a6;
+  --ev-fomc:#ff5000;
 }
 .cal-layout{display:grid;grid-template-columns:262px minmax(0,1fr);gap:16px;align-items:start}
 .cal-rail .panel{padding:18px}

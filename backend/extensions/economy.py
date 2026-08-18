@@ -364,11 +364,17 @@ def country_profile(country: str = "USA", provider: Optional[str] = None) -> Res
 def economy_calendar(start_date: Optional[str] = None, end_date: Optional[str] = None,
                      limit: int = 200, provider: Optional[str] = None) -> Result:
     """Yahoo's macro-events calendar; the FRED provider gives official release
-    dates instead but needs a free API key."""
+    dates instead but needs a free API key.
+
+    Each provider's frame is returned unchanged. ``/calendar/economic`` serves
+    the same releases normalised, ranked and filterable by region — reach for
+    that one to put them on a calendar, and this one to see the raw columns.
+    """
     src = resolve_provider(provider, ("yahoo", "fred"))
     if src == "fred":
         return Result(fred.release_dates(start_date, end_date, limit), provider=src)
-    return Result(yahoo.market_calendar("economic", start_date, end_date).head(limit), provider=src)
+    return Result(yahoo.market_calendar("economic", start_date, end_date, limit=limit).head(limit),
+                  provider=src)
 
 
 @command("/economy/survey", providers=("fred",), summary="Sentiment and business surveys")

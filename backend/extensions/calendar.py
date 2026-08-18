@@ -59,6 +59,17 @@ EVENT_TYPES: List[Dict[str, Any]] = [
     {"key": "economic", "label": "Economic Release", "group": "Macro",
      "badge": "M", "available": True, "sources": ["yahoo", "fred"],
      "description": "Scheduled macro statistics, with consensus and prior where published."},
+    {"key": "fomc", "label": "FOMC Decision", "group": "Macro",
+     "badge": "F", "available": True, "sources": ["federalreserve"],
+     "description": "Fed rate decisions on the committee's own published schedule — "
+                    "the statement day, whether the meeting carries the dot plot, and "
+                    "what a past meeting did to the target range. Minutes releases, "
+                    "three weeks later, ride on the same type."},
+    {"key": "fedspeak", "label": "Fed Speeches", "group": "Macro",
+     "badge": "S", "available": True, "sources": ["federalreserve"],
+     "description": "Speeches, congressional testimony and Board press releases, from "
+                    "the Fed's own feeds. Published records rather than a schedule: "
+                    "these land on the calendar after they happen."},
     {"key": "custom", "label": "Custom / Notes", "group": "Yours",
      "badge": "N", "available": True, "sources": ["user"],
      "description": "Your own dated notes, stored per account and never sent anywhere."},
@@ -417,6 +428,109 @@ def _yahoo_economic(frame: pd.DataFrame) -> List[Dict[str, Any]]:
     return [r for r in out if r]
 
 
+def _fomc_detail(meeting: Dict[str, Any]) -> Optional[str]:
+    """What the meeting did, or what it will carry — whichever it has yet."""
+    bits: List[str] = []
+    lower, upper = meeting.get("target_lower"), meeting.get("target_upper")
+    band = "{:g}-{:g}%".format(lower, upper) if lower is not None and upper is not None else None
+    decision, bps = meeting.get("decision"), meeting.get("change_bps")
+    if decision in ("hiked", "cut") and bps:
+        bits.append("{} {:g} bps{}".format(
+            "Raised" if decision == "hiked" else "Cut", abs(bps),
+            " to {}".format(band) if band else ""))
+    elif decision == "held":
+        bits.append("Held{}".format(" at {}".format(band) if band else ""))
+    if meeting.get("projections"):
+        bits.append("Summary of Economic Projections")
+    if meeting.get("press_conference"):
+        bits.append("press conference")
+    if meeting.get("days") == 2:
+        bits.append("second day of a two-day meeting")
+    return " · ".join(bits) or None
+
+
+def _collect_fomc(first: date, last: date, warnings: List[str]) -> List[Dict[str, Any]]:
+    """Rate decisions from the Fed's own calendar.
+
+    Neither market feed carries these: Yahoo's macro calendar lists the release
+    of a statistic, not the meeting that sets the rate every statistic is read
+    against. The committee publishes its own schedule, so this reads that.
+    """
+    from .fed import meetings as fed_meetings  # local: keeps the import graph one-way
+
+    try:
+        rows = fed_meetings(limit=1000).data
+    except (EmptyDataError, ProviderError) as exc:
+        warnings.append("fomc: {}".format(exc))
+        return []
+
+    out = []
+    for meeting in rows:
+        window = str(first) <= meeting["date"] <= str(last)
+        notation = meeting.get("kind") == "notation vote"
+        if window:
+            out.append(_row(
+                _iso(meeting["date"]), "fomc", symbol=None, name="US",
+                title="FOMC {}".format("notation vote" if notation else "rate decision"),
+                detail=_fomc_detail(meeting),
+                # The statement has gone out at 2pm Eastern for every scheduled
+                # meeting in the published record.
+                time=None if notation else "2:00 PM ET",
+                importance=3, source="federalreserve.gov"))
+        # The minutes are their own event three weeks later, and the Fed only
+        # publishes that date once they are out — so these are always past.
+        released = meeting.get("minutes_released")
+        if released and str(first) <= released <= str(last):
+            out.append(_row(
+                _iso(released), "fomc", symbol=None, name="US", title="FOMC minutes",
+                detail="Account of the {} meeting".format(meeting["date"]),
+                time="2:00 PM ET", importance=3, source="federalreserve.gov"))
+    return [r for r in out if r]
+
+
+#: A speech is a speech; testimony to Congress, the symposium at Jackson Hole
+#: and the policy releases themselves are the ones that move a curve.
+_MAJOR_SPEAK = ("congressional", "jackson_hole")
+
+
+def _collect_fedspeak(first: date, last: date, warnings: List[str],
+                      covered: Optional[set] = None) -> List[Dict[str, Any]]:
+    """Speeches, testimony and Board releases, from the Fed's own feeds.
+
+    ``covered`` is the set of dates the FOMC type already filled. The press
+    feed announces the statement and the minutes too, so those rows are dropped
+    where the decision row already says what happened — but an FOMC statement
+    on a date with no scheduled meeting is kept, because that one is the news.
+    """
+    from .fed_signals import communications as fed_communications
+
+    span = max(1, (date.today() - first).days + 1)
+    try:
+        rows = fed_communications(days=span, limit=400).data
+    except (EmptyDataError, ProviderError, ValueError) as exc:
+        warnings.append("fedspeak: {}".format(exc))
+        return []
+
+    out = []
+    for row in rows:
+        if not (str(first) <= row["date"] <= str(last)):
+            continue
+        if row.get("document") and row["date"] in (covered or set()):
+            continue
+        major = any(row.get(flag) for flag in _MAJOR_SPEAK) or row.get("document")
+        speaker = row.get("speaker")
+        out.append(_row(
+            _iso(row["date"]), "fedspeak", symbol=None, name="US",
+            title="{}: {}".format(speaker or "Fed", row["title"]),
+            detail=" · ".join(filter(None, (
+                "congressional testimony" if row.get("congressional") else None,
+                "Jackson Hole" if row.get("jackson_hole") else None,
+                "issued between scheduled meetings" if row.get("off_calendar") else None,
+                row.get("summary")))) or None,
+            importance=3 if major else 2, source="federalreserve.gov"))
+    return [r for r in out if r]
+
+
 def _fred_economic(frame: pd.DataFrame) -> List[Dict[str, Any]]:
     out = []
     for r in frame.to_dict("records"):
@@ -436,13 +550,16 @@ def _requested_types(types: Optional[str]) -> List[str]:
     if not types:
         return list(PLATFORM_TYPES)
     asked = [t.strip().lower() for t in str(types).replace(" ", ",").split(",") if t.strip()]
+    # A bad `types` value is the caller's mistake, not the upstream feed's, so
+    # these are ValueErrors — the API layer turns those into a 400 rather than
+    # the 502 a ProviderError would imply.
     unknown = [t for t in asked if t not in TYPES_BY_KEY]
     if unknown:
-        raise ProviderError("Unknown event type(s): {}. Available: {}".format(
+        raise ValueError("Unknown event type(s): {}. Available: {}".format(
             ", ".join(unknown), ", ".join(AVAILABLE_TYPES)))
     unavailable = [t for t in asked if not TYPES_BY_KEY[t]["available"]]
     if unavailable:
-        raise ProviderError("No free source for: {}. {}".format(
+        raise ValueError("No free source for: {}. {}".format(
             ", ".join(unavailable),
             " ".join(TYPES_BY_KEY[t].get("why", "") for t in unavailable)))
     return [t for t in asked if t in PLATFORM_TYPES]
@@ -484,7 +601,12 @@ def _collect_nasdaq(wanted: List[str], first: date, last: date,
                         continue
                 if not frames:
                     continue
-                frame = pd.concat(frames, ignore_index=True).drop_duplicates(subset=["dealID"])
+                frame = pd.concat(frames, ignore_index=True)
+                # One deal appears in consecutive months while it is pending.
+                # Nasdaq's own id is the reliable key, but the four buckets do
+                # not all carry it, so fall back to the whole row.
+                if "dealID" in frame.columns:
+                    frame = frame.drop_duplicates(subset=["dealID"])
             else:
                 frame = markets.nasdaq_calendar_range(kind, str(first), str(last), max_days=max_days)
                 dropped = frame.attrs.get("days_truncated") or 0
@@ -501,8 +623,12 @@ def _collect_nasdaq(wanted: List[str], first: date, last: date,
     return rows
 
 
-def _collect_yahoo(wanted: List[str], first: date, last: date,
-                   limit: int, warnings: List[str]) -> List[Dict[str, Any]]:
+#: Importance floors as market caps, applied by Yahoo inside the query.
+_CAP_FLOOR = {2: 2e9, 3: 50e9}
+
+
+def _collect_yahoo(wanted: List[str], first: date, last: date, limit: int,
+                   warnings: List[str], min_importance: int = 1) -> List[Dict[str, Any]]:
     rows: List[Dict[str, Any]] = []
     plan = [
         ("earnings", "earnings", _yahoo_earnings),
@@ -514,21 +640,25 @@ def _collect_yahoo(wanted: List[str], first: date, last: date,
         if key not in wanted:
             continue
         try:
-            frame = yahoo.market_calendar(kind, str(first), str(last), limit=limit,
-                                          most_active=False)
+            frame = yahoo.market_calendar(
+                kind, str(first), str(last), limit=limit, most_active=False,
+                market_cap=_CAP_FLOOR.get(int(min_importance)) if kind == "earnings" else None)
         except (EmptyDataError, ProviderError, ValueError) as exc:
             warnings.append("{}: {}".format(kind, exc))
             continue
         rows.extend(normalise(frame))
-    if {"dividend_ex", "dividend_pay"} & set(wanted):
-        warnings.append(
-            "Yahoo publishes no dividend calendar; ask for provider=nasdaq to "
-            "include ex-dividend and payment dates.")
     return rows
 
 
 def _sorted_events(rows: List[Dict[str, Any]], first: date, last: date,
-                   limit: int) -> List[Dict[str, Any]]:
+                   limit: int) -> tuple:
+    """Deduplicated, date-sorted, capped — plus how many the cap dropped.
+
+    The count matters more than it looks. Truncation takes the *end* of the
+    window, so a month view that hits the cap goes blank from whatever date the
+    limit ran out, which on a calendar is indistinguishable from "nothing is
+    scheduled". The caller turns a non-zero drop into a warning.
+    """
     lo, hi = str(first), str(last)
     inside = [r for r in rows if lo <= r["date"] <= hi]
     # A feed can hand back the same event twice (a Nasdaq day-walk overlapping a
@@ -541,7 +671,7 @@ def _sorted_events(rows: List[Dict[str, Any]], first: date, last: date,
             continue
         seen.add(key)
         unique.append(r)
-    return unique[:limit]
+    return unique[:limit], max(0, len(unique) - limit)
 
 
 # --------------------------------------------------------------------------- #
@@ -580,10 +710,18 @@ def calendar_events(start_date: Optional[str] = None, end_date: Optional[str] = 
 
     * ``nasdaq`` serves one **day** per request with US corporate detail — EPS
       forecasts, dividend rates, split ratios — and is the only source here with
-      a dividend calendar. A month costs a month of requests, so ``max_days``
-      caps the walk and any truncation is reported rather than silently applied.
+      a dividend calendar at all. A month costs a month of requests, so
+      ``max_days`` caps the walk and any truncation is reported rather than
+      silently applied.
     * ``yahoo`` serves a **date range** in one request with global coverage and
-      the macro calendar, but no dividends.
+      the macro calendar, but publishes no dividends.
+
+    Neither covers everything, and ``provider`` is a preference about *how* to
+    fetch rather than permission to drop a type that was explicitly asked for.
+    So each falls through to the other for what it lacks: ask ``nasdaq`` for
+    ``economic`` and the macro rows come from Yahoo; ask ``yahoo`` for
+    ``dividend_ex`` and the dividend rows come from Nasdaq, with a warning that
+    that part of the window is a day walk.
 
     ``min_importance`` filters 1-3, where 3 is a mega-cap print or a headline
     macro release from a major economy. It exists because an unranked global
@@ -593,39 +731,72 @@ def calendar_events(start_date: Optional[str] = None, end_date: Optional[str] = 
     src = resolve_provider(provider, ("nasdaq", "yahoo"))
     first, last = _window(start_date, end_date)
     wanted = _requested_types(types)
-    limit = max(1, min(int(limit), 2000))
+    limit = max(1, min(int(limit), 5000))
     warnings: List[str] = []
+
+    # Naming symbols is a stronger and more specific intent than a size floor,
+    # so it wins. Without this, filtering to a company you actually hold returns
+    # nothing whenever it happens to be smaller than the floor — the filter
+    # would silently answer a question nobody asked.
+    if symbols and int(min_importance) > 1:
+        warnings.append(
+            "`symbols` overrides `min_importance`: named companies are returned "
+            "whatever their size.")
+        min_importance = 1
 
     if not wanted:
         raise EmptyDataError(
             "No platform event types requested. `custom` events come from "
             "/api/user/calendar, which is per-account.")
 
+    # Neither provider covers every type, and the provider argument is a
+    # preference about *how* to fetch, not permission to drop a type the caller
+    # explicitly asked for. So each falls through to the other for the types it
+    # does not carry: Nasdaq has no macro calendar, Yahoo has no dividends.
+    walk_days = max(1, min(int(max_days), 120))
+    # The Fed's own events belong to neither market feed — they come from the
+    # Board whichever provider is serving the rest of the window.
+    rows: List[Dict[str, Any]] = _collect_fomc(first, last, warnings) if "fomc" in wanted else []
+    if "fedspeak" in wanted:
+        rows += _collect_fedspeak(first, last, warnings, {r["date"] for r in rows})
+    feeds = [t for t in wanted if t not in ("fomc", "fedspeak")]
     if src == "nasdaq":
-        rows = _collect_nasdaq(wanted, first, last, max(1, min(int(max_days), 120)), warnings)
-        if "economic" in wanted:
-            # Nasdaq has no macro calendar; fall through to Yahoo for that one
-            # type rather than dropping it because of the provider choice.
-            rows.extend(_collect_yahoo(["economic"], first, last, limit, warnings))
+        rows += _collect_nasdaq(feeds, first, last, walk_days, warnings)
+        if "economic" in feeds:
+            rows.extend(_collect_yahoo(["economic"], first, last, limit, warnings,
+                                       min_importance))
     else:
-        rows = _collect_yahoo(wanted, first, last, limit, warnings)
+        rows += _collect_yahoo(feeds, first, last, limit, warnings, min_importance)
+        dividends = [t for t in feeds if t.startswith("dividend_")]
+        if dividends:
+            warnings.append(
+                "Yahoo publishes no dividend calendar, so ex-dividend and "
+                "payment dates came from Nasdaq — one request per day, which is "
+                "slower than the rest of this window.")
+            rows.extend(_collect_nasdaq(dividends, first, last, walk_days, warnings))
 
     rows = _symbol_filter(rows, symbols)
     if int(min_importance) > 1:
         rows = [r for r in rows if r["importance"] >= int(min_importance)]
-    events = _sorted_events(rows, first, last, limit)
+    events, dropped = _sorted_events(rows, first, last, limit)
 
     if not events:
         raise EmptyDataError("No {} events between {} and {}{}".format(
             ", ".join(wanted), first, last,
             " ({})".format("; ".join(warnings)) if warnings else ""))
+    if dropped:
+        warnings.append(
+            "{} more events matched than the {}-row limit allows, so this window "
+            "stops at {}. Later dates are cut off, not empty — raise `limit`, "
+            "raise `min_importance`, or ask for fewer types.".format(
+                dropped, limit, events[-1]["date"]))
 
     counts: Dict[str, int] = {}
     for r in events:
         counts[r["type"]] = counts.get(r["type"], 0) + 1
     return Result(events, provider=src, warnings=warnings, extra={
-        "start_date": str(first), "end_date": str(last),
-        "types": wanted, "counts": counts, "total": len(events)})
+        "start_date": str(first), "end_date": str(last), "types": wanted,
+        "counts": counts, "total": len(events), "truncated": dropped})
 
 
 @command("/calendar/economic", providers=("yahoo", "fred"),
@@ -673,12 +844,17 @@ def calendar_economic(start_date: Optional[str] = None, end_date: Optional[str] 
     if int(min_importance) > 1:
         rows = [r for r in rows if r["importance"] >= int(min_importance)]
 
-    events = _sorted_events(rows, first, last, limit)
+    events, dropped = _sorted_events(rows, first, last, limit)
     if not events:
         raise EmptyDataError("No macro releases between {} and {} matching that filter".format(
             first, last))
+    if dropped:
+        warnings.append(
+            "{} more releases matched than the {}-row limit allows, so this "
+            "window stops at {} rather than running to {}.".format(
+                dropped, limit, events[-1]["date"], last))
 
     regions = sorted({r["name"] for r in events if r.get("name")})
     return Result(events, provider=src, warnings=warnings, extra={
-        "start_date": str(first), "end_date": str(last),
-        "regions": regions, "total": len(events)})
+        "start_date": str(first), "end_date": str(last), "regions": regions,
+        "total": len(events), "truncated": dropped})

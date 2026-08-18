@@ -387,14 +387,20 @@ def screener_names() -> List[str]:
 @cached("yahoo.equity_screen", ttl=TTL_INTRADAY)
 def equity_screen(filters: List[List[Any]], limit: int = 50, sort_field: Optional[str] = None,
                   sort_asc: bool = False) -> pd.DataFrame:
-    """Custom screen. ``filters`` is a list of ``[operator, field, value...]``."""
+    """Custom screen. ``filters`` is a list of ``[operator, field, value...]``.
+
+    Yahoo pages a custom query on ``size`` and a predefined one on ``count``,
+    and ignores the other silently. Sending ``count`` here is not an error and
+    does not warn — it just leaves the default of 25 in place, so every custom
+    screen returns 25 rows however many were asked for.
+    """
     yf = _yf()
     clauses = []
     for f in filters:
         op = str(f[0]).lower()
         clauses.append(yf.EquityQuery(op, list(f[1:])))
     query = clauses[0] if len(clauses) == 1 else yf.EquityQuery("and", clauses)
-    body = _call(yf.screen, "custom screen", query, count=min(limit, 250),
+    body = _call(yf.screen, "custom screen", query, size=min(limit, 250),
                  sortField=sort_field, sortAsc=sort_asc)
     quotes = body.get("quotes") if isinstance(body, dict) else body
     return pd.DataFrame(_guard(quotes, "screener rows"))
@@ -457,7 +463,8 @@ _CALENDAR_PAGE = 100
 @cached("yahoo.calendars", ttl=TTL_INTRADAY)
 def market_calendar(kind: str = "earnings", start: Optional[str] = None,
                     end: Optional[str] = None, limit: int = 12,
-                    most_active: bool = True) -> pd.DataFrame:
+                    most_active: bool = True,
+                    market_cap: Optional[float] = None) -> pd.DataFrame:
     """A calendar over a real date range, paged to ``limit`` rows.
 
     yfinance defaults to 12 rows per call and caps a single request at 100, so
@@ -468,13 +475,23 @@ def market_calendar(kind: str = "earnings", start: Optional[str] = None,
     the calendar is the handful of widely-held names Yahoo considers active;
     turned off, it is every issuer reporting in the window, which is what a
     calendar filtered by the user's own symbols needs.
+
+    ``market_cap`` is a floor, also earnings-only, and it is applied *by Yahoo*
+    rather than after the fact. That distinction is the whole point: filtering
+    locally still pages a month of every micro-cap on earth and then throws it
+    away, and whatever the row cap cut off is missing from the end of the
+    window — a calendar that goes blank halfway through the month.
     """
     attr = _CALENDAR_ATTRS.get(kind)
     if not attr:
         raise ValueError("kind must be one of {}".format(", ".join(_CALENDAR_ATTRS)))
     cal = _yf().Calendars(start=start, end=end)
     fetch = getattr(cal, attr)
-    extra = {"filter_most_active": most_active} if kind == "earnings" else {}
+    extra: Dict[str, Any] = {}
+    if kind == "earnings":
+        extra["filter_most_active"] = most_active
+        if market_cap:
+            extra["market_cap"] = float(market_cap)
 
     wanted = max(1, int(limit))
     frames: List[pd.DataFrame] = []

@@ -297,8 +297,10 @@ def sentiment_market(sources: Optional[str] = None, query: Optional[str] = None,
     """Pulls the merged world newswire (or a Google News search when ``query``
     is given), scores every story, and attaches the aggregate mood, a
     per-source breakdown and the strongest stories each way under ``extra``.
-    The aggregate caps each source's weight so no single outlet, however
-    prolific, can dominate a tape merged from ~40 feeds."""
+    ``sources`` takes feed names or desks (``energy``, ``policy,cnbc_top``,
+    ``all``); empty means the default newswire desks. The aggregate caps each
+    source's weight so no single outlet, however prolific, can dominate a tape
+    merged from ~100 feeds."""
     src = resolve_provider(provider, ("rss", "google"))
     warnings: List[str] = []
     if src == "google" or query:

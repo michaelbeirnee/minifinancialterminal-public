@@ -148,3 +148,34 @@ def bls_series(
 
 def bls_catalogue() -> pd.DataFrame:
     return pd.DataFrame([{"alias": k, "series_id": v} for k, v in sorted(BLS_SERIES.items())])
+
+
+# --------------------------------------------------------------------------- #
+# BEA release feed
+# --------------------------------------------------------------------------- #
+BEA_FEED = "https://apps.bea.gov/rss/rss.xml"
+
+
+@cached("bea.releases", ttl=TTL_DAILY)
+def bea_releases(limit: int = 60) -> pd.DataFrame:
+    """When the BEA actually published each report, from its own feed.
+
+    A release *date* is a different fact from the data, and the free sources
+    for it are thin: the BLS blocks automated readers outright, and FRED's
+    release calendar needs an API key. The BEA publishes its own, which covers
+    the reports the rate path turns on most — Personal Income and Outlays (the
+    PCE price index the Fed targets) and GDP.
+    """
+    from .newsfeeds import entry_date, parse_feed
+
+    rows = []
+    for entry in parse_feed(BEA_FEED, source="bea", limit=limit):
+        day = entry_date(entry.get("published"))
+        if not day:
+            continue
+        title = str(entry.get("title") or "").strip()
+        rows.append({"date": day, "release": title, "source": "bea",
+                     "url": entry.get("url")})
+    if not rows:
+        raise EmptyDataError("The BEA release feed returned nothing")
+    return pd.DataFrame(rows).drop_duplicates(subset=["date", "release"]).sort_values("date")

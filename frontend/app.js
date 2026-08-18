@@ -33,6 +33,8 @@ async function api(path, { method = "GET", body, form } = {}) {
 }
 
 const fmtPct = (x, sign) => { const s = (x * 100).toFixed(1) + "%"; return sign && x >= 0 ? "+" + s : s; };
+// Portfolio weights need a second decimal — the tail of a basket lives below 0.1%.
+const pctWeight = (x, dp = 2) => (x == null ? "-" : (x * 100).toFixed(dp) + "%");
 const fmt$ = (x) => "$" + Math.round(x).toLocaleString("en-US");
 const cls = (x) => (x >= 0 ? "pos" : "neg");
 const NAMES = { AAPL: "Apple", MSFT: "Microsoft", NVDA: "NVIDIA", AMZN: "Amazon", TSLA: "Tesla",
@@ -139,14 +141,270 @@ document.querySelectorAll(".navbtn").forEach((b) => {
     if (b.dataset.view === "sectors") loadSectors();
     if (b.dataset.view === "screener") loadScreener();
     if (b.dataset.view === "thesis") loadThesisView();
+    if (b.dataset.view === "thesis-sectors") loadSectorThesisView();
+    if (b.dataset.view === "flagged") loadFlaggedView();
     if (b.dataset.view === "modeling") loadModelingView();
     if (b.dataset.view === "assets") loadAssets();
     if (b.dataset.view === "news") loadNewsInit();
+    if (b.dataset.view === "calendar") loadCalendarInit();
     if (b.dataset.view === "sentiment") loadSentimentInit();
+    if (b.dataset.view === "volatility") loadVolatility();
     if (b.dataset.view === "portfolio") loadPortfolioView();
     if (b.dataset.view === "assistant") loadAssistantView();
+    if (b.dataset.view === "research") loadResearchWorkbench();
   };
 });
+
+// ---------- research workbench ----------
+// The workbench is a shell, not a one-off report. Its context packet keeps the
+// two evidence lanes independent and gives later modules a stable object to
+// build on. The human-written bridge is intentionally never inferred here.
+let rwLoaded = false;
+let rwContext = null;
+
+function loadResearchWorkbench() {
+  if (rwLoaded) return;
+  rwLoaded = true;
+  $("rw-symbol").focus();
+}
+
+function rwStateClass(state) {
+  return state === "constructive" ? "pos" : state === "challenged" ? "neg" :
+    state === "mixed" ? "warn" : "dim";
+}
+
+function rwAlignmentClass(key) {
+  if (key === "aligned_constructive") return "pos";
+  if (key === "aligned_challenged") return "neg";
+  if (key === "incomplete") return "dim";
+  return "warn";
+}
+
+function rwLabel(value) {
+  return String(value || "unknown").replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function rwMetricValue(key, value) {
+  if (value == null || value === "" || !Number.isFinite(Number(value))) return "—";
+  const number = Number(value);
+  if (/growth|margin|yield|return_on/.test(key)) return fmtPct(number);
+  if (/cash_flow|market_cap|enterprise_value/.test(key)) return fmt$(number);
+  if (/pe$|peg_ratio|price_to_|ev_to_|current_ratio|quick_ratio|debt_to_equity|beta/.test(key))
+    return number.toLocaleString("en-US", { maximumFractionDigits: 2 }) + "×";
+  return number.toLocaleString("en-US", { maximumFractionDigits: 2 });
+}
+
+function rwReasons(rows) {
+  return rows && rows.length
+    ? rows.map((r) => `<div class="rw-reason">${escapeHtml(r)}</div>`).join("")
+    : `<div class="empty">Not enough observations for a mechanical read.</div>`;
+}
+
+function rwRender(packet) {
+  rwContext = packet;
+  $("rw-empty").style.display = "none";
+  $("rw-result").style.display = "";
+
+  const subject = packet.subject || {};
+  const settings = packet.settings || {};
+  const assessment = packet.assessment || {};
+  const top = packet.top_down || {};
+  const bottom = packet.bottom_up || {};
+  const alignment = assessment.alignment || {};
+  const coverage = assessment.coverage || {};
+  $("rw-title").textContent = `${subject.symbol || "—"} · ${subject.name || subject.symbol || "Unknown security"}`;
+  $("rw-meta").textContent = [subject.sector, subject.industry,
+    `${subject.benchmark || settings.benchmark || "SPY"} benchmark`,
+    rwLabel(settings.horizon)].filter(Boolean).join(" · ");
+  $("rw-coverage").textContent = `${coverage.successful || 0}/${coverage.total || 0} sources · ${
+    Math.round((coverage.ratio || 0) * 100)}% coverage`;
+  $("rw-warnings").innerHTML = (packet.warnings || []).length
+    ? `<div class="warnbox">Partial packet: ${packet.warnings.map(escapeHtml).join(" · ")}</div>` : "";
+
+  const states = [
+    ["Top down", top.state, "Market and sector context"],
+    ["Bottom up", bottom.state, "Company snapshot"],
+  ];
+  $("rw-assessment").innerHTML = states.map(([label, state, note]) => `
+    <div class="rw-state"><div class="rw-state-k">${label}</div>
+      <div class="rw-state-v ${rwStateClass(state)}">${rwLabel(state)}</div><div class="dim">${note}</div></div>`).join("") + `
+    <div class="rw-state rw-state-wide"><div class="rw-state-k">Joined read</div>
+      <div class="rw-state-v ${rwAlignmentClass(alignment.key)}">${escapeHtml(alignment.label || "Evidence incomplete")}</div>
+      <div class="dim">${escapeHtml(alignment.reading || "")}</div></div>`;
+
+  $("rw-top-reasons").innerHTML = rwReasons(top.reasons);
+  $("rw-bottom-reasons").innerHTML = rwReasons(bottom.reasons);
+  $("rw-regime").innerHTML = (top.signals || []).length
+    ? top.signals.map((s) => `<div class="sig-card t-${escapeHtml(s.tone || "")}">
+        <div class="sig-label">${escapeHtml(s.label || "Signal")}</div>
+        <div class="sig-value">${escapeHtml(s.value == null ? "—" : s.value)}</div>
+        <div class="sig-read">${escapeHtml(s.read || s.reading || "")}</div></div>`).join("")
+    : `<div class="empty">Market signal detail unavailable.</div>`;
+
+  const horizon = settings.horizon || "three_month";
+  const benchmark = subject.benchmark || settings.benchmark || "SPY";
+  const sectorRelative = top.sector_relative ?? (top.sector || {})[`relative_${horizon}`];
+  const relativeRows = [
+    [`${subject.symbol || "Security"} return`, top.subject_return],
+    [`vs ${benchmark}`, top.relative_return],
+    [`${subject.sector_etf || "Sector"} vs ${benchmark}`, sectorRelative],
+  ];
+  $("rw-relative").innerHTML = relativeRows.map(([label, value]) => `
+    <div class="metric"><div class="k">${escapeHtml(label)}</div>
+      <div class="v ${value == null ? "dim" : cls(value)}">${value == null ? "—" : fmtPct(value, true)}</div>
+      <div class="note">${escapeHtml(rwLabel(horizon))}</div></div>`).join("");
+
+  const metricLabels = {
+    revenue_growth: "Revenue growth", earnings_growth: "Earnings growth",
+    operating_margin: "Operating margin", profit_margin: "Profit margin",
+    free_cash_flow: "Free cash flow", forward_pe: "Forward P/E",
+    price_to_sales: "Price / sales", debt_to_equity: "Debt / equity",
+  };
+  const metrics = bottom.metrics || {};
+  $("rw-metrics").innerHTML = Object.entries(metricLabels).map(([key, label]) => `
+    <div class="metric"><div class="k">${label}</div><div class="v">${rwMetricValue(key, metrics[key])}</div></div>`).join("");
+
+  const consensus = bottom.consensus || {};
+  const target = consensus.target_mean;
+  const current = consensus.current_price;
+  const upside = Number.isFinite(target) && Number.isFinite(current) && current !== 0 ? target / current - 1 : null;
+  $("rw-consensus").innerHTML = `<div class="rw-consensus">
+    <span><small>Street view</small><b>${escapeHtml(rwLabel(consensus.recommendation || "unavailable"))}</b></span>
+    <span><small>Analysts</small><b class="mono">${consensus.analyst_count ?? "—"}</b></span>
+    <span><small>Mean target</small><b class="mono">${target == null ? "—" : fmt$(target)}</b></span>
+    <span><small>Implied change</small><b class="mono ${upside == null ? "dim" : cls(upside)}">${upside == null ? "—" : fmtPct(upside, true)}</b></span>
+  </div>`;
+
+  const framework = bottom.framework || {};
+  const frameworkGroup = (title, rows) => `<div><div class="subhead">${title}</div><ul>${(rows || [])
+    .map((row) => `<li>${escapeHtml(row)}</li>`).join("") || "<li>Deeper work required.</li>"}</ul></div>`;
+  $("rw-framework").innerHTML = frameworkGroup("Operating focus", framework.focus) +
+    frameworkGroup("Valuation lens", framework.valuation) + frameworkGroup("Common traps", framework.traps);
+
+  const prompts = (packet.exposure_bridge || {}).driver_prompts || [];
+  $("rw-driver-prompts").innerHTML = `<span class="dim">Prompts for this sector:</span>` + prompts.map((p) =>
+    `<button type="button" class="chip" data-rw-driver="${escapeHtml(p)}">${escapeHtml(p)}</button>`).join("");
+  $("rw-driver-prompts").querySelectorAll("[data-rw-driver]").forEach((button) => {
+    button.onclick = () => { $("rw-driver").value = button.dataset.rwDriver; $("rw-driver").focus(); };
+  });
+
+  const sources = packet.sources || [];
+  $("rw-sources").innerHTML = sources.length ? `<table><thead><tr><th>Lane</th><th>Input</th><th>Command</th><th>Parameters</th><th>Provider</th><th>Status</th></tr></thead><tbody>` +
+    sources.map((source) => `<tr><td>${escapeHtml(rwLabel(source.lane))}</td>
+      <td>${escapeHtml(rwLabel(source.key))}</td><td class="mono dim">${escapeHtml(source.path || "")}</td>
+      <td class="mono dim">${escapeHtml(JSON.stringify(source.params || {}))}</td>
+      <td class="mono">${escapeHtml(source.provider || "—")}</td>
+      <td class="${source.status === "ok" ? "pos" : "neg"}">${escapeHtml(source.status || "unknown")}</td></tr>`).join("") +
+    `</tbody></table>` : `<div class="empty">No source manifest returned.</div>`;
+}
+
+async function rwRun() {
+  const symbol = $("rw-symbol").value.trim().toUpperCase();
+  const benchmark = $("rw-benchmark").value.trim().toUpperCase();
+  const status = $("rw-status");
+  if (!symbol || !benchmark) { status.textContent = "Enter both a security and a benchmark."; return; }
+  const button = $("rw-run");
+  button.disabled = true;
+  status.textContent = "Building both evidence lanes…";
+  try {
+    const qs = new URLSearchParams({ symbol, benchmark, horizon: $("rw-horizon").value });
+    const response = await api(`/api/v1/research/context?${qs}`);
+    rwRender(response.results || {});
+    status.textContent = "Context packet ready. The exposure bridge remains yours to prove.";
+    setStatus(`RESEARCH CONTEXT READY · ${symbol}`);
+  } catch (e) {
+    status.textContent = e.message;
+    setStatus("ERR: " + e.message);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function rwNotes(packet) {
+  const bridge = [
+    ["Driver", $("rw-driver").value.trim()],
+    ["Disclosed exposure", $("rw-exposure").value.trim()],
+    ["Financial transmission", $("rw-financial").value.trim()],
+    ["Expectations gap", $("rw-expectations").value.trim()],
+  ];
+  const assessment = packet.assessment || {};
+  return [
+    `Research Workbench · top down: ${assessment.top_down_state || "unknown"} · bottom up: ${assessment.bottom_up_state || "unknown"} · joined: ${(assessment.alignment || {}).label || "incomplete"}`,
+    ...bridge.map(([label, value]) => `${label}: ${value || "Not yet proven"}`),
+  ].join("\n");
+}
+
+async function rwCreateThesis() {
+  const message = $("rw-msg");
+  const claim = $("rw-claim").value.trim();
+  if (!rwContext) { message.textContent = "Build a context packet first."; return; }
+  if (!claim) { message.textContent = "Write a falsifiable claim first."; return; }
+  const symbol = rwContext.subject.symbol;
+  const days = Math.max(1, Math.min(730, parseInt($("rw-days").value, 10) || 90));
+  const reviewBy = new Date();
+  reviewBy.setDate(reviewBy.getDate() + days);
+  const button = $("rw-create");
+  button.disabled = true;
+  message.className = "msg";
+  message.textContent = "Creating thesis and freezing the packet…";
+  try {
+    const thesis = await api("/api/theses", { method: "POST", body: {
+      title: `${symbol} — ${claim}`.slice(0, 200), claim, symbols: symbol,
+      direction: $("rw-direction").value, source: "research_workbench",
+      review_by: reviewBy.toISOString(), notes: rwNotes(rwContext),
+    }});
+    let evidenceFrozen = true;
+    try {
+      await api(`/api/theses/${thesis.id}/evidence`, { method: "POST", body: {
+        command_path: "/research/context",
+        parameters: {
+          symbol, benchmark: rwContext.settings.benchmark,
+          horizon: rwContext.settings.horizon,
+        },
+        leg: "top_down_bottom_up_context",
+        note: "Point-in-time Research Workbench packet.",
+      }});
+    } catch {
+      evidenceFrozen = false;
+    }
+    message.className = evidenceFrozen ? "msg ok" : "msg warn";
+    message.innerHTML = `${evidenceFrozen ? "Tracked thesis created and packet frozen." : "Tracked thesis created; the evidence snapshot could not be refreshed."} ` +
+      `<button type="button" class="linkbtn" data-rw-thesis="${thesis.id}">Review thesis →</button>`;
+    message.querySelector("[data-rw-thesis]").onclick = () => rwOpenThesis(thesis.id);
+    thLoaded = false;
+  } catch (e) {
+    message.textContent = e.message;
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function rwOpenThesis(id) {
+  const nav = document.querySelector('.navbtn[data-view="thesis"]');
+  if (nav) nav.click();
+  await thLoadTheses();
+  await thShowThesis(id);
+  $("th-detail").scrollIntoView({ behavior: "smooth" });
+}
+
+$("rw-run").onclick = rwRun;
+$("rw-create").onclick = rwCreateThesis;
+["rw-symbol", "rw-benchmark"].forEach((id) => {
+  $(id).onkeydown = (event) => { if (event.key === "Enter") rwRun(); };
+  $(id).oninput = () => { $(id).value = $(id).value.toUpperCase(); };
+});
+document.querySelectorAll("[data-rw-view]").forEach((button) => {
+  button.onclick = () => {
+    const nav = document.querySelector(`.navbtn[data-view="${button.dataset.rwView}"]`);
+    if (nav) nav.click();
+  };
+});
+window.openResearchWorkbench = (symbol) => {
+  const nav = document.querySelector('.navbtn[data-view="research"]');
+  if (nav) nav.click();
+  if (symbol) $("rw-symbol").value = String(symbol).toUpperCase();
+  rwRun();
+};
 
 // ---------- watchlist: tape + quote cards ----------
 // The tape and the Markets card grid are driven by the user's default
@@ -242,6 +500,7 @@ function loadMarketAll() {
   loadCompareChart();
   loadYieldCurve();
   loadSpreads();
+  loadFedPolicy();
 }
 
 // ---------- today's brief ----------
@@ -868,6 +1127,9 @@ $("st-back").onclick = () => {
   else if (stFrom === "portfolio") document.querySelector('.navbtn[data-view="portfolio"]').click();
   else if (stFrom === "workspace") document.querySelector('.navbtn[data-view="workspace"]').click();
   else if (stFrom === "screener") document.querySelector('.navbtn[data-view="screener"]').click();
+  else if (stFrom === "calendar") document.querySelector('.navbtn[data-view="calendar"]').click();
+  else if (stFrom === "volatility") document.querySelector('.navbtn[data-view="volatility"]').click();
+  else if (stFrom === "flagged") document.querySelector('.navbtn[data-view="flagged"]').click();
   else document.querySelector('.navbtn[data-view="market"]').click();
 };
 document.querySelectorAll("#st-ranges .chip").forEach((c) => {
@@ -3494,6 +3756,287 @@ async function loadSpreads() {
   } catch (e) { $("mk-credit").innerHTML = `<div class="errbox">${escapeHtml(e.message)}</div>`; }
 }
 
+// ---------- federal reserve policy rate ----------
+// The target is a step function, so everything here reads it as decisions —
+// the moves, the cycles they group into, and where that leaves policy today —
+// with the level series only as the backdrop.
+let fedYears = 10;
+
+const fedDay = (iso) => iso
+  ? new Date(iso + "T00:00:00").toLocaleDateString("en-US",
+      { month: "short", day: "numeric", year: "numeric" })
+  : "-";
+const fedBps = (bps) => (bps > 0 ? "+" : "") + Math.round(bps) + " bps";
+const fedBand = (lo, hi) => lo == null || hi == null ? "-"
+  : lo === hi ? lo.toFixed(2) + "%" : `${lo.toFixed(2)}-${hi.toFixed(2)}%`;
+
+function loadFedPolicy() {
+  loadFedStance();
+  loadFedPath();
+  loadFedDecisions();
+}
+
+async function loadFedStance() {
+  try {
+    const s = (await api("/api/v1/economy/fed/stance")).results;
+    const held = s.days_since_last_move;
+    const cards = [
+      ["Target range", fedBand(s.target_lower, s.target_upper), `set ${fedDay(s.last_move_date)}`],
+      ["Effective rate", s.effective_rate == null ? "-" : s.effective_rate.toFixed(2) + "%",
+        "where fed funds actually trade"],
+      ["Last move", fedBps(s.last_move_bps), `${s.last_move} · ${fedDay(s.last_move_date)}`],
+      ["On hold", held + (held === 1 ? " day" : " days"), "since that decision"],
+      ["This cycle", fedBps(s.cycle_total_bps),
+        `${s.cycle_moves} move${s.cycle_moves === 1 ? "" : "s"} from ${s.cycle_from_rate.toFixed(2)}%`],
+      ["Real policy rate", s.real_policy_rate == null ? "-" : s.real_policy_rate.toFixed(2) + "%",
+        s.core_pce_yoy == null ? "midpoint less core PCE"
+          : `midpoint less core PCE ${s.core_pce_yoy.toFixed(1)}%`],
+      ["2Y vs target", s.two_year_minus_midpoint == null ? "-"
+        : (s.two_year_minus_midpoint >= 0 ? "+" : "") + s.two_year_minus_midpoint.toFixed(2),
+        s.two_year_yield == null ? "no 2-year yield" : `2-year at ${s.two_year_yield.toFixed(2)}%`],
+      ["Next meeting", s.next_meeting ? fedDay(s.next_meeting) : "-",
+        s.next_meeting ? `in ${s.days_to_next_meeting} days${s.next_meeting_projections ? " · dot plot" : ""}`
+          : "calendar unavailable"],
+    ];
+    $("fed-stance").innerHTML = cards.map(([k, v, note]) =>
+      `<div class="metric"><div class="k">${escapeHtml(k)}</div><div class="v">${escapeHtml(v)}</div>
+       <div class="note">${escapeHtml(note)}</div></div>`).join("");
+    $("fed-note").textContent = `as of ${s.as_of} · ${s.cycle}`;
+    $("fed-explain").textContent = fedSentence(s);
+  } catch (e) {
+    $("fed-stance").innerHTML = `<div class="errbox">${escapeHtml(e.message)}</div>`;
+  }
+}
+
+/** The stance in a sentence, including what the 2-year says about the next move. */
+function fedSentence(s) {
+  const gap = s.two_year_minus_midpoint;
+  const market = gap == null ? ""
+    : gap > 0.25 ? " The 2-year Treasury trades above the midpoint, which is the market leaning towards higher rates."
+    : gap < -0.25 ? " The 2-year Treasury trades below the midpoint, which is the market pricing cuts."
+    : " The 2-year Treasury sits close to the midpoint, so the market expects policy to stay about here.";
+  return `The target range is ${fedBand(s.target_lower, s.target_upper)}, unchanged for `
+    + `${s.days_since_last_move} days after a ${Math.abs(Math.round(s.last_move_bps))}bp `
+    + `${s.last_move} on ${fedDay(s.last_move_date)} — move ${s.cycle_moves} of the ${s.cycle}, `
+    + `which has taken the target ${Math.abs(Math.round(s.cycle_total_bps))}bp `
+    + `${s.cycle_kind === "tightening" ? "up" : "down"} from ${s.cycle_from_rate.toFixed(2)}%.`
+    + market;
+}
+
+async function loadFedPath() {
+  setStatus("LOADING FED POLICY PATH…");
+  try {
+    const params = new URLSearchParams();
+    if (fedYears) {
+      const start = new Date();
+      start.setFullYear(start.getFullYear() - fedYears);
+      params.set("start_date", start.toISOString().slice(0, 10));
+    } else {
+      params.set("start_date", "1982-01-01");   // the target series starts here
+    }
+    // Long windows are drawn from weekly observations: the daily series is
+    // 16,000 rows of a step function, and the step survives the thinning.
+    if (fedYears === 0 || fedYears > 10) params.set("frequency", "w");
+    const rows = (await api(`/api/v1/economy/fed/policy_rate?${params}`)).results;
+    const step = Math.max(1, Math.ceil(rows.length / 700));
+    const sampled = rows.filter((_, i) => i % step === 0 || i === rows.length - 1);
+    drawLine("fed-chart", sampled.map((r) => r.date), [
+      { label: "target upper %", data: sampled.map((r) => r.target_upper), color: "#00c805" },
+      { label: "effective %", data: sampled.map((r) => r.effective_rate), color: "#5ac8fa" },
+    ]);
+    setStatus("FED POLICY PATH LOADED");
+  } catch (e) { setStatus("ERR: " + e.message); }
+}
+
+async function loadFedDecisions() {
+  try {
+    const moves = (await api("/api/v1/economy/fed/rate_changes?limit=8")).results;
+    $("fed-moves").innerHTML = `<table><tr><th>Effective</th><th>Move</th><th>To</th><th>Cycle</th></tr>` +
+      moves.map((m) => `<tr><td>${escapeHtml(fedDay(m.date))}</td>
+        <td class="mono ${m.change_bps >= 0 ? "pos" : "neg"}">${fedBps(m.change_bps)}</td>
+        <td class="mono">${escapeHtml(fedBand(m.target_lower, m.target_upper))}</td>
+        <td>${escapeHtml(m.cycle || "-")}</td></tr>`).join("") + `</table>`;
+  } catch (e) { $("fed-moves").innerHTML = `<div class="errbox">${escapeHtml(e.message)}</div>`; }
+
+  try {
+    const cycles = (await api("/api/v1/economy/fed/cycles")).results.slice(0, 8);
+    $("fed-cycles").innerHTML = `<table><tr><th>Cycle</th><th>Moves</th><th>Total</th><th>Path</th>
+      <th>Months</th><th>Then held</th></tr>` +
+      cycles.map((c) => `<tr><td>${escapeHtml(c.cycle)}</td>
+        <td class="mono">${c.moves}</td>
+        <td class="mono ${c.total_bps >= 0 ? "pos" : "neg"}">${fedBps(c.total_bps)}</td>
+        <td class="mono">${c.from_rate.toFixed(2)} → ${c.to_rate.toFixed(2)}%</td>
+        <td class="mono">${c.months.toFixed(0)}</td>
+        <td class="mono">${Math.round(c.hold_days / 30.44)} mo${c.status === "current" ? " so far" : ""}</td>
+      </tr>`).join("") + `</table>`;
+  } catch (e) { $("fed-cycles").innerHTML = `<div class="errbox">${escapeHtml(e.message)}</div>`; }
+}
+
+// ---------- fed projections, balance sheet and communications ----------
+// Each tab pays for its own data the first time it is opened: the SEP, the
+// H.4.1 and the Board's feeds are three more round trips that a reader looking
+// at the rate path has not asked for.
+const fedLoaded = new Set();
+
+const fedArrow = (change) => change == null || change === 0 ? ""
+  : `<span class="${change > 0 ? "pos" : "neg"}">${change > 0 ? "▲" : "▼"}${Math.abs(change).toFixed(2)}</span>`;
+
+async function loadFedProjections() {
+  try {
+    const [sep, dots] = await Promise.all([
+      api("/api/v1/economy/fed/projections"),
+      api("/api/v1/economy/fed/dot_plot"),
+    ]);
+    // The SEP arrives long — one row per variable per horizon — and reads as a
+    // grid, so it is pivoted here rather than server-side, where the long shape
+    // is what an API caller wants.
+    const horizons = [...new Set(sep.results.map((r) => r.horizon))];
+    const variables = [...new Set(sep.results.map((r) => r.variable))];
+    const cell = (v, h) => sep.results.find((r) => r.variable === v && r.horizon === h);
+    $("fed-sep").innerHTML = `<table><tr><th>Projection</th>${horizons.map((h) =>
+      `<th>${escapeHtml(h)}</th>`).join("")}</tr>` +
+      variables.map((v) => `<tr><td>${escapeHtml(v)}</td>` + horizons.map((h) => {
+        const c = cell(v, h);
+        return `<td class="mono">${c ? escapeHtml(String(c.median ?? "-")) : "-"}
+          ${c ? fedArrow(c.change) : ""}</td>`;
+      }).join("") + `</tr>`).join("") + `</table>`;
+    $("fed-sep-note").textContent = `Summary of Economic Projections published at the `
+      + `${fedDay(sep.extra.meeting)} meeting; the arrow is the revision against the `
+      + `${sep.extra.previous_projection || "previous"} projections.`;
+
+    const info = dots.extra.horizons || {};
+    const dotHorizons = Object.keys(info);
+    const rates = [...new Set(dots.results.map((r) => r.rate))].sort((a, b) => b - a);
+    const count = (rate, h) => dots.results.find((r) => r.rate === rate && r.horizon === h)?.participants;
+    $("fed-dots").innerHTML = `<table><tr><th>Rate</th>${dotHorizons.map((h) =>
+      `<th>${escapeHtml(h)}</th>`).join("")}</tr>` +
+      rates.map((rate) => `<tr><td class="mono">${rate.toFixed(3)}%</td>` +
+        dotHorizons.map((h) => {
+          const n = count(rate, h);
+          return `<td class="mono">${n ? "●".repeat(Math.min(n, 10)) + (n > 10 ? ` ${n}` : "") : ""}</td>`;
+        }).join("") + `</tr>`).join("") +
+      `<tr><td><b>Median</b></td>${dotHorizons.map((h) =>
+        `<td class="mono"><b>${info[h].sep_median ?? info[h].median_dot}%</b> ${fedArrow(info[h].change)}</td>`
+      ).join("")}</tr></table>`;
+  } catch (e) {
+    $("fed-sep").innerHTML = `<div class="errbox">${escapeHtml(e.message)}</div>`;
+    $("fed-dots").innerHTML = "";
+  }
+}
+
+async function loadFedSheet() {
+  try {
+    const start = new Date(); start.setFullYear(start.getFullYear() - 12);
+    const d = await api(`/api/v1/economy/fed/balance_sheet?start_date=${start.toISOString().slice(0, 10)}`);
+    const x = d.extra;
+    const tn = (bn) => bn == null ? "-" : "$" + (bn / 1000).toFixed(2) + "tn";
+    const cards = [
+      ["Total assets", tn(x.total_assets_bn), `as of ${x.as_of}`],
+      ["Treasuries", tn(x.treasuries_bn), "held outright"],
+      ["MBS", tn(x.mbs_bn), "agency mortgage-backed"],
+      ["Bank reserves", tn(x.reserves_bn), "held at the Fed"],
+      ["13-week change", (x.change_13w_bn >= 0 ? "+" : "") + "$" + Math.abs(x.change_13w_bn).toFixed(0) + "bn",
+        `${x.monthly_pace_bn >= 0 ? "+" : "−"}$${Math.abs(x.monthly_pace_bn).toFixed(0)}bn a month`],
+      ["Off the peak", "$" + Math.abs(x.off_peak_bn / 1000).toFixed(2) + "tn", `peak ${tn(x.peak_assets_bn)}`],
+    ];
+    $("fed-sheet-metrics").innerHTML = cards.map(([k, v, note]) =>
+      `<div class="metric"><div class="k">${escapeHtml(k)}</div><div class="v">${escapeHtml(v)}</div>
+       <div class="note">${escapeHtml(note)}</div></div>`).join("");
+    $("fed-sheet-note").textContent = `The balance sheet is ${x.regime}. `
+      + `Quantitative tightening is a runoff rate rather than an announcement, so the pace `
+      + `column is the policy.`;
+    const rows = d.results.filter((_, i, all) => i % Math.max(1, Math.ceil(all.length / 500)) === 0);
+    drawLine("fed-sheet-chart", rows.map((r) => r.date), [
+      { label: "total assets $bn", data: rows.map((r) => r.total_assets), color: "#00c805" },
+      { label: "treasuries $bn", data: rows.map((r) => r.treasuries), color: "#5ac8fa" },
+      { label: "MBS $bn", data: rows.map((r) => r.mbs), color: "#c084fc" },
+    ]);
+  } catch (e) { $("fed-sheet-metrics").innerHTML = `<div class="errbox">${escapeHtml(e.message)}</div>`; }
+
+  try {
+    const d = await api("/api/v1/economy/fed/liquidity?start_date=2007-01-01");
+    const facilities = d.extra.facilities || {};
+    $("fed-liquidity").innerHTML = `<table><tr><th>Facility</th><th>Now</th><th>Peak</th>
+      <th>Peak date</th><th>Status</th></tr>` +
+      Object.entries(facilities).map(([name, f]) => `<tr>
+        <td>${escapeHtml(name.replace(/_/g, " "))}</td>
+        <td class="mono">${f.latest_bn == null ? "-" : "$" + f.latest_bn.toFixed(1) + "bn"}</td>
+        <td class="mono">$${f.peak_bn.toFixed(0)}bn</td>
+        <td class="mono">${escapeHtml(f.peak_date)}</td>
+        <td class="${f.elevated ? "neg" : ""}">${f.elevated ? "elevated" : "quiet"}</td></tr>`).join("") +
+      `</table><div class="hintline" style="margin-top:8px">${escapeHtml(d.extra.reading)}. Emergency
+       lending is announced in a press release and measured here — a spike is the response.</div>`;
+  } catch (e) { $("fed-liquidity").innerHTML = `<div class="errbox">${escapeHtml(e.message)}</div>`; }
+}
+
+async function loadFedSpeak() {
+  try {
+    const d = await api("/api/v1/economy/fed/statement");
+    const s = d.results;
+    const chips = (list, cls) => (list || []).map((p) =>
+      `<span class="badge ${cls}">${escapeHtml(p.phrase)}</span>`).join(" ");
+    const diff = (lines, sign, cls) => (lines || []).length
+      ? `<div class="fed-diff">${lines.map((l) =>
+          `<div class="${cls}">${sign} ${escapeHtml(l)}</div>`).join("")}</div>`
+      : "";
+    $("fed-statement").innerHTML = `
+      <div class="hintline" style="margin-bottom:10px">
+        ${escapeHtml(fedDay(s.meeting))} · vote ${s.votes_for ?? "?"}–${s.votes_against ?? "?"}
+        ${s.unanimous ? "(unanimous)" : ""} ·
+        <a href="${escapeHtml(s.url)}" target="_blank" rel="noopener">full statement</a></div>
+      ${s.dissent ? `<p class="explain" style="margin:0 0 10px">${escapeHtml(s.dissent)}</p>` : ""}
+      <div style="margin-bottom:10px">${chips(s.hawkish_phrases, "pos")} ${chips(s.dovish_phrases, "neg")}
+        ${chips(s.guidance_phrases, "")}</div>
+      ${s.compared_with ? `<div class="hintline">Against ${escapeHtml(fedDay(s.compared_with))}:</div>` : ""}
+      ${diff(s.sentences_added, "+", "pos")}
+      ${diff(s.sentences_removed, "−", "neg")}
+      ${s.unchanged ? `<div class="hintline">The wording did not change.</div>` : ""}`;
+  } catch (e) { $("fed-statement").innerHTML = `<div class="errbox">${escapeHtml(e.message)}</div>`; }
+
+  try {
+    const d = await api("/api/v1/economy/fed/communications?days=120&limit=14");
+    $("fed-speeches").innerHTML = d.results.map((r) => {
+      const tags = [r.congressional ? "congressional testimony" : null,
+                    r.jackson_hole ? "Jackson Hole" : null,
+                    r.off_calendar ? "between meetings" : null,
+                    r.kind].filter(Boolean).join(" · ");
+      return `<a class="ws-news-item" href="${escapeHtml(r.url || "#")}" target="_blank" rel="noopener">
+        <span class="ws-news-title">${escapeHtml(r.speaker ? r.speaker + ": " + r.title : r.title)}</span>
+        <span class="ws-news-meta"><span>${escapeHtml(tags)}</span><span>${escapeHtml(r.date)}</span></span>
+      </a>`;
+    }).join("") || `<div class="empty">No Fed communications in the window.</div>`;
+  } catch (e) { $("fed-speeches").innerHTML = `<div class="errbox">${escapeHtml(e.message)}</div>`; }
+}
+
+const FED_TAB_LOADERS = { projections: loadFedProjections, sheet: loadFedSheet, speak: loadFedSpeak };
+
+document.querySelectorAll("#fed-tabs .tab").forEach((b) => {
+  b.onclick = () => {
+    document.querySelectorAll("#fed-tabs .tab").forEach((x) => x.classList.remove("active"));
+    document.querySelectorAll(".fedtab").forEach((x) => x.classList.remove("active"));
+    b.classList.add("active");
+    $("fedtab-" + b.dataset.fedtab).classList.add("active");
+    const load = FED_TAB_LOADERS[b.dataset.fedtab];
+    if (load && !fedLoaded.has(b.dataset.fedtab)) {
+      fedLoaded.add(b.dataset.fedtab);
+      load();
+    }
+  };
+});
+
+$("fed-refresh").onclick = () => {
+  fedLoaded.forEach((tab) => FED_TAB_LOADERS[tab] && FED_TAB_LOADERS[tab]());
+  loadFedPolicy();
+};
+document.querySelectorAll("#fed-ranges .chip").forEach((chip) => {
+  chip.onclick = () => {
+    document.querySelectorAll("#fed-ranges .chip").forEach((c) => c.classList.remove("active"));
+    chip.classList.add("active");
+    fedYears = Number(chip.dataset.fedrange);
+    loadFedPath();
+  };
+});
+
 // ---------- sectors & assets tabs ----------
 const GROUP_WINDOWS = [["one_day", "1D"], ["one_week", "1W"], ["one_month", "1M"],
                        ["three_month", "3M"], ["six_month", "6M"], ["ytd", "YTD"], ["one_year", "1Y"]];
@@ -3534,16 +4077,55 @@ const ASSET_ETFS = [["SPY", "US Equities"], ["EFA", "Intl Developed"], ["EEM", "
 
 let sectorsLoaded = false, assetsLoaded = false;
 
+// Kept so the concentration table below can hand a clicked ETF back to
+// openSector(), which wants the performance row rather than a bare ticker.
+let scRows = [];
+
 async function loadSectors(force) {
   if (sectorsLoaded && !force) return;
   const firstTime = !sectorsLoaded;
   sectorsLoaded = true;
-  if (firstTime || force) loadSectorChart();
+  if (firstTime || force) { loadSectorChart(); loadSectorConcentration(); }
   $("sc-table").innerHTML = `<div class="empty">Loading sector returns…</div>`;
   try {
     const d = await api("/api/v1/equity/compare/groups?group=sector");
-    renderGroupTable("sc-table", d.results, { firstCol: "Sector", onRowClick: openSector });
+    scRows = d.results || [];
+    renderGroupTable("sc-table", scRows, { firstCol: "Sector", onRowClick: openSector });
   } catch (e) { $("sc-table").innerHTML = `<div class="errbox">${escapeHtml(e.message)}</div>`; }
+}
+
+// One row per sector fund, ranked by how much of it is its ten largest names.
+async function loadSectorConcentration() {
+  const symbols = SECTOR_ETFS.map(([s]) => s).join(",");
+  try {
+    const d = await api(`/api/v1/etf/basket/concentration?symbol=${encodeURIComponent(symbols)}`);
+    const rows = d.results || [];
+    if (!rows.length) throw new Error("no baskets returned");
+    const label = Object.fromEntries(SECTOR_ETFS);
+    $("sc-conc").innerHTML =
+      `<table class="clickrows"><tr><th>Sector</th><th>Holdings</th><th>Largest</th>
+        <th>Top 10</th><th></th><th>Half the fund is…</th><th>Really this many names</th></tr>` +
+      rows.map((r) => `<tr data-sym="${escapeHtml(String(r.symbol))}">
+        <td>${escapeHtml(label[r.symbol] || r.symbol)} <span class="badge">${escapeHtml(String(r.symbol))}</span></td>
+        <td class="mono">${r.holdings ?? "-"}</td>
+        <td>${escapeHtml(String(r.largest_holding || "-"))}
+          <span class="dim mono">${pctWeight(r.largest_weight)}</span></td>
+        <td class="mono">${pctWeight(r.top_10_weight)}</td>
+        <td style="width:90px"><div class="perfbar"><div class="bar ${(r.top_10_weight ?? 0) > 0.6 ? "neg" : "pos"}"
+            style="width:${Math.round((r.top_10_weight ?? 0) * 80)}px"></div></div></td>
+        <td class="mono">${r.holdings_to_half ?? "-"} name${r.holdings_to_half === 1 ? "" : "s"}</td>
+        <td class="mono">${r.effective_holdings != null ? r.effective_holdings.toFixed(0) : "-"}</td>
+      </tr>`).join("") + "</table>" +
+      `<p class="hintline">"Really this many names" is 1/HHI — the number of equally weighted
+        holdings that would be this concentrated. It is always smaller, often by a lot, than the
+        number of companies on the list.</p>`;
+    $("sc-conc").querySelectorAll("tr[data-sym]").forEach((tr) => {
+      tr.onclick = () => {
+        const row = scRows.find((r) => r.symbol === tr.dataset.sym);
+        if (row) openSector(row);
+      };
+    });
+  } catch (e) { $("sc-conc").innerHTML = `<div class="errbox">${escapeHtml(e.message)}</div>`; }
 }
 async function loadSectorChart() {
   setStatus("LOADING SECTOR CHART…");
@@ -3559,14 +4141,15 @@ $("sc-load").onclick = loadSectorChart;
 // Opened by clicking a row on the Sectors tab. The performance strip reuses
 // the group-table row, so it renders instantly; everything else loads and
 // fails independently.
-let seRow = null, seRange = "1Y";
+let seRow = null, seRange = "1Y", seFrom = "sectors";
 
 function sectorKey(group) {
   return SECTOR_KEYS[group] || String(group).toLowerCase().replace(/ /g, "-");
 }
 
-function openSector(row) {
+function openSector(row, from = "sectors") {
   seRow = row;
+  seFrom = from;
   switchToView("view-sector");
   $("se-name").innerHTML = `${escapeHtml(row.group)}<small>${escapeHtml(row.symbol)} · SPDR sector ETF</small>`;
   $("se-price").textContent = "";
@@ -3584,9 +4167,10 @@ function openSector(row) {
   loadSectorAbout();
   loadSectorCompanies();
   loadSectorNews();
+  resetBasket(row.symbol);
 }
 
-$("se-back").onclick = () => document.querySelector('.navbtn[data-view="sectors"]').click();
+$("se-back").onclick = () => document.querySelector(`.navbtn[data-view="${seFrom}"]`).click();
 document.querySelectorAll("#se-ranges .chip").forEach((c) => {
   c.onclick = () => {
     document.querySelectorAll("#se-ranges .chip").forEach((x) => x.classList.remove("active"));
@@ -3671,6 +4255,276 @@ async function loadSectorNews() {
           : `<span class="feed-title">${escapeHtml(String(r.title || ""))}</span>`}
       </div>`).join("");
   } catch { $("se-news").innerHTML = `<div class="empty">No recent stories found.</div>`; }
+}
+
+// ---------- inside the ETF (the sector page's second tab) ----------
+// Everything here reads the fund sponsor's own daily basket rather than a
+// vendor's top-ten summary, so the panels are heavier than the overview's and
+// none of them load until the tab is actually opened.
+const SB_WINDOWS = { "1M": 31, "3M": 92, "6M": 183, "1Y": 366 };
+let sbSymbol = null, sbRange = "3M", sbLines = [], sbLoaded = false;
+
+function resetBasket(symbol) {
+  sbSymbol = symbol;
+  sbLines = [];
+  sbLoaded = false;
+  document.querySelectorAll("#sx-tabs .tab").forEach((x, i) => x.classList.toggle("active", i === 0));
+  $("sxtab-overview").classList.add("active");
+  $("sxtab-basket").classList.remove("active");
+  $("sb-showall").checked = false;
+  $("sb-filter").value = "";
+  fillOverlapChoices(symbol);
+}
+
+document.querySelectorAll("#sx-tabs .tab").forEach((b) => {
+  b.onclick = () => {
+    document.querySelectorAll("#sx-tabs .tab").forEach((x) => x.classList.remove("active"));
+    document.querySelectorAll(".sxtab").forEach((x) => x.classList.remove("active"));
+    b.classList.add("active");
+    $("sxtab-" + b.dataset.sxtab).classList.add("active");
+    if (b.dataset.sxtab === "basket") loadBasket();
+  };
+});
+
+$("sb-refresh").onclick = () => loadBasket(true);
+$("sb-filter").oninput = () => renderBasketHoldings();
+$("sb-showall").onchange = () => loadBasketHoldings();
+$("sb-vs").onchange = () => loadBasketOverlap();
+document.querySelectorAll("#sb-ranges .chip").forEach((c) => {
+  c.onclick = () => {
+    document.querySelectorAll("#sb-ranges .chip").forEach((x) => x.classList.remove("active"));
+    c.classList.add("active");
+    sbRange = c.dataset.range;
+    loadBasketContribution();
+  };
+});
+
+// A basket can only be compared with another fund whose sponsor publishes one,
+// so the list is the SPDR funds this terminal already knows about.
+function fillOverlapChoices(symbol) {
+  const options = [["SPY", "S&P 500 (SPY)"]].concat(
+    SECTOR_ETFS.filter(([s]) => s !== symbol).map(([s, n]) => [s, `${n} (${s})`]));
+  $("sb-vs").innerHTML = options.map(([s, n]) =>
+    `<option value="${escapeHtml(s)}">${escapeHtml(n)}</option>`).join("");
+}
+
+function loadBasket(force) {
+  if (!sbSymbol || (sbLoaded && !force)) return;
+  sbLoaded = true;
+  loadBasketHoldings();
+  loadBasketConcentration();
+  loadBasketIndustries();
+  loadBasketContribution();
+  loadBasketOverlap();
+}
+
+// ---- the holdings themselves ----
+async function loadBasketHoldings() {
+  const showAll = $("sb-showall").checked;
+  $("sb-holdings").innerHTML = `<div class="empty">Reading ${escapeHtml(sbSymbol)}'s published basket…</div>`;
+  try {
+    const d = await api(`/api/v1/etf/basket/holdings?symbol=${encodeURIComponent(sbSymbol)}` +
+                        `&limit=600&line_type=${showAll ? "all" : "equity"}`);
+    sbLines = d.results || [];
+    const x = d.extra || {};
+    $("sb-asof").textContent = x.as_of ? `as of ${x.as_of} · published by the fund` : "";
+    $("sb-hold-note").textContent =
+      `${x.holdings ?? sbLines.length} holdings · ${pctWeight(x.equity_weight, 1)} of the fund` +
+      (x.cash_weight ? ` · ${pctWeight(x.cash_weight)} cash` : "");
+    renderBasketHoldings();
+    drawBasketCurve();
+  } catch (e) { $("sb-holdings").innerHTML = `<div class="errbox">${escapeHtml(e.message)}</div>`; }
+}
+
+// A Lorenz-style curve: cumulative weight against rank, with the equal-weight
+// diagonal for reference. The gap between the two lines is the concentration.
+function drawBasketCurve() {
+  const rows = sbLines.filter((r) => r.line_type === "equity");
+  if (!rows.length) return;
+  const total = rows.reduce((a, r) => a + (r.weight || 0), 0);
+  const labels = [""], actual = [0], even = [0];
+  let running = 0;
+  rows.forEach((r, i) => {
+    running += r.weight || 0;
+    labels.push(String(i + 1));
+    actual.push(running * 100);
+    even.push((i + 1) / rows.length * total * 100);
+  });
+  drawLine("sb-curve", labels, [
+    { label: `${sbSymbol} — heaviest holding first`, data: actual, color: PALETTE[0], fill: true },
+    { label: "if every holding were the same size", data: even, color: PALETTE[5], dash: true },
+  ]);
+}
+
+function renderBasketHoldings() {
+  const q = $("sb-filter").value.trim().toLowerCase();
+  const rows = q
+    ? sbLines.filter((r) => [r.symbol, r.name, r.industry].some((v) => String(v || "").toLowerCase().includes(q)))
+    : sbLines;
+  if (!rows.length) {
+    $("sb-holdings").innerHTML = `<div class="empty">Nothing in the basket matches "${escapeHtml(q)}".</div>`;
+    return;
+  }
+  const maxW = Math.max(...rows.map((r) => r.weight ?? 0), 0.0001);
+  $("sb-holdings").innerHTML =
+    `<table class="clickrows"><tr><th>#</th><th>Holding</th><th>Industry</th><th>Weight</th><th></th>
+      <th>Running total</th><th>Shares held</th></tr>` +
+    rows.map((r) => `<tr ${r.line_type === "equity" ? `data-sym="${escapeHtml(String(r.symbol))}"` : ""}>
+      <td class="dim">${r.rank}</td>
+      <td>${escapeHtml(String(r.name || ""))}
+        ${r.symbol ? `<span class="badge">${escapeHtml(String(r.symbol))}</span>` : ""}
+        ${r.line_type !== "equity" ? `<span class="badge">${escapeHtml(String(r.line_type))}</span>` : ""}</td>
+      <td class="dim">${escapeHtml(String(r.industry || "—"))}</td>
+      <td class="mono ${(r.weight ?? 0) < 0 ? "neg" : ""}">${pctWeight(r.weight)}</td>
+      <td style="width:90px"><div class="perfbar"><div class="bar pos"
+          style="width:${Math.round(Math.abs(r.weight ?? 0) / maxW * 80)}px"></div></div></td>
+      <td class="mono dim">${pctWeight(r.cumulative_weight, 1)}</td>
+      <td class="mono dim">${fmtBig(r.shares_held)}</td></tr>`).join("") + "</table>";
+  $("sb-holdings").querySelectorAll("tr[data-sym]").forEach((tr) => {
+    tr.onclick = () => tr.dataset.sym && openStock(tr.dataset.sym, "sector");
+  });
+}
+
+// ---- how concentrated it is ----
+async function loadBasketConcentration() {
+  $("sb-stats").innerHTML = `<div class="empty">Reading the published basket…</div>`;
+  try {
+    const d = await api(`/api/v1/etf/basket/concentration?symbol=${encodeURIComponent(sbSymbol)}`);
+    const c = one(d.results);
+    if (!c) throw new Error("no basket returned");
+    const stats = [
+      ["Holdings", c.holdings ?? "-"],
+      ["Largest", `${c.largest_holding || "-"} ${pctWeight(c.largest_weight, 1)}`],
+      ["Top 5", pctWeight(c.top_5_weight, 1)],
+      ["Top 10", pctWeight(c.top_10_weight, 1)],
+      ["Half the fund is", `${c.holdings_to_half} name${c.holdings_to_half === 1 ? "" : "s"}`],
+      ["Really this many", c.effective_holdings != null ? c.effective_holdings.toFixed(0) : "-"],
+      ["Median holding", pctWeight(c.median_weight)],
+      ["Cash", pctWeight(c.cash_weight)],
+    ];
+    $("sb-stats").innerHTML = stats.map(([k, v]) =>
+      `<div class="metric"><div class="k">${escapeHtml(k)}</div><div class="v">${escapeHtml(String(v))}</div></div>`).join("");
+    $("sb-read").textContent =
+      `${c.holdings} companies, but half the money sits in ${c.holdings_to_half} of them and the ` +
+      `ten largest are ${pctWeight(c.top_10_weight, 0)} of the fund. Spread evenly, that is the same ` +
+      `concentration as ${Math.round(c.effective_holdings)} equal positions — so a move in ` +
+      `${c.largest_holding}, at ${pctWeight(c.largest_weight, 1)}, is a move in the sector.`;
+  } catch (e) {
+    $("sb-stats").innerHTML = `<div class="errbox">${escapeHtml(e.message)}</div>`;
+    $("sb-read").textContent = "";
+  }
+}
+
+// ---- what the sector label actually covers ----
+async function loadBasketIndustries() {
+  $("sb-inds").innerHTML = `<div class="empty">Loading…</div>`;
+  try {
+    const d = await api(`/api/v1/etf/basket/industries?symbol=${encodeURIComponent(sbSymbol)}`);
+    const rows = (d.results || []).slice(0, 12);
+    if (!rows.length) throw new Error("no industry breakdown");
+    const maxW = Math.max(...rows.map((r) => r.weight ?? 0), 0.0001);
+    $("sb-inds").innerHTML = `<table><tr><th>Industry</th><th>Weight</th><th></th><th>Names</th></tr>` +
+      rows.map((r) => `<tr>
+        <td title="${escapeHtml(String(r.members || ""))}">${escapeHtml(String(r.industry || "—"))}</td>
+        <td class="mono">${pctWeight(r.weight, 1)}</td>
+        <td style="width:70px"><div class="perfbar"><div class="bar pos"
+            style="width:${Math.round((r.weight ?? 0) / maxW * 60)}px"></div></div></td>
+        <td class="dim mono">${r.holdings}</td></tr>`).join("") + "</table>" +
+      `<p class="hintline">Hover an industry to see the tickers in it.</p>`;
+  } catch (e) { $("sb-inds").innerHTML = `<div class="empty">${escapeHtml(e.message)}</div>`; }
+}
+
+// ---- which holdings produced the move ----
+async function loadBasketContribution() {
+  if (!sbSymbol) return;
+  ["sb-up", "sb-down"].forEach((id) => {
+    $(id).innerHTML = `<div class="empty">Pricing every holding over ${sbRange}…</div>`;
+  });
+  $("sb-attrib-read").textContent = "";
+  try {
+    const d = await api(`/api/v1/etf/basket/contribution?symbol=${encodeURIComponent(sbSymbol)}` +
+                        `&start_date=${isoAgo(SB_WINDOWS[sbRange])}`);
+    const rows = d.results || [];
+    const x = d.extra || {};
+    const pp = (v) => (v == null ? "-" : (v >= 0 ? "+" : "") + (v * 100).toFixed(1) + "pp");
+    $("sb-attrib-stats").innerHTML = [
+      ["Fund moved", x.fund_return == null ? "-" : fmtPct(x.fund_return, true), cls(x.fund_return ?? 0)],
+      ["Explained by holdings", pp(x.total_contribution), cls(x.total_contribution ?? 0)],
+      ["Top 5 names", pp(x.top_5_contribution), cls(x.top_5_contribution ?? 0)],
+      ["Rose / fell", `${x.advancers} / ${x.decliners}`, ""],
+      ["Unexplained", pp(x.unexplained), "dim"],
+    ].map(([k, v, c]) =>
+      `<div class="metric"><div class="k">${k}</div><div class="v ${c}">${v}</div></div>`).join("");
+    $("sb-attrib-read").textContent =
+      `Over ${sbRange} the fund returned ${fmtPct(x.fund_return, true)}. Its five largest ` +
+      `contributors added ${pp(x.top_5_contribution)} of that between them, with ${x.decliners} of ` +
+      `${x.priced_holdings} holdings falling. Weights are the ones each position started the window ` +
+      `at, backed out of today's published weight — what the two totals do not agree on is index ` +
+      `changes and the quarterly rebalance, which this decomposition cannot see.`;
+    renderContribution("sb-up", rows.filter((r) => r.contribution > 0).slice(0, 10));
+    renderContribution("sb-down", rows.filter((r) => r.contribution < 0).slice(-10).reverse());
+  } catch (e) {
+    ["sb-up", "sb-down"].forEach((id) => { $(id).innerHTML = `<div class="errbox">${escapeHtml(e.message)}</div>`; });
+  }
+}
+
+function renderContribution(elId, rows) {
+  if (!rows.length) { $(elId).innerHTML = `<div class="empty">Nothing here over this window.</div>`; return; }
+  const maxAbs = Math.max(...rows.map((r) => Math.abs(r.contribution)), 0.0001);
+  $(elId).innerHTML = `<table class="clickrows"><tr><th>Holding</th><th>Weight</th><th>Return</th>
+      <th>Added</th><th></th></tr>` +
+    rows.map((r) => `<tr data-sym="${escapeHtml(String(r.symbol))}">
+      <td>${escapeHtml(String(r.name || r.symbol))} <span class="badge">${escapeHtml(String(r.symbol))}</span></td>
+      <td class="mono dim">${pctWeight(r.start_weight, 1)}</td>
+      <td class="mono ${cls(r.return)}">${fmtPct(r.return, true)}</td>
+      <td class="mono ${cls(r.contribution)}">${(r.contribution * 100).toFixed(2)}pp</td>
+      <td style="width:70px"><div class="perfbar"><div class="bar ${cls(r.contribution)}"
+          style="width:${Math.round(Math.abs(r.contribution) / maxAbs * 60)}px"></div></div></td>
+    </tr>`).join("") + "</table>";
+  $(elId).querySelectorAll("tr[data-sym]").forEach((tr) => {
+    tr.onclick = () => tr.dataset.sym && openStock(tr.dataset.sym, "sector");
+  });
+}
+
+// ---- how much of it you already own ----
+async function loadBasketOverlap() {
+  if (!sbSymbol) return;
+  const versus = $("sb-vs").value;
+  $("sb-overlap").innerHTML = `<div class="empty">Comparing baskets…</div>`;
+  try {
+    const d = await api(`/api/v1/etf/basket/overlap?symbol=${encodeURIComponent(sbSymbol)}` +
+                        `&versus=${encodeURIComponent(versus)}&limit=15`);
+    const rows = d.results || [];
+    const x = d.extra || {};
+    const mine = x[`share_of_${sbSymbol.toLowerCase()}`];
+    const theirs = x[`share_of_${versus.toLowerCase()}`];
+    $("sb-overlap-stats").innerHTML = [
+      ["Shared holdings", `${x.shared_holdings} of ${x.holdings}`],
+      [`Of ${sbSymbol}`, pctWeight(mine, 1)],
+      [`Of ${versus}`, pctWeight(theirs, 1)],
+      [`Only in ${sbSymbol}`, pctWeight(x[`only_in_${sbSymbol.toLowerCase()}`], 1)],
+    ].map(([k, v]) =>
+      `<div class="metric"><div class="k">${escapeHtml(k)}</div><div class="v">${v}</div></div>`).join("");
+    $("sb-overlap-read").textContent =
+      `${pctWeight(mine, 0)} of ${sbSymbol} is weight you already hold through ${versus}, and that ` +
+      `same weight is ${pctWeight(theirs, 0)} of ${versus}. Overlap counts the smaller of the two ` +
+      `weights for each shared name, so it is the part one fund genuinely duplicates — not just the ` +
+      `list of tickers they have in common.`;
+    if (!rows.length) { $("sb-overlap").innerHTML = `<div class="empty">These two funds share nothing.</div>`; return; }
+    $("sb-overlap").innerHTML = `<table class="clickrows"><tr><th>Holding</th>
+        <th>In ${escapeHtml(sbSymbol)}</th><th>In ${escapeHtml(versus)}</th><th>Shared</th></tr>` +
+      rows.map((r) => `<tr data-sym="${escapeHtml(String(r.symbol))}">
+        <td>${escapeHtml(String(r.name || r.symbol))} <span class="badge">${escapeHtml(String(r.symbol))}</span></td>
+        <td class="mono">${pctWeight(r[`${sbSymbol.toLowerCase()}_weight`])}</td>
+        <td class="mono">${pctWeight(r[`${versus.toLowerCase()}_weight`])}</td>
+        <td class="mono">${pctWeight(r.shared_weight)}</td></tr>`).join("") + "</table>";
+    $("sb-overlap").querySelectorAll("tr[data-sym]").forEach((tr) => {
+      tr.onclick = () => tr.dataset.sym && openStock(tr.dataset.sym, "sector");
+    });
+  } catch (e) {
+    $("sb-overlap").innerHTML = `<div class="errbox">${escapeHtml(e.message)}</div>`;
+    $("sb-overlap-read").textContent = "";
+  }
 }
 
 async function loadAssets(force) {
@@ -3920,26 +4774,66 @@ $("scr-csv").onclick = () => {
 };
 
 // ---------- news tab ----------
+// The catalogue is ~290 feeds in ~20 desks. Desk chips select whole desks;
+// once a desk is picked its feeds appear underneath for narrowing further.
+// Selection resolves to one `sources` string: feeds if any are picked, else
+// desks if any are picked, else nothing (the server's default newswire).
 let newsInitDone = false;
-const newsSel = new Set();
+let newsCatalogue = [];            // rows of /news/sources: source, category, default
+const newsDesks = new Set();       // selected desk names
+const newsSel = new Set();         // selected feed names
+
+function newsSourcesParam() {
+  const picked = newsSel.size ? [...newsSel] : [...newsDesks];
+  return picked.length ? `&sources=${encodeURIComponent(picked.join(","))}` : "";
+}
+
+function renderNewsFeedChips() {
+  const rows = newsCatalogue.filter((r) => newsDesks.has(r.category));
+  // A feed whose desk was just deselected drops out of the selection too.
+  const visible = new Set(rows.map((r) => r.source));
+  [...newsSel].forEach((s) => { if (!visible.has(s)) newsSel.delete(s); });
+  $("nw-sources").innerHTML = rows.length
+    ? `<span class="nw-hint">narrow to:</span>` + rows.map((r) =>
+      `<button class="chip nw-chip sm${newsSel.has(r.source) ? " sel" : ""}" data-src="${escapeHtml(r.source)}" title="${escapeHtml(r.feed_url || "")}">${escapeHtml(r.source)}</button>`).join("")
+    : "";
+  $("nw-sources").querySelectorAll(".nw-chip").forEach((el) => {
+    el.onclick = () => {
+      const s = el.dataset.src;
+      newsSel.has(s) ? newsSel.delete(s) : newsSel.add(s);
+      el.classList.toggle("sel");
+      $("nw-query").value = ""; $("nw-symbol").value = "";
+      loadNews();
+    };
+  });
+}
 
 async function loadNewsInit() {
   if (newsInitDone) return;
   newsInitDone = true;
   try {
     const d = await api("/api/v1/news/sources");
-    $("nw-sources").innerHTML = d.results.map((r) =>
-      `<button class="chip nw-chip" data-src="${escapeHtml(r.source)}">${escapeHtml(r.source)}</button>`).join("");
-    $("nw-sources").querySelectorAll(".nw-chip").forEach((el) => {
+    newsCatalogue = d.results;
+    const desks = [];
+    newsCatalogue.forEach((r) => {
+      let desk = desks.find((x) => x.name === r.category);
+      if (!desk) { desk = { name: r.category, n: 0, dflt: !!r.default }; desks.push(desk); }
+      desk.n += 1;
+    });
+    $("nw-desks").innerHTML = desks.map((k) =>
+      `<button class="chip nw-chip nw-desk${k.dflt ? " dflt" : ""}" data-desk="${escapeHtml(k.name)}"
+         title="${k.dflt ? "On the default tape · " : ""}${k.n} feeds">${escapeHtml(k.name.replace(/_/g, " "))}<small>${k.n}</small></button>`).join("");
+    $("nw-desks").querySelectorAll(".nw-desk").forEach((el) => {
       el.onclick = () => {
-        const s = el.dataset.src;
-        newsSel.has(s) ? newsSel.delete(s) : newsSel.add(s);
+        const k = el.dataset.desk;
+        newsDesks.has(k) ? newsDesks.delete(k) : newsDesks.add(k);
         el.classList.toggle("sel");
+        renderNewsFeedChips();
         $("nw-query").value = ""; $("nw-symbol").value = "";
         loadNews();
       };
     });
-  } catch { /* source chips are optional */ }
+  } catch { /* desk chips are optional */ }
   loadNews();
 }
 
@@ -3950,7 +4844,7 @@ async function loadNews() {
   const q = $("nw-query").value.trim();
   const url = sym ? `/api/v1/news/company?symbol=${encodeURIComponent(sym)}&limit=40`
     : q ? `/api/v1/news/search?query=${encodeURIComponent(q)}&limit=40`
-    : `/api/v1/news/world?limit=60` + (newsSel.size ? `&sources=${encodeURIComponent([...newsSel].join(","))}` : "");
+    : `/api/v1/news/world?limit=60` + newsSourcesParam();
   try {
     const d = await api(url);
     if (d.warnings && d.warnings.length) {
@@ -3962,6 +4856,7 @@ async function loadNews() {
       <div class="feed-item">
         <div class="feed-meta">
           ${r.source ? `<span class="src-badge">${escapeHtml(String(r.source))}</span>` : ""}
+          ${r.category ? `<span class="src-badge muted">${escapeHtml(String(r.category).replace(/_/g, " "))}</span>` : ""}
           ${r.symbol ? `<span class="src-badge">${escapeHtml(String(r.symbol))}</span>` : ""}
           <span>${timeAgo(r.date)}</span>
         </div>
@@ -3977,12 +4872,522 @@ $("nw-refresh").onclick = loadNews;
 $("nw-go").onclick = loadNews;
 $("nw-clear").onclick = () => {
   $("nw-query").value = ""; $("nw-symbol").value = "";
-  newsSel.clear();
+  newsSel.clear(); newsDesks.clear();
   document.querySelectorAll(".nw-chip.sel").forEach((el) => el.classList.remove("sel"));
+  renderNewsFeedChips();
   loadNews();
 };
 $("nw-query").onkeydown = (ev) => { if (ev.key === "Enter") loadNews(); };
 $("nw-symbol").onkeydown = (ev) => { if (ev.key === "Enter" && !ev.defaultPrevented) loadNews(); };
+
+// ---------- calendar ----------
+// One grid over five feeds. The server normalises them onto a single row shape
+// (/calendar/events), so everything here is layout: which types are ticked,
+// which month is showing, and month-grid versus agenda.
+//
+// The user's own notes are the exception — they live behind auth at
+// /api/user/calendar, so every load is two requests merged client-side.
+const CAL_DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const CAL_MONTHS = ["January", "February", "March", "April", "May", "June", "July",
+  "August", "September", "October", "November", "December"];
+// Types ticked on a first visit. Macro is off because it has its own tab and
+// would otherwise dominate the grid — a fortnight of it is several hundred
+// rows. Dividends are off because they are the one type that costs a request
+// per day whichever source is picked, and a first paint should be quick;
+// ticking them says the wait is wanted.
+const CAL_DEFAULT_TYPES = ["earnings", "split", "ipo", "fomc", "custom"];
+const CAL_PILL_LIMIT = 3;
+
+let calTypes = [];
+let calSel = new Set(CAL_DEFAULT_TYPES);
+let calAnchor = null;     // any date inside the displayed month
+let calMode = "month";
+let calEvents = [];
+let calCounts = {};
+let calFocusDate = null;  // agenda scoped to one day, set by clicking a cell
+let calInitDone = false;
+let calReqId = 0;         // guards against a slow response landing after a fast one
+
+const calColor = (type) => `var(--ev-${type}, var(--muted))`;
+const calISO = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const calToday = () => calISO(new Date());
+
+function calMonthStart(d) { return new Date(d.getFullYear(), d.getMonth(), 1); }
+
+/** The dates the month grid actually shows: the whole weeks the month spans.
+ *  Fetching only the 1st-to-31st would leave the leading and trailing cells
+ *  visibly empty rather than merely out of month. */
+function calWindow() {
+  const first = calMonthStart(calAnchor);
+  const start = new Date(first);
+  start.setDate(1 - first.getDay());
+  const end = new Date(first.getFullYear(), first.getMonth() + 1, 0);
+  end.setDate(end.getDate() + (6 - end.getDay()));
+  return { start, end };
+}
+
+async function loadCalendarInit() {
+  if (calInitDone) return;
+  calInitDone = true;
+  calAnchor = new Date();
+  $("cal-n-date").value = calToday();
+  try {
+    const d = await api("/api/v1/calendar/event_types");
+    calTypes = d.results || [];
+  } catch {
+    // The rail is the filter UI; without it fall back to the default ticks so
+    // the grid still loads rather than showing an empty page.
+    calTypes = CAL_DEFAULT_TYPES.map((k) => ({ key: k, label: k, group: "Events", available: true }));
+  }
+  renderCalTypes();
+  loadCalendar();
+}
+
+function renderCalTypes() {
+  const groups = [];
+  calTypes.forEach((t) => {
+    let g = groups.find((x) => x.name === (t.group || "Events"));
+    if (!g) groups.push((g = { name: t.group || "Events", items: [] }));
+    g.items.push(t);
+  });
+  $("cal-types").innerHTML = groups.map((g) => `
+    <div class="cal-group">${escapeHtml(g.name)}</div>
+    ${g.items.map((t) => {
+      const on = calSel.has(t.key);
+      const n = calCounts[t.key];
+      // An unavailable type is rendered, disabled, with the reason on hover —
+      // dropping it would read as "nothing scheduled" rather than "no source".
+      return `<label class="cal-type${t.available ? "" : " off"}"${
+        t.available ? "" : ` title="${escapeHtml(t.why || "No free source for this event type.")}"`}>
+        <input type="checkbox" data-cal-type="${escapeHtml(t.key)}"
+          ${on ? "checked" : ""} ${t.available ? "" : "disabled"} />
+        <span class="cal-badge" style="background:${t.available ? calColor(t.key) : "var(--line)"}"
+          >${escapeHtml(t.badge || "•")}</span>
+        <span class="lbl">${escapeHtml(t.label)}</span>
+        ${t.available && n ? `<span class="cal-typecount">${n}</span>` : ""}
+      </label>`;
+    }).join("")}`).join("");
+
+  $("cal-types").querySelectorAll("[data-cal-type]").forEach((el) => {
+    el.onchange = () => {
+      el.checked ? calSel.add(el.dataset.calType) : calSel.delete(el.dataset.calType);
+      loadCalendar();
+    };
+  });
+  const avail = calTypes.filter((t) => t.available).length;
+  const off = calTypes.length - avail;
+  if (off) {
+    $("cal-types").insertAdjacentHTML("beforeend",
+      `<div class="hintline" style="margin-top:12px;line-height:1.5">${off} more types a
+       terminal usually carries have no free public source — hover one to see why.</div>`);
+  }
+}
+
+/** Server events for the window, merged with the user's own notes. */
+async function loadCalendar() {
+  const req = ++calReqId;
+  const { start, end } = calWindow();
+  const startISO = calISO(start), endISO = calISO(end);
+  const monthName = `${CAL_MONTHS[calAnchor.getMonth()]} ${calAnchor.getFullYear()}`;
+  $("cal-title").textContent = monthName.toUpperCase();
+  $("cal-warn").innerHTML = "";
+  $("cal-count").textContent = "";
+
+  const wanted = [...calSel];
+  const platform = wanted.filter((t) => t !== "custom");
+  const provider = $("cal-provider").value;
+  // Dividends only exist as a per-day feed, so they cost a request per weekday
+  // whichever source is picked. Say so up front rather than letting a month
+  // look frozen.
+  const slow = provider === "nasdaq" || platform.some((t) => t.startsWith("dividend_"));
+  $("cal-body").innerHTML = slow
+    ? `<div class="empty">Loading ${escapeHtml(monthName)} — this source serves one day per
+       request, so a fresh month takes up to a minute. It is cached after that.</div>`
+    : `<div class="empty">Loading ${escapeHtml(monthName)}…</div>`;
+
+  const symbols = $("cal-symbols").value.trim();
+  // The server ignores the size floor once symbols are named — reflect that
+  // here so the control does not look like it is still doing something.
+  const importance = symbols ? "1" : $("cal-importance").value;
+  $("cal-importance").disabled = !!symbols;
+  $("cal-importance").title = symbols
+    ? "Ignored while symbols are named — those companies show whatever their size."
+    : "";
+  const qs = new URLSearchParams({
+    start_date: startISO, end_date: endISO, types: platform.join(","),
+    min_importance: importance, provider, limit: "3000", max_days: "45",
+  });
+  if (symbols) qs.set("symbols", symbols);
+
+  const jobs = [
+    platform.length
+      ? api(`/api/v1/calendar/events?${qs}`).catch((e) => ({ error: e.message, results: [] }))
+      : Promise.resolve({ results: [], extra: {} }),
+    calSel.has("custom")
+      ? api(`/api/user/calendar?start_date=${startISO}&end_date=${endISO}`
+          + (symbols ? `&symbol=${encodeURIComponent(symbols.split(/[ ,]+/)[0])}` : ""))
+          .catch(() => [])
+      : Promise.resolve([]),
+  ];
+  const [feed, notes] = await Promise.all(jobs);
+  if (req !== calReqId) return;  // a newer request already owns the view
+
+  // Notes are never filtered by the size floor. It is a market-cap threshold
+  // and a note has no market cap — dropping something the user typed onto their
+  // own calendar because a company somewhere is too small would be nonsense.
+  const noteRows = (Array.isArray(notes) ? notes : []).map((n) => ({
+    date: n.event_date, time: n.time, type: "custom", type_label: "Custom / Notes",
+    symbol: n.symbol, name: null, title: n.title, detail: n.detail,
+    importance: n.importance || 2, source: "you", id: n.id,
+  }));
+
+  calEvents = [...(feed.results || []), ...noteRows]
+    .sort((a, b) => a.date.localeCompare(b.date) || b.importance - a.importance
+      || a.type.localeCompare(b.type) || (a.symbol || a.title).localeCompare(b.symbol || b.title));
+
+  calCounts = {};
+  calEvents.forEach((e) => { calCounts[e.type] = (calCounts[e.type] || 0) + 1; });
+  renderCalTypes();
+
+  const warns = [...(feed.warnings || [])];
+  if (feed.error) warns.unshift(feed.error);
+  $("cal-warn").innerHTML = warns.length
+    ? `<div class="warnbox">! ${warns.slice(0, 4).map((w) => escapeHtml(String(w))).join("<br>! ")}</div>` : "";
+  $("cal-count").textContent = calEvents.length
+    ? `${calEvents.length} event${calEvents.length === 1 ? "" : "s"}` : "";
+
+  renderCalendar();
+  setStatus(`${calEvents.length} EVENTS`);
+}
+
+function renderCalendar() {
+  renderCalLegend();
+  if (!calSel.size) {
+    $("cal-body").innerHTML = `<div class="empty">No event types ticked — choose at least one on the left.</div>`;
+    return;
+  }
+  if (calMode === "month") renderCalMonth(); else renderCalAgenda();
+}
+
+function renderCalLegend() {
+  const shown = calTypes.filter((t) => t.available && calSel.has(t.key));
+  $("cal-legend").innerHTML = shown.length
+    ? shown.map((t) => `<span><i style="background:${calColor(t.key)}"></i>${escapeHtml(t.label)}</span>`).join("")
+    : "";
+}
+
+function calByDate() {
+  const map = {};
+  calEvents.forEach((e) => { (map[e.date] = map[e.date] || []).push(e); });
+  return map;
+}
+
+function renderCalMonth() {
+  const { start, end } = calWindow();
+  const byDate = calByDate();
+  const month = calAnchor.getMonth();
+  const today = calToday();
+
+  let cells = "";
+  for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+    const iso = calISO(d);
+    const rows = byDate[iso] || [];
+    const shown = rows.slice(0, CAL_PILL_LIMIT);
+    const rest = rows.length - shown.length;
+    cells += `<div class="cal-day${d.getMonth() === month ? "" : " out"}${iso === today ? " today" : ""}">
+      <span class="cal-daynum">${d.getDate()}</span>
+      ${shown.map((e) => `
+        <button class="cal-pill" style="border-left-color:${calColor(e.type)}"
+          data-cal-day="${iso}" title="${escapeHtml(calEventTitle(e))}">
+          ${e.symbol ? `<span class="p-sym">${escapeHtml(e.symbol)}</span> ` : ""}${escapeHtml(calPillText(e))}
+        </button>`).join("")}
+      ${rest > 0 ? `<button class="cal-more" data-cal-day="${iso}">+${rest} more</button>` : ""}
+    </div>`;
+  }
+
+  $("cal-body").innerHTML =
+    `<div class="cal-grid">${CAL_DOW.map((d) => `<div class="cal-dow">${d}</div>`).join("")}${cells}</div>`;
+  // Any cell click drops into the agenda for that one day — the grid shows
+  // three events per cell and a busy earnings day has thirty.
+  $("cal-body").querySelectorAll("[data-cal-day]").forEach((el) => {
+    el.onclick = () => {
+      calFocusDate = el.dataset.calDay;
+      calMode = "agenda";
+      document.querySelectorAll(".cal-mode").forEach((x) =>
+        x.classList.toggle("active", x.dataset.mode === "agenda"));
+      renderCalendar();
+    };
+  });
+}
+
+/** Short text for a month cell — the symbol is already rendered beside it. */
+function calPillText(e) {
+  if (e.type === "earnings") return e.time === "pre-market" ? "earnings (bmo)"
+    : e.time === "after-hours" ? "earnings (amc)" : "earnings";
+  if (e.type === "dividend_ex") return "ex-div";
+  if (e.type === "dividend_pay") return "div paid";
+  if (e.type === "split") return "split";
+  if (e.type === "ipo") return "IPO";
+  if (e.type === "custom") return e.title;
+  return e.title;
+}
+
+function calEventTitle(e) {
+  return [e.title, e.detail].filter(Boolean).join(" — ");
+}
+
+function renderCalAgenda() {
+  let rows = calEvents;
+  if (calFocusDate) rows = rows.filter((e) => e.date === calFocusDate);
+  if (!rows.length) {
+    $("cal-body").innerHTML = `<div class="empty">Nothing scheduled${
+      calFocusDate ? " that day" : " in this window"} for the ticked types.</div>`
+      + (calFocusDate ? `<button class="linkbtn" id="cal-unfocus">Show the whole month</button>` : "");
+    if ($("cal-unfocus")) $("cal-unfocus").onclick = calClearFocus;
+    return;
+  }
+
+  const byDate = {};
+  rows.forEach((e) => { (byDate[e.date] = byDate[e.date] || []).push(e); });
+  const today = calToday();
+
+  const body = Object.keys(byDate).sort().map((iso) => {
+    const d = new Date(iso + "T00:00:00");
+    return `<div class="cal-agenda-day">
+      <div class="cal-agenda-date${iso === today ? " is-today" : ""}">
+        ${CAL_DOW[d.getDay()]}<span class="d-num">${d.getDate()}</span>
+        ${CAL_MONTHS[d.getMonth()].slice(0, 3)}
+      </div>
+      <div class="cal-agenda-rows">
+        ${byDate[iso].map((e) => `
+          <div class="cal-ev imp-${e.importance || 1}">
+            <span class="ev-dot" style="background:${calColor(e.type)}"></span>
+            ${e.symbol
+              ? `<button class="ev-sym linkbtn" style="margin:0" data-cal-sym="${escapeHtml(e.symbol)}"
+                   >${escapeHtml(e.symbol)}</button>`
+              : `<span class="ev-sym plain">${escapeHtml(e.name || "—")}</span>`}
+            <span class="ev-type">${escapeHtml(e.type_label || e.type)}</span>
+            <span class="ev-what">${escapeHtml(e.title)}
+              ${e.detail ? `<span class="ev-detail"> · ${escapeHtml(e.detail)}</span>` : ""}
+              ${e.time ? `<span class="ev-time"> · ${escapeHtml(e.time)}</span>` : ""}
+              ${e.type === "custom" ? `<button class="ev-del" data-cal-del="${e.id}"
+                 title="Delete this note" aria-label="Delete note">×</button>` : ""}
+            </span>
+          </div>`).join("")}
+      </div>
+    </div>`;
+  }).join("");
+
+  $("cal-body").innerHTML =
+    (calFocusDate ? `<button class="linkbtn" id="cal-unfocus">‹ Whole month</button>` : "")
+    + `<div class="cal-agenda">${body}</div>`;
+
+  if ($("cal-unfocus")) $("cal-unfocus").onclick = calClearFocus;
+  $("cal-body").querySelectorAll("[data-cal-sym]").forEach((el) => {
+    el.onclick = () => openStock(el.dataset.calSym, "calendar");
+  });
+  $("cal-body").querySelectorAll("[data-cal-del]").forEach((el) => {
+    el.onclick = async () => {
+      try {
+        await api(`/api/user/calendar/${el.dataset.calDel}`, { method: "DELETE" });
+        loadCalendar();
+      } catch (e) { $("cal-warn").innerHTML = `<div class="errbox">${escapeHtml(e.message)}</div>`; }
+    };
+  });
+}
+
+function calClearFocus() { calFocusDate = null; renderCalendar(); }
+
+function calShift(months) {
+  calAnchor = new Date(calAnchor.getFullYear(), calAnchor.getMonth() + months, 1);
+  calFocusDate = null;
+  loadCalendar();
+}
+
+$("cal-prev").onclick = () => calShift(-1);
+$("cal-next").onclick = () => calShift(1);
+$("cal-today").onclick = () => { calAnchor = new Date(); calFocusDate = null; loadCalendar(); };
+$("cal-provider").onchange = loadCalendar;
+$("cal-importance").onchange = loadCalendar;
+$("cal-symbols").onchange = loadCalendar;
+$("cal-symbols").onkeydown = (ev) => { if (ev.key === "Enter") loadCalendar(); };
+document.querySelectorAll(".cal-mode").forEach((b) => {
+  b.onclick = () => {
+    document.querySelectorAll(".cal-mode").forEach((x) => x.classList.remove("active"));
+    b.classList.add("active");
+    calMode = b.dataset.mode;
+    if (calMode === "month") calFocusDate = null;
+    renderCalendar();
+  };
+});
+$("cal-types-all").onclick = () => {
+  calTypes.filter((t) => t.available).forEach((t) => calSel.add(t.key));
+  renderCalTypes(); loadCalendar();
+};
+$("cal-types-none").onclick = () => {
+  calSel.clear(); renderCalTypes(); renderCalendar();
+};
+
+// --- the user's own notes ---
+async function calAddNote() {
+  const date = $("cal-n-date").value;
+  const title = $("cal-n-title").value.trim();
+  const msg = $("cal-n-msg");
+  msg.className = "msg";
+  if (!date || !title) { msg.textContent = "A date and a title, please."; return; }
+  try {
+    await api("/api/user/calendar", {
+      method: "POST",
+      body: { event_date: date, title, symbol: $("cal-n-sym").value.trim().toUpperCase() || null },
+    });
+    $("cal-n-title").value = ""; $("cal-n-sym").value = "";
+    msg.className = "msg ok"; msg.textContent = "Added.";
+    calSel.add("custom");
+    renderCalTypes();
+    // Jump to the month the note landed in, so it is visible straight away.
+    const landed = new Date(date + "T00:00:00");
+    if (landed.getMonth() !== calAnchor.getMonth() || landed.getFullYear() !== calAnchor.getFullYear()) {
+      calAnchor = landed;
+    }
+    loadCalendar();
+  } catch (e) { msg.className = "msg"; msg.textContent = e.message; }
+}
+$("cal-n-add").onclick = calAddNote;
+$("cal-n-title").onkeydown = (ev) => { if (ev.key === "Enter") calAddNote(); };
+$("cal-n-sym").onkeydown = (ev) => { if (ev.key === "Enter") calAddNote(); };
+
+// --- calendar sub-tabs ---
+document.querySelectorAll("#cal-tabs .tab").forEach((b) => {
+  b.onclick = () => {
+    document.querySelectorAll("#cal-tabs .tab").forEach((x) => x.classList.remove("active"));
+    document.querySelectorAll("#caltab-events, #caltab-economic").forEach((x) =>
+      x.classList.remove("active"));
+    b.classList.add("active");
+    $("caltab-" + b.dataset.caltab).classList.add("active");
+    if (b.dataset.caltab === "economic") loadEconomicInit();
+  };
+});
+
+// ---------- economic calendar ----------
+// Split out because macro filters on things company events do not have: the
+// releases are global and unranked at source, so region and importance carry
+// the whole view.
+let econInitDone = false;
+let econRegions = new Set(["US"]);
+let econAllRegions = [];
+
+function econInit() {
+  const start = new Date();
+  const end = new Date();
+  end.setDate(end.getDate() + 14);
+  $("ec-start").value = calISO(start);
+  $("ec-end").value = calISO(end);
+}
+
+function loadEconomicInit() {
+  if (econInitDone) return;
+  econInitDone = true;
+  econInit();
+  loadEconomic();
+}
+
+function econShift(days) {
+  const start = new Date($("ec-start").value + "T00:00:00");
+  const end = new Date($("ec-end").value + "T00:00:00");
+  start.setDate(start.getDate() + days);
+  end.setDate(end.getDate() + days);
+  $("ec-start").value = calISO(start);
+  $("ec-end").value = calISO(end);
+  loadEconomic();
+}
+
+async function loadEconomic() {
+  $("ec-body").innerHTML = `<div class="empty">Loading releases…</div>`;
+  $("ec-warn").innerHTML = "";
+  $("ec-count").textContent = "";
+  const qs = new URLSearchParams({
+    start_date: $("ec-start").value, end_date: $("ec-end").value,
+    min_importance: $("ec-importance").value, limit: "600",
+  });
+  // Region filtering happens client-side: the request is one call either way,
+  // and the chip row has to list every region the window actually contains.
+  try {
+    const d = await api(`/api/v1/calendar/economic?${qs}`);
+    const rows = d.results || [];
+    econAllRegions = (d.extra && d.extra.regions) || [...new Set(rows.map((r) => r.name))].sort();
+    renderEconRegions();
+    if (d.warnings && d.warnings.length) {
+      $("ec-warn").innerHTML =
+        `<div class="warnbox">! ${d.warnings.map((w) => escapeHtml(String(w))).join("<br>! ")}</div>`;
+    }
+    renderEconomic(rows);
+  } catch (e) {
+    $("ec-body").innerHTML = `<div class="errbox">${escapeHtml(e.message)}</div>`;
+  }
+}
+
+function renderEconRegions() {
+  $("ec-regions").innerHTML = econAllRegions.map((r) =>
+    `<button class="chip sm ec-region${econRegions.has(r) ? " active" : ""}"
+      data-region="${escapeHtml(r)}">${escapeHtml(r)}</button>`).join("")
+    + `<button class="chip sm" id="ec-all-regions">All regions</button>`;
+  $("ec-regions").querySelectorAll(".ec-region").forEach((el) => {
+    el.onclick = () => {
+      const r = el.dataset.region;
+      econRegions.has(r) ? econRegions.delete(r) : econRegions.add(r);
+      el.classList.toggle("active");
+      renderEconomic(econLastRows);
+    };
+  });
+  $("ec-all-regions").onclick = () => {
+    econRegions.clear();
+    renderEconRegions();
+    renderEconomic(econLastRows);
+  };
+}
+
+let econLastRows = [];
+function renderEconomic(rows) {
+  econLastRows = rows || [];
+  const shown = econRegions.size
+    ? econLastRows.filter((r) => econRegions.has(r.name))
+    : econLastRows;
+  $("ec-count").textContent = `${shown.length} release${shown.length === 1 ? "" : "s"}`;
+  if (!shown.length) {
+    $("ec-body").innerHTML = `<div class="empty">No releases match that region and importance.</div>`;
+    return;
+  }
+  const byDate = {};
+  shown.forEach((e) => { (byDate[e.date] = byDate[e.date] || []).push(e); });
+  const today = calToday();
+
+  $("ec-body").innerHTML = `<div class="cal-agenda">` + Object.keys(byDate).sort().map((iso) => {
+    const d = new Date(iso + "T00:00:00");
+    return `<div class="cal-agenda-day">
+      <div class="cal-agenda-date${iso === today ? " is-today" : ""}">
+        ${CAL_DOW[d.getDay()]}<span class="d-num">${d.getDate()}</span>
+        ${CAL_MONTHS[d.getMonth()].slice(0, 3)}
+      </div>
+      <div class="cal-agenda-rows">
+        ${byDate[iso].map((e) => `
+          <div class="cal-ev imp-${e.importance || 1}">
+            <span class="ev-dot" style="background:${calColor("economic")}"></span>
+            <span class="ev-sym plain">${escapeHtml(e.name || "—")}</span>
+            <span class="ev-type">${e.importance === 3 ? "Major" : e.importance === 2 ? "Notable" : ""}</span>
+            <span class="ev-what">${escapeHtml(e.title.replace(/^[A-Z]{2} · /, ""))}
+              ${e.detail ? `<span class="ev-detail"> · ${escapeHtml(e.detail)}</span>` : ""}
+            </span>
+          </div>`).join("")}
+      </div>
+    </div>`;
+  }).join("") + `</div>`;
+}
+
+$("ec-go").onclick = loadEconomic;
+$("ec-prev").onclick = () => econShift(-14);
+$("ec-next").onclick = () => econShift(14);
+$("ec-today").onclick = () => { econInit(); loadEconomic(); };
+$("ec-importance").onchange = loadEconomic;
 
 // ---------- sentiment tab ----------
 // All scoring happens server-side (/sentiment/*) so the CLI and raw API read
@@ -5646,7 +7051,7 @@ function attachAutocomplete(el, multi) {
 // Static symbol inputs, bound once at boot.
 [["mk-symbol", false], ["wm-add", false], ["cmp-symbols", true], ["fa-symbols", true],
  ["bt-bench", false], ["bt-addsym", false], ["wl-symbols", true], ["al-symbol", false],
- ["nw-symbol", false], ["se-symbols", true], ["sh-symbol", false]]
+ ["nw-symbol", false], ["se-symbols", true], ["sh-symbol", false], ["vl-symbol", false]]
   .forEach(([id, multi]) => attachAutocomplete($(id), multi));
 
 // Default the comparison/sector/asset chart windows to year-to-date.
@@ -5789,6 +7194,479 @@ function drawLine(canvasId, labels, datasets, opts = {}) {
   chart.$measure = { hover: null, anchor: null, box };
   renderMeasure(chart);
 }
+
+// ---------- volatility ----------
+// Two halves. The top is the listed volatility complex — the fear gauges quote
+// their own level in vol points, so they need no derivation. The bottom is one
+// name at a time, where the honest question is what it has actually delivered
+// (realised, out of daily closes) against what its options are charging
+// (implied, out of the listed chain). Every panel fails on its own: a name with
+// no listed options still shows its realised vol and cones.
+const VOL_TILES = [
+  ["^VIX", "S&P 500 · 30 day"], ["^VIX9D", "S&P 500 · 9 day"], ["^VIX3M", "S&P 500 · 3 month"],
+  ["^VIX6M", "S&P 500 · 6 month"], ["^VXN", "Nasdaq 100"], ["^VXD", "Dow Jones"],
+  ["^VVIX", "Volatility of the VIX"], ["^MOVE", "Treasuries"], ["^OVX", "Crude oil"],
+  ["^GVZ", "Gold"], ["^EVZ", "Euro / dollar"],
+];
+// The four S&P tenors Cboe publishes as their own indices — a term structure
+// without touching a single option contract.
+const VOL_TERM = [["^VIX9D", "9-day"], ["^VIX", "30-day"], ["^VIX3M", "3-month"], ["^VIX6M", "6-month"]];
+// Expiries to sample for a name's own term structure, in days out.
+const VOL_TENORS = [7, 30, 60, 90, 180, 365];
+const VOL_RV_WINDOWS = [21, 63, 252];
+let volLoaded = false, volQuotes = {}, volHistDays = 1096, volHistStat = null;
+let volSym = null, volRv = null, volAtmIv = null, volSeq = 0;
+
+const volPts = (x) => (x == null || !isFinite(x) ? "—" : (x * 100).toFixed(1) + "%");
+// 1st / 2nd / 3rd / 4th — the teens are the exception that catches everyone.
+function volOrdinal(x) {
+  if (x == null || !isFinite(x)) return "—";
+  const n = Math.round(x), tens = n % 100, ones = n % 10;
+  const suffix = tens >= 11 && tens <= 13 ? "th" : ones === 1 ? "st" : ones === 2 ? "nd" : ones === 3 ? "rd" : "th";
+  return n + suffix;
+}
+
+function loadVolatility() {
+  if (volLoaded) return;
+  volLoaded = true;
+  loadVolComplex();
+  loadVolHistory();
+  loadVolName();
+}
+
+async function loadVolComplex() {
+  try {
+    const syms = VOL_TILES.map(([s]) => s).join(",");
+    const d = await api(`/api/v1/equity/price/quote?symbol=${encodeURIComponent(syms)}`);
+    volQuotes = {};
+    (d.results || []).forEach((r) => { volQuotes[r.symbol] = r; });
+    $("vl-tiles").innerHTML = VOL_TILES.map(([sym, label]) => {
+      const q = volQuotes[sym];
+      if (!q || q.last_price == null) return "";
+      const chg = q.change_percent;
+      return `<div class="tile" data-sym="${sym}">
+        <div class="t-sym">${escapeHtml(sym.replace("^", ""))}</div>
+        <div class="t-name">${label}</div>
+        <div class="t-px">${q.last_price.toFixed(2)}</div>
+        <div class="t-chg ${cls(chg ?? 0)}">${chg == null ? "-" : (chg >= 0 ? "▲ " : "▼ ") + fmtPct(Math.abs(chg))}</div>
+      </div>`;
+    }).join("") || `<div class="empty">No quotes returned.</div>`;
+    $("vl-asof").textContent = "as of " + new Date().toLocaleTimeString();
+    document.querySelectorAll("#vl-tiles .tile").forEach((t) => {
+      t.onclick = () => openStock(t.dataset.sym, "volatility");
+    });
+    renderVolTerm();
+    renderVolSignals();
+  } catch (e) {
+    $("vl-tiles").innerHTML = `<div class="errbox">${escapeHtml(e.message)}</div>`;
+    $("vl-signals").innerHTML = `<div class="empty">Fear gauges unavailable.</div>`;
+  }
+}
+
+const volLevel = (sym) => {
+  const q = volQuotes[sym];
+  return q && q.last_price != null ? q.last_price : null;
+};
+
+function renderVolTerm() {
+  const points = VOL_TERM.map(([sym, label]) => [label, volLevel(sym)]).filter(([, v]) => v != null);
+  if (points.length < 2) {
+    $("vl-term-read").textContent = "The Cboe tenor indices did not quote.";
+    return;
+  }
+  drawLine("vl-term", points.map(([l]) => l),
+    [{ label: "Implied vol", data: points.map(([, v]) => v), color: "#5ac8fa", fill: true }]);
+  const front = volLevel("^VIX"), back = volLevel("^VIX3M");
+  if (front == null || back == null) { $("vl-term-read").textContent = ""; return; }
+  const ratio = back / front;
+  $("vl-term-read").textContent = ratio >= 1.02
+    ? `Three-month vol sits ${(ratio).toFixed(2)}× the 30-day. That upward slope — contango — is the ` +
+      `resting state: nothing urgent is priced into the next month, and protection gets dearer the ` +
+      `further out you buy it.`
+    : ratio <= 0.98
+      ? `Thirty-day vol is above the three-month, at ${(ratio).toFixed(2)}× — an inverted curve. ` +
+        `The market is charging most for the nearest risk, which is how a stressed tape prices.`
+      : `The curve is flat (${ratio.toFixed(2)}×): near-dated and three-month vol cost about the same, ` +
+        `so no particular horizon is being singled out.`;
+}
+
+function renderVolSignals() {
+  const vix = volLevel("^VIX"), nine = volLevel("^VIX9D"), three = volLevel("^VIX3M");
+  const cards = [];
+  if (vix != null) {
+    cards.push({
+      label: "S&P 500 · 30-day implied", value: vix.toFixed(2),
+      tone: vix < 16 ? "pos" : vix > 25 ? "neg" : "warn",
+      read: `Options are pricing a move of about ±${(vix / Math.sqrt(12)).toFixed(1)}% over the next month, ` +
+        `or ±${(vix / Math.sqrt(252)).toFixed(1)}% on a typical day.`,
+    });
+  }
+  if (vix != null && three != null) {
+    const ratio = three / vix;
+    cards.push({
+      label: "Term structure", value: ratio.toFixed(2) + "×",
+      tone: ratio >= 1.02 ? "pos" : ratio <= 0.98 ? "neg" : "warn",
+      read: ratio >= 1.02 ? "Three-month over 30-day — calm shape."
+        : ratio <= 0.98 ? "Inverted: near-term stress is being priced." : "Flat curve.",
+    });
+  }
+  if (vix != null && nine != null) {
+    cards.push({
+      label: "Next two weeks", value: nine.toFixed(2),
+      tone: nine < vix ? "pos" : "neg",
+      read: nine < vix
+        ? "The next nine sessions are priced quieter than the month as a whole."
+        : "The next nine sessions carry more implied risk than the month — an event sits in that window.",
+    });
+  }
+  if (volHistStat) {
+    cards.push({
+      label: "Where the VIX sits", value: volOrdinal(volHistStat.percentile),
+      tone: volHistStat.percentile < 33 ? "pos" : volHistStat.percentile > 66 ? "neg" : "warn",
+      read: `percentile of its own last ${(volHistDays / 365).toFixed(0)} years — it has closed ` +
+        `lower than today on ${Math.round(volHistStat.percentile)}% of those sessions.`,
+    });
+  }
+  $("vl-signals").innerHTML = cards.length ? cards.map((c) => `
+    <div class="sig-card t-${c.tone}">
+      <div class="sig-label">${escapeHtml(c.label)}</div>
+      <div class="sig-value">${escapeHtml(c.value)}</div>
+      <div class="sig-read">${escapeHtml(c.read)}</div>
+    </div>`).join("") : `<div class="empty">No gauges quoted.</div>`;
+}
+
+async function loadVolHistory() {
+  $("vl-hist-note").textContent = "loading…";
+  try {
+    const d = await api(`/api/data/history/${encodeURIComponent("^VIX")}?start=${isoAgo(volHistDays)}`);
+    const closes = d.bars.map((b) => b.close).filter((c) => c != null);
+    if (!closes.length) throw new Error("no VIX history returned");
+    const last = closes[closes.length - 1];
+    const sorted = [...closes].sort((a, b) => a - b);
+    const below = sorted.filter((c) => c < last).length;
+    volHistStat = {
+      percentile: (below / sorted.length) * 100,
+      median: sorted[Math.floor(sorted.length / 2)],
+      aboveTwenty: closes.filter((c) => c >= 20).length / closes.length,
+      max: sorted[sorted.length - 1],
+    };
+    drawLine("vl-hist", d.bars.map((b) => b.date),
+      [{ label: "VIX", data: d.bars.map((b) => b.close), color: "#ffd60a", fill: true }]);
+    $("vl-hist-stats").innerHTML = [
+      ["Last", last.toFixed(2), ""],
+      ["Percentile", volOrdinal(volHistStat.percentile), ""],
+      ["Median", volHistStat.median.toFixed(2), ""],
+      ["Sessions over 20", (volHistStat.aboveTwenty * 100).toFixed(0) + "%", ""],
+    ].map(([k, v, c]) => `<div class="metric"><div class="k">${k}</div><div class="v ${c}">${v}</div></div>`).join("");
+    $("vl-hist-note").textContent = `${d.rows} sessions · peak ${volHistStat.max.toFixed(1)}`;
+    renderVolSignals();
+  } catch (e) {
+    $("vl-hist-note").textContent = "";
+    $("vl-hist-stats").innerHTML = `<div class="errbox">${escapeHtml(e.message)}</div>`;
+  }
+}
+
+// Annualised standard deviation of daily log returns, rolled forward. Null
+// until the window has filled, so the series starts where the maths does.
+function volRealisedSeries(closes, window) {
+  const rets = closes.map((c, i) => (i && closes[i - 1] > 0 && c > 0 ? Math.log(c / closes[i - 1]) : null));
+  const out = new Array(closes.length).fill(null);
+  for (let i = window; i < closes.length; i++) {
+    const slice = rets.slice(i - window + 1, i + 1);
+    if (slice.some((r) => r == null || !isFinite(r))) continue;
+    const mean = slice.reduce((a, b) => a + b, 0) / slice.length;
+    const variance = slice.reduce((a, b) => a + (b - mean) ** 2, 0) / (slice.length - 1);
+    out[i] = Math.sqrt(variance * 252);
+  }
+  return out;
+}
+
+async function loadVolName() {
+  const sym = ($("vl-symbol").value || "").trim().toUpperCase();
+  if (!sym) return;
+  const seq = ++volSeq;
+  volSym = sym;
+  volAtmIv = null;
+  volRv = null;
+  $("vl-warn").innerHTML = "";
+  $("vl-name-note").textContent = sym;
+  $("vl-rv-read").textContent = `Reading ${sym}'s daily closes…`;
+  $("vl-cones").innerHTML = `<div class="empty">Loading…</div>`;
+  $("vl-ivterm-read").textContent = "Reading the listed chain…";
+  $("vl-skew-read").textContent = "Reading the listed chain…";
+  $("vl-skew-note").textContent = "";
+  setStatus(`LOADING VOLATILITY · ${sym}`);
+
+  let spot = null;
+  try {
+    const [history, quote] = await Promise.all([
+      api(`/api/data/history/${encodeURIComponent(sym)}?start=${isoAgo(1096)}`),
+      api(`/api/v1/equity/price/quote?symbol=${encodeURIComponent(sym)}`).catch(() => null),
+    ]);
+    if (seq !== volSeq) return;
+    const bars = history.bars.filter((b) => b.close > 0);
+    if (bars.length < 40) throw new Error(`Not enough price history for ${sym}`);
+    spot = (quote && quote.results && quote.results[0] && quote.results[0].last_price)
+      || bars[bars.length - 1].close;
+    const closes = bars.map((b) => b.close);
+    const series = VOL_RV_WINDOWS.map((w) => volRealisedSeries(closes, w));
+    volRv = { dates: bars.map((b) => b.date), series };
+    const latest = series.map((s) => [...s].reverse().find((v) => v != null) ?? null);
+    $("vl-name-stats").innerHTML = [
+      ["21-day realised", volPts(latest[0])],
+      ["63-day realised", volPts(latest[1])],
+      ["1-year realised", volPts(latest[2])],
+      ["30-day implied", "—"],
+    ].map(([k, v]) => `<div class="metric"><div class="k">${k}</div><div class="v">${v}</div></div>`).join("");
+    $("vl-name-note").textContent = `${sym} · ${history.rows} sessions · spot ${spot.toFixed(2)}`;
+    renderVolRvChart();
+    setStatus(`VOLATILITY · ${sym} · ${history.source.toUpperCase()}`);
+  } catch (e) {
+    if (seq !== volSeq) return;
+    // Without prices there is no spot, so the option panels have nothing to
+    // hang off either — clear them rather than leave them spinning.
+    $("vl-warn").innerHTML = `<div class="errbox">${escapeHtml(e.message)}</div>`;
+    $("vl-name-stats").innerHTML = "";
+    $("vl-rv-read").textContent = "";
+    $("vl-cones").innerHTML = `<div class="empty">No prices for ${escapeHtml(sym)}.</div>`;
+    $("vl-ivterm-read").textContent = `No prices for ${sym}, so there is nothing to price options against.`;
+    $("vl-skew-read").textContent = "";
+    ["vl-rv", "vl-ivterm", "vl-skew"].forEach((id) => {
+      if (charts[id]) { charts[id].destroy(); delete charts[id]; }
+    });
+    setStatus("ERR: " + e.message);
+    return;
+  }
+  loadVolCones(sym, seq);
+  loadVolOptions(sym, spot, seq);
+}
+
+// The realised lanes are drawn as soon as prices land; the implied line is
+// grafted on afterwards, because a chain takes several requests to assemble.
+function renderVolRvChart() {
+  if (!volRv) return;
+  const start = Math.max(0, volRv.dates.length - 380);
+  const dates = volRv.dates.slice(start);
+  const datasets = [
+    { label: "21-day realised", data: volRv.series[0].slice(start).map((v) => (v == null ? null : v * 100)), color: "#00c805" },
+    { label: "63-day realised", data: volRv.series[1].slice(start).map((v) => (v == null ? null : v * 100)), color: "#5ac8fa" },
+  ];
+  if (volAtmIv != null) {
+    datasets.push({ label: "30-day implied", data: dates.map(() => volAtmIv * 100), color: "#ffd60a", dash: true });
+  }
+  drawLine("vl-rv", dates, datasets);
+
+  const rv21 = [...volRv.series[0]].reverse().find((v) => v != null);
+  const rv63 = [...volRv.series[1]].reverse().find((v) => v != null);
+  if (rv21 == null) { $("vl-rv-read").textContent = ""; return; }
+  const trend = rv63 == null ? "" : rv21 > rv63
+    ? ` It is running hotter than its three-month pace of ${volPts(rv63)}, so the recent tape is the noisy part.`
+    : ` It is quieter than its three-month pace of ${volPts(rv63)} — the last month has been the calm stretch.`;
+  const premium = volAtmIv == null ? ""
+    : ` At-the-money options are charging ${volPts(volAtmIv)}, ` +
+      (volAtmIv > rv21
+        ? `${((volAtmIv - rv21) * 100).toFixed(1)} points above what the stock has actually delivered — the usual ` +
+          `direction, and what option sellers are paid for.`
+        : `${((rv21 - volAtmIv) * 100).toFixed(1)} points below what the stock has actually delivered — options look ` +
+          `cheap against recent movement.`);
+  $("vl-rv-read").textContent =
+    `${volSym} has moved at an annualised ${volPts(rv21)} over the last 21 sessions.${trend}${premium}`;
+}
+
+// Where today's realised vol sits inside its own distribution, window by
+// window. Percentile is interpolated between the five published knots.
+function volConePercentile(row) {
+  const knots = [[row.min, 0], [row.p25, 25], [row.median, 50], [row.p75, 75], [row.max, 100]];
+  const x = row.realised;
+  if (x == null || knots.some(([v]) => v == null)) return null;
+  if (x <= knots[0][0]) return 0;
+  for (let i = 1; i < knots.length; i++) {
+    const [lo, pLo] = knots[i - 1], [hi, pHi] = knots[i];
+    if (x <= hi) return hi === lo ? pHi : pLo + ((x - lo) / (hi - lo)) * (pHi - pLo);
+  }
+  return 100;
+}
+
+async function loadVolCones(sym, seq) {
+  try {
+    const d = await api(`/api/v1/technical/cones?symbol=${encodeURIComponent(sym)}`);
+    if (seq !== volSeq) return;
+    const rows = d.results || [];
+    if (!rows.length) throw new Error("no cone data");
+    $("vl-cones").innerHTML = `<table><tr><th>Window</th><th>Now</th><th>Percentile</th><th></th>
+        <th>Low</th><th>Median</th><th>High</th></tr>` +
+      rows.map((r) => {
+        const pct = volConePercentile(r);
+        const tone = pct == null ? "" : pct > 75 ? "neg" : pct < 25 ? "pos" : "";
+        return `<tr>
+          <td class="mono">${r.window}d</td>
+          <td class="mono ${tone}">${volPts(r.realised)}</td>
+          <td class="mono">${volOrdinal(pct)}</td>
+          <td style="width:90px"><div class="perfbar"><div class="bar ${tone || "pos"}"
+            style="width:${Math.round((pct ?? 0) / 100 * 80)}px"></div></div></td>
+          <td class="mono dim">${volPts(r.min)}</td>
+          <td class="mono dim">${volPts(r.median)}</td>
+          <td class="mono dim">${volPts(r.max)}</td></tr>`;
+      }).join("") + "</table>";
+  } catch (e) {
+    if (seq !== volSeq) return;
+    $("vl-cones").innerHTML = `<div class="empty">No cones for ${escapeHtml(sym)} (${escapeHtml(e.message)}).</div>`;
+  }
+}
+
+// One chain per sampled tenor rather than the whole surface: six requests buy
+// a term structure that actually spans a year, where the first six listed
+// expiries would all sit inside a month.
+async function loadVolOptions(sym, spot, seq) {
+  try {
+    const d = await api(`/api/v1/derivatives/options/expirations?symbol=${encodeURIComponent(sym)}`);
+    if (seq !== volSeq) return;
+    const expiries = (d.results || []).filter((e) => e.days_to_expiry >= 0);
+    if (!expiries.length) throw new Error("no listed expirations");
+    const picks = [];
+    VOL_TENORS.forEach((target) => {
+      const best = expiries.reduce((a, b) =>
+        (Math.abs(b.days_to_expiry - target) < Math.abs(a.days_to_expiry - target) ? b : a));
+      if (!picks.some((p) => p.expiration === best.expiration)) picks.push(best);
+    });
+    const chains = (await Promise.all(picks.map((expiry) =>
+      api(`/api/v1/derivatives/options/chains?symbol=${encodeURIComponent(sym)}` +
+          `&expiration=${encodeURIComponent(expiry.expiration)}`)
+        .then((r) => ({ expiry, rows: r.results || [] }))
+        .catch(() => null)))).filter(Boolean);
+    if (seq !== volSeq) return;
+    if (!chains.length) throw new Error("no chains returned");
+
+    const term = chains
+      .map((c) => ({ expiry: c.expiry, iv: volChainAtmIv(c.rows, spot) }))
+      .filter((p) => p.iv != null)
+      .sort((a, b) => a.expiry.days_to_expiry - b.expiry.days_to_expiry);
+    renderVolIvTerm(term);
+
+    // The 30-day chain is both the implied line on the realised chart and the
+    // one the skew is read from — near-dated enough to be liquid, long enough
+    // that the wings still carry a real quote.
+    const nearMonth = chains.reduce((a, b) =>
+      (Math.abs(b.expiry.days_to_expiry - 30) < Math.abs(a.expiry.days_to_expiry - 30) ? b : a));
+    volAtmIv = volChainAtmIv(nearMonth.rows, spot);
+    if (volAtmIv != null) {
+      const cell = document.querySelectorAll("#vl-name-stats .metric .v")[3];
+      if (cell) cell.textContent = volPts(volAtmIv);
+      renderVolRvChart();
+    }
+    renderVolSkew(nearMonth, spot);
+  } catch (e) {
+    if (seq !== volSeq) return;
+    if (charts["vl-ivterm"]) { charts["vl-ivterm"].destroy(); delete charts["vl-ivterm"]; }
+    if (charts["vl-skew"]) { charts["vl-skew"].destroy(); delete charts["vl-skew"]; }
+    const note = `No listed options for ${escapeHtml(sym)} (${escapeHtml(e.message)}).`;
+    $("vl-ivterm-read").innerHTML = note;
+    $("vl-skew-read").innerHTML = note;
+  }
+}
+
+// The straddle at the nearest strike to spot: the cleanest single read of what
+// an expiry is charging, and the same convention the chain tab uses.
+function volChainAtmIv(rows, spot) {
+  if (!spot) return null;
+  const usable = (rows || []).filter((r) => r.implied_volatility > 0 && r.strike > 0);
+  if (!usable.length) return null;
+  const nearest = usable.reduce((a, b) =>
+    (Math.abs(b.strike - spot) < Math.abs(a.strike - spot) ? b : a)).strike;
+  const ivs = ["call", "put"]
+    .map((side) => usable.find((r) => r.strike === nearest && r.option_type === side))
+    .filter(Boolean).map((r) => r.implied_volatility);
+  return ivs.length ? ivs.reduce((a, b) => a + b, 0) / ivs.length : null;
+}
+
+function renderVolIvTerm(term) {
+  if (term.length < 2) {
+    if (charts["vl-ivterm"]) { charts["vl-ivterm"].destroy(); delete charts["vl-ivterm"]; }
+    $("vl-ivterm-read").textContent = "Too few expiries quoted implied vol to draw a term structure.";
+    return;
+  }
+  drawLine("vl-ivterm", term.map((p) => `${p.expiry.days_to_expiry}d`),
+    [{ label: "At-the-money implied", data: term.map((p) => p.iv * 100), color: "#bf5af2", fill: true }]);
+  const front = term[0], back = term[term.length - 1];
+  const slope = back.iv - front.iv;
+  $("vl-ivterm-read").textContent = Math.abs(slope) < 0.01
+    ? `Implied vol is flat across the curve at about ${volPts(front.iv)} — no expiry is being singled out.`
+    : slope > 0
+      ? `The curve rises from ${volPts(front.iv)} at ${front.expiry.days_to_expiry} days to ` +
+        `${volPts(back.iv)} at ${back.expiry.days_to_expiry} days. Longer-dated options cost more vol, ` +
+        `which is the ordinary shape for a name with nothing imminent priced in.`
+      : `The curve is inverted: ${volPts(front.iv)} at ${front.expiry.days_to_expiry} days against ` +
+        `${volPts(back.iv)} at ${back.expiry.days_to_expiry} days. Something dated — earnings, a ruling, ` +
+        `a deal — is being priced into the front.`;
+}
+
+// Out-of-the-money wings only: puts below spot, calls above. That is the curve
+// a trader actually pays, and it keeps in-the-money quotes (wide, stale) out.
+function volSkewCurve(rows, spot) {
+  const points = [];
+  (rows || []).forEach((r) => {
+    if (!(r.implied_volatility > 0) || !(r.strike > 0)) return;
+    const moneyness = r.strike / spot;
+    if (moneyness < 0.7 || moneyness > 1.3) return;
+    if ((r.option_type === "put" && moneyness <= 1) || (r.option_type === "call" && moneyness > 1)) {
+      points.push({ moneyness, iv: r.implied_volatility });
+    }
+  });
+  return points.sort((a, b) => a.moneyness - b.moneyness);
+}
+
+function volInterpolate(points, moneyness) {
+  if (points.length < 2 || moneyness < points[0].moneyness ||
+      moneyness > points[points.length - 1].moneyness) return null;
+  for (let i = 1; i < points.length; i++) {
+    const lo = points[i - 1], hi = points[i];
+    if (moneyness <= hi.moneyness) {
+      const span = hi.moneyness - lo.moneyness;
+      return span === 0 ? hi.iv : lo.iv + ((moneyness - lo.moneyness) / span) * (hi.iv - lo.iv);
+    }
+  }
+  return null;
+}
+
+function renderVolSkew(chain, spot) {
+  const points = volSkewCurve(chain.rows, spot);
+  $("vl-skew-note").textContent = `${chain.expiry.expiration} · ${chain.expiry.days_to_expiry} days · ` +
+    `puts below spot, calls above`;
+  if (points.length < 4) {
+    if (charts["vl-skew"]) { charts["vl-skew"].destroy(); delete charts["vl-skew"]; }
+    $("vl-skew-read").textContent = "That expiry does not quote enough out-of-the-money contracts to draw a skew.";
+    return;
+  }
+  drawLine("vl-skew", points.map((p) => Math.round(p.moneyness * 100) + "%"),
+    [{ label: "Implied vol by strike", data: points.map((p) => p.iv * 100), color: "#ff8fab" }]);
+  const downside = volInterpolate(points, 0.9), upside = volInterpolate(points, 1.1);
+  if (downside == null || upside == null) {
+    $("vl-skew-read").textContent =
+      `The quoted wings do not reach 10% either side of spot, so there is no comparable skew number — ` +
+      `read the curve above instead.`;
+    return;
+  }
+  const spread = (downside - upside) * 100;
+  $("vl-skew-read").textContent = spread > 0
+    ? `Puts 10% below spot cost ${volPts(downside)}, calls 10% above cost ${volPts(upside)} — ` +
+      `${spread.toFixed(1)} vol points more for the downside. That premium is the normal state of an ` +
+      `equity chain: protection is bid, and a crash is priced as more violent than a melt-up.`
+    : `Calls 10% above spot cost ${volPts(upside)} against ${volPts(downside)} for puts 10% below — ` +
+      `${Math.abs(spread).toFixed(1)} points of upside skew. That is unusual for a single name, and ` +
+      `normally means the upside is where the event risk sits.`;
+}
+
+$("vl-refresh").onclick = () => { loadVolComplex(); loadVolHistory(); };
+$("vl-load").onclick = () => loadVolName();
+$("vl-symbol").onkeydown = (ev) => { if (ev.key === "Enter" && !ev.defaultPrevented) loadVolName(); };
+document.querySelectorAll("#vl-hist-ranges .chip").forEach((c) => {
+  c.onclick = () => {
+    document.querySelectorAll("#vl-hist-ranges .chip").forEach((x) => x.classList.remove("active"));
+    c.classList.add("active");
+    volHistDays = Number(c.dataset.days);
+    loadVolHistory();
+  };
+});
 
 // ---------- portfolio ----------
 // One portfolio at a time. The summary panel is the only one that must load;
@@ -6293,7 +8171,7 @@ function thSource() {
 
 async function thLoadSources() {
   try {
-    thSources = await api("/api/theses/triage/sources");
+    thSources = await api("/api/theses/triage/sources?universe=stocks");
   } catch (e) {
     $("th-cand-note").textContent = e.message;
     return;
@@ -6421,7 +8299,12 @@ async function thDeepDive(candidate, i, btn) {
   try {
     const d = await api(`/api/theses/deepdive?create_draft=true`, {
       method: "POST",
-      body: { symbol: candidate.symbol, legs: candidate.legs || [] },
+      body: {
+        symbol: candidate.symbol,
+        direction: candidate.direction || "neutral",
+        idea_source: candidate.idea_source || (thSource() && thSource().name),
+        legs: candidate.legs || [],
+      },
     });
     const dossier = d.dossier || {};
     if (d.draft_thesis_id) {
@@ -6494,6 +8377,273 @@ async function thRunCandidates() {
   } catch (e) {
     box.innerHTML = `<div class="empty">${escapeHtml(e.message)}</div>`;
   }
+}
+
+// ---------- sector thesis generation ----------
+// This is a separate workspace, but it feeds the same graded thesis spine.
+// The source registry owns the split, so adding another sector funnel later
+// only requires registering it with universe="sectors" on the backend.
+let thsLoaded = false;
+let thsSources = null;
+
+async function loadSectorThesisView() {
+  if (thsLoaded) return;
+  thsLoaded = true;
+  await thsLoadSources();
+  thsLoadTheses();
+  thsTriageStatus();
+}
+
+function thsSource() {
+  if (!thsSources) return null;
+  return thsSources.sources.find((s) => s.name === $("ths-source").value) || null;
+}
+
+async function thsLoadSources() {
+  try {
+    thsSources = await api("/api/theses/triage/sources?universe=sectors");
+  } catch (e) {
+    $("ths-cand-note").textContent = e.message;
+    return;
+  }
+  $("ths-source").innerHTML = thsSources.sources.map((s) =>
+    `<option value="${escapeHtml(s.name)}"${s.name === thsSources.default ? " selected" : ""}>${
+      escapeHtml(s.label)}</option>`).join("");
+  $("ths-source").onchange = thsRenderSource;
+  thsRenderSource();
+}
+
+function thsRenderSource() {
+  const src = thsSource();
+  if (!src) {
+    $("ths-cand-note").textContent = "No sector idea sources are registered.";
+    return;
+  }
+  $("ths-cand-note").textContent = src.scope;
+  $("ths-params").innerHTML = Object.entries(src.params || {}).map(([name, spec]) => {
+    const id = `ths-p-${name}`;
+    const label = escapeHtml(name.replace(/_/g, " "));
+    const title = escapeHtml(spec.help || "");
+    if (spec.kind === "bool") {
+      return `<label class="panel-note" style="margin-left:0" title="${title}">
+        <input type="checkbox" id="${id}"${spec.default ? " checked" : ""} /> ${label}</label>`;
+    }
+    const bounds = (spec.min == null ? "" : ` min="${spec.min}"`) +
+                   (spec.max == null ? "" : ` max="${spec.max}"`);
+    return `<label class="panel-note" style="margin-left:0" title="${title}">${label}
+      <input type="${spec.kind === "str" ? "text" : "number"}" id="${id}" class="mono"
+        style="width:120px;margin-left:6px"
+        value="${spec.default == null ? "" : escapeHtml(String(spec.default))}"${bounds} /></label>`;
+  }).join("");
+  $("ths-cand-warn").innerHTML = "";
+  $("ths-cands").innerHTML = `<div class="empty">Press “Find sector candidates” to scan.</div>`;
+}
+
+function thsParams() {
+  const src = thsSource();
+  const qs = new URLSearchParams();
+  if (!src) return qs;
+  qs.set("source", src.name);
+  for (const [name, spec] of Object.entries(src.params || {})) {
+    const el = $(`ths-p-${name}`);
+    if (!el) continue;
+    qs.set(name, spec.kind === "bool" ? String(el.checked) : el.value);
+  }
+  return qs;
+}
+
+async function thsTriageStatus() {
+  const note = $("ths-triage-note");
+  const btn = $("ths-triage-run");
+  try {
+    const s = await api("/api/theses/triage/status");
+    btn.disabled = !s.enabled;
+    note.textContent = s.enabled ? `model: ${s.model || "ready"}` : (s.reason || "switched off");
+  } catch (e) {
+    btn.disabled = true;
+    note.textContent = e.message;
+  }
+}
+
+const THS_PERCENT_COLUMNS = new Set([
+  "one_month", "three_month", "ytd", "one_year", "relative_one_month",
+  "relative_three_month", "relative_ytd", "relative_one_year",
+]);
+
+function thsCell(column, value) {
+  if (value == null || value === "") return `<td class="dim"></td>`;
+  if (THS_PERCENT_COLUMNS.has(column)) {
+    return `<td class="num ${cls(value)}">${fmtPct(value)}</td>`;
+  }
+  return thCell(column, value);
+}
+
+async function thsRunCandidates() {
+  const src = thsSource();
+  if (!src) return;
+  const box = $("ths-cands");
+  box.innerHTML = `<div class="empty">Comparing the 11 sector ETFs with SPY…</div>`;
+  $("ths-cand-warn").innerHTML = "";
+  try {
+    const qs = thsParams();
+    qs.delete("source");
+    const d = await api(`/api/v1${src.command}?${qs}`);
+    if (d.warnings && d.warnings.length) {
+      $("ths-cand-warn").innerHTML = `<div class="explain">${
+        d.warnings.map((w) => escapeHtml(String(w))).join("<br>")}</div>`;
+    }
+    const rows = d.results || [];
+    if (!rows.length) {
+      box.innerHTML = `<div class="empty">No sector performance was available.</div>`;
+      return;
+    }
+    const wanted = ["sector", "symbol", "family", "one_month", "three_month",
+      "relative_three_month", "ytd", "relative_ytd", "one_year", "relative_one_year"];
+    const cols = wanted.filter((c) => Object.prototype.hasOwnProperty.call(rows[0], c));
+    box.innerHTML = `<table><thead><tr>${cols.map((c) =>
+      `<th${THS_PERCENT_COLUMNS.has(c) ? ` class="num"` : ""}>${
+        escapeHtml(c.replace(/_/g, " "))}</th>`).join("")}</tr></thead><tbody>` +
+      rows.map((r, i) => `<tr class="clickrow" data-row="${i}" style="cursor:pointer">${
+        cols.map((c) => thsCell(c, r[c])).join("")}</tr>`).join("") +
+      `</tbody></table>`;
+    box.querySelectorAll("tr.clickrow").forEach((tr) => {
+      tr.onclick = () => openSector({
+        group: rows[+tr.dataset.row].sector,
+        symbol: rows[+tr.dataset.row].symbol,
+        one_month: rows[+tr.dataset.row].one_month,
+        three_month: rows[+tr.dataset.row].three_month,
+        ytd: rows[+tr.dataset.row].ytd,
+        one_year: rows[+tr.dataset.row].one_year,
+      }, "thesis-sectors");
+    });
+  } catch (e) {
+    box.innerHTML = `<div class="empty">${escapeHtml(e.message)}</div>`;
+  }
+}
+
+async function thsTriageRun() {
+  const box = $("ths-triage");
+  const btn = $("ths-triage-run");
+  btn.disabled = true;
+  box.innerHTML = `<div class="empty">Testing whether the rotation has a defensible mechanism…</div>`;
+  try {
+    const d = await api(`/api/theses/triage?${thsParams()}`, { method: "POST" });
+    thsRenderTriage(d);
+  } catch (e) {
+    box.innerHTML = `<div class="empty">${escapeHtml(e.message)}</div>`;
+  }
+  btn.disabled = false;
+}
+
+function thsRenderTriage(d) {
+  const box = $("ths-triage");
+  const cands = d.candidates || [];
+  if (!cands.length) {
+    box.innerHTML = `<div class="empty">${escapeHtml(
+      d.note || "The model promoted nothing — which is a valid answer.")}</div>`;
+    return;
+  }
+  const ran = thsSources && thsSources.sources.find((s) => s.name === d.source);
+  const srcTag = (leg) => leg.source === "world_knowledge"
+    ? `<span class="badge">needs verifying</span>` : `<span class="dim">from the data</span>`;
+  box.innerHTML =
+    `<div class="explain">${ran ? `<strong>${escapeHtml(ran.label)}</strong> · ` : ""}${
+      escapeHtml(d.disclaimer || "")}</div>` +
+    cands.map((c, i) => `
+      <div class="panel" style="margin-top:10px">
+        <div class="panel-h">
+          <span class="mono">${escapeHtml(c.symbol)}</span>
+          <span class="${c.promote ? "pos" : "dim"}" style="margin-left:10px">${
+            c.promote ? "PROMOTED" : "passed over"}</span>
+          <span class="${c.direction === "long" ? "pos" : c.direction === "short" ? "neg" : "dim"}"
+            style="margin-left:10px">${escapeHtml((c.direction || "neutral").toUpperCase())}</span>
+          <span class="panel-note">confidence ${escapeHtml(c.confidence || "?")} · proxy-artifact risk ${
+            escapeHtml(c.calendar_artifact_risk || "?")}</span>
+          ${c.promote ? `<button class="ghost panel-btn" data-ths-dive="${i}">Deep dive → draft thesis</button>` : ""}
+        </div>
+        ${c.claim_sketch ? `<p class="explain">${escapeHtml(c.claim_sketch)}</p>` : ""}
+        <p class="explain dim">${escapeHtml(c.reason || "")}</p>
+        ${(c.legs || []).map((leg) => `
+          <div class="explain" style="margin:4px 0 0 12px">
+            • ${escapeHtml(leg.claim)} ${srcTag(leg)}
+            ${leg.rejected ? `<span class="neg"> — rejected: ${escapeHtml(leg.rejected)}</span>` : ""}
+            ${leg.if_absent ? `<div class="dim" style="margin-left:14px">if nothing found: ${
+              escapeHtml(leg.if_absent)}</div>` : ""}
+            ${(leg.verify_with || []).map((v) => `
+              <div class="mono dim" style="margin-left:14px">check: ${escapeHtml(v.path)}${
+                v.unknown_command ? ` <span class="neg">(not a real command)</span>` : ""} — ${
+                escapeHtml(v.expect || "")}</div>`).join("")}
+          </div>`).join("")}
+        <div class="msg" id="ths-dive-msg-${i}"></div>
+      </div>`).join("");
+  box.querySelectorAll("[data-ths-dive]").forEach((btn) => {
+    btn.onclick = () => thsDeepDive(cands[+btn.dataset.thsDive], +btn.dataset.thsDive, btn);
+  });
+}
+
+async function thsDeepDive(candidate, i, btn) {
+  const msg = $(`ths-dive-msg-${i}`);
+  btn.disabled = true;
+  msg.textContent = "Trying to refute each leg with live data…";
+  try {
+    const d = await api("/api/theses/deepdive?create_draft=true", {
+      method: "POST",
+      body: {
+        symbol: candidate.symbol,
+        direction: candidate.direction || "neutral",
+        idea_source: candidate.idea_source || (thsSource() && thsSource().name),
+        legs: candidate.legs || [],
+      },
+    });
+    if (d.draft_thesis_id) {
+      msg.innerHTML = `<span class="pos">Draft sector thesis created</span> — ${
+        d.evidence_frozen || 0} evidence snapshot(s), ${d.checks_installed || 0} falsifier(s). ` +
+        `<button class="linkbtn" data-open-thesis="${d.draft_thesis_id}">Review the draft →</button>`;
+      msg.querySelector("[data-open-thesis]").onclick = () => thsOpenThesis(d.draft_thesis_id);
+      await thsLoadTheses();
+    } else {
+      msg.innerHTML = `<span class="dim">The model chose not to proceed:</span> ${
+        escapeHtml((d.dossier && d.dossier.summary) || "no summary")}`;
+    }
+  } catch (e) {
+    msg.textContent = e.message;
+  }
+  btn.disabled = false;
+}
+
+async function thsLoadTheses() {
+  const box = $("ths-list");
+  try {
+    const all = await api("/api/theses");
+    const sourceNames = new Set((thsSources && thsSources.sources || []).map((s) => s.name));
+    const rows = all.filter((t) => sourceNames.has(t.source));
+    if (!rows.length) {
+      box.innerHTML = `<div class="empty">No sector theses yet — promote a setup above to create a draft.</div>`;
+      return;
+    }
+    box.innerHTML = `<table><thead><tr>
+        <th>Title</th><th>ETF</th><th>Direction</th><th>Status</th><th>Review by</th>
+      </tr></thead><tbody>` + rows.map((t) => `
+      <tr class="clickrow" data-id="${t.id}" style="cursor:pointer">
+        <td>${t.reviewed_at ? "" : `<span class="chip warn">draft</span> `}${escapeHtml(t.title)}</td>
+        <td class="mono">${escapeHtml(t.symbols || "")}</td>
+        <td class="${t.direction === "long" ? "pos" : t.direction === "short" ? "neg" : "dim"}">${
+          escapeHtml(t.direction || "neutral")}</td>
+        <td class="${TH_STATUS[t.status] || "dim"}">${escapeHtml(t.status)}</td>
+        <td class="mono dim">${t.review_by ? escapeHtml(String(t.review_by).slice(0, 10)) : "—"}</td>
+      </tr>`).join("") + `</tbody></table>`;
+    box.querySelectorAll("tr.clickrow").forEach((tr) => {
+      tr.onclick = () => thsOpenThesis(+tr.dataset.id);
+    });
+  } catch (e) {
+    box.innerHTML = `<div class="empty">${escapeHtml(e.message)}</div>`;
+  }
+}
+
+async function thsOpenThesis(id) {
+  document.querySelector('.navbtn[data-view="thesis"]').click();
+  await thShowThesis(id);
+  $("th-detail").scrollIntoView({ behavior: "smooth" });
 }
 
 async function thShowActivity(sym) {
@@ -6641,6 +8791,9 @@ function thBindOnce() {
   $("th-act-run").onclick = () => thShowActivity();
   $("th-act-symbol").onkeydown = (ev) => { if (ev.key === "Enter") thShowActivity(); };
   $("th-refresh").onclick = thLoadTheses;
+  $("ths-run").onclick = thsRunCandidates;
+  $("ths-triage-run").onclick = thsTriageRun;
+  $("ths-refresh").onclick = thsLoadTheses;
 
   $("th-create").onclick = async () => {
     const title = $("th-new-title").value.trim();
@@ -7247,3 +9400,397 @@ async function hgNarrate() {
 }
 
 $("hg-narrate").onclick = hgNarrate;
+
+// ---------- flagged: change detection ----------
+// The backend does every diff; this view is layout. Three tabs share one
+// vocabulary: the market screen ranks a whole cross-section on one accrual
+// flag, the company scan runs every flag type against one filer's last two
+// filings, and the catalogue is the list of flag types with the way each one
+// lies — which is what the cards quote back under every row.
+let fgLoaded = false;
+let fgCatalogue = null;
+let fgKinds = null;          // Set of flag slugs ticked for the company scan
+
+function loadFlaggedView() {
+  if (fgLoaded) return;
+  fgLoaded = true;
+  fgLoadCatalogue();
+  fgYearOptions();
+  $("fg-scan-symbol").focus();
+}
+
+document.querySelectorAll("#fg-tabs .tab").forEach((t) => {
+  t.onclick = () => {
+    document.querySelectorAll("#fg-tabs .tab").forEach((x) => x.classList.toggle("active", x === t));
+    document.querySelectorAll(".fgtab").forEach((p) => p.classList.toggle("active", p.id === "fgtab-" + t.dataset.fgtab));
+  };
+});
+
+function fgYearOptions() {
+  // The newest complete calendar year lags the calendar by about a quarter;
+  // the backend picks that default, and this only offers the recent past.
+  const now = new Date();
+  const newest = now.getMonth() >= 3 ? now.getFullYear() - 1 : now.getFullYear() - 2;
+  $("fg-mkt-year").innerHTML = [0, 1, 2, 3, 4].map((back) => {
+    const y = newest - back;
+    return `<option value="${y}"${back === 0 ? " selected" : ""}>${y} vs ${y - 1}</option>`;
+  }).join("");
+}
+
+async function fgLoadCatalogue() {
+  try {
+    const d = await api("/api/v1/flagged/catalogue");
+    fgCatalogue = d.results;
+  } catch (e) {
+    $("fg-catalogue").innerHTML = `<div class="empty">${escapeHtml(e.message)}</div>`;
+    return;
+  }
+  fgKinds = new Set(fgCatalogue.map((f) => f.flag));
+  fgRenderKindChips();
+  fgRenderCatalogue();
+}
+
+function fgFlagLabel(slug) {
+  const f = (fgCatalogue || []).find((x) => x.flag === slug);
+  return f ? f.label : slug.replace(/_/g, " ");
+}
+function fgArtifact(slug) {
+  const f = (fgCatalogue || []).find((x) => x.flag === slug);
+  return f ? f.artifact : "";
+}
+
+function fgRenderKindChips() {
+  const el = $("fg-scan-kinds");
+  el.innerHTML = fgCatalogue.map((f) =>
+    `<button class="chip sm ${fgKinds.has(f.flag) ? "active" : ""}" data-fg-kind="${f.flag}"
+       title="${escapeHtml(f.what)}">${escapeHtml(f.label)}
+       <span class="fg-kind">${escapeHtml(f.read_from)}</span></button>`).join("") +
+    `<button class="chip sm ghost" id="fg-kinds-all">All</button>` +
+    `<button class="chip sm ghost" id="fg-kinds-cheap">Skip the document reads</button>`;
+  el.querySelectorAll("[data-fg-kind]").forEach((c) => {
+    c.onclick = () => {
+      const k = c.dataset.fgKind;
+      if (fgKinds.has(k)) fgKinds.delete(k); else fgKinds.add(k);
+      c.classList.toggle("active", fgKinds.has(k));
+    };
+  });
+  $("fg-kinds-all").onclick = () => { fgKinds = new Set(fgCatalogue.map((f) => f.flag)); fgRenderKindChips(); };
+  $("fg-kinds-cheap").onclick = () => {
+    fgKinds = new Set(fgCatalogue.filter((f) => f.read_from !== "document").map((f) => f.flag));
+    fgRenderKindChips();
+  };
+}
+
+function fgRenderCatalogue() {
+  // One card per flag type. A six-column table put the whole point — how the
+  // flag lies — in a sliver at the right edge; here it gets the full width.
+  $("fg-catalogue").innerHTML = fgCatalogue.map((f) => `<div class="fg-card fg-catalogue">
+    <div class="fg-card-h">
+      <span class="fg-flag">${escapeHtml(f.label)}</span>
+      <span class="mono dim">${escapeHtml(f.flag)}</span>
+      <span class="fg-kind">${escapeHtml(f.read_from)}</span>
+      <span class="fg-date">${f.reading ? "carries a conventional reading" : "direction-neutral by construction"}</span>
+    </div>
+    <div class="fg-cat-grid">
+      <div><div class="subhead">Measures</div><div class="fg-summary">${escapeHtml(f.what)}</div></div>
+      <div><div class="subhead">Compares</div><div class="fg-summary">${escapeHtml(f.compares)}</div></div>
+      <div><div class="subhead">Conventional reading</div><div class="fg-summary">${f.reading ? escapeHtml(f.reading) : `<span class="dim">None. A count cannot tell a short setup from a capitulation bottom, and the flag does not pretend to.</span>`}</div></div>
+    </div>
+    <div class="fg-artifact"><b>How it lies:</b> ${escapeHtml(f.artifact)}</div>
+  </div>`).join("");
+}
+
+// --- market screen ---
+const FG_MKT_COLS = {
+  receivables: [
+    ["dso_change_days", "DSO Δ (days)", (v) => (v > 0 ? "+" : "") + v.toFixed(0)],
+    ["prior_dso", "DSO then", (v) => v.toFixed(0)],
+    ["dso", "DSO now", (v) => v.toFixed(0)],
+    ["receivables_growth", "Receivables", (v) => fmtPct(v, true)],
+    ["revenue_growth", "Revenue", (v) => fmtPct(v, true)],
+    ["revenue", "Revenue $", (v) => fgMoney(v)],
+  ],
+  deferred_revenue: [
+    ["divergence", "Divergence", (v) => fmtPct(v, true)],
+    ["deferred_growth", "Deferred rev.", (v) => fmtPct(v, true)],
+    ["revenue_growth", "Revenue", (v) => fmtPct(v, true)],
+    ["deferred_revenue", "Deferred $", (v) => fgMoney(v)],
+    ["revenue", "Revenue $", (v) => fgMoney(v)],
+  ],
+  buybacks: [
+    ["share_count_change_pct", "Diluted count", (v) => fmtPct(v, true)],
+    ["repurchase_payments", "Repurchased $", (v) => fgMoney(v)],
+    ["prior_diluted_shares", "Shares then", (v) => fgCount(v)],
+    ["diluted_shares", "Shares now", (v) => fgCount(v)],
+  ],
+};
+function fgMoney(v) {
+  if (v == null) return "-";
+  const a = Math.abs(v);
+  if (a >= 1e9) return "$" + (v / 1e9).toFixed(1) + "B";
+  if (a >= 1e6) return "$" + (v / 1e6).toFixed(0) + "M";
+  return fmt$(v);
+}
+function fgCount(v) {
+  if (v == null) return "-";
+  if (Math.abs(v) >= 1e6) return (v / 1e6).toFixed(1) + "M";
+  return Math.round(v).toLocaleString("en-US");
+}
+
+async function fgRunMarket() {
+  const screen = $("fg-mkt-screen").value;
+  const year = $("fg-mkt-year").value;
+  const limit = $("fg-mkt-limit").value;
+  $("fg-mkt-note").textContent = "reading the market…";
+  $("fg-mkt-warn").innerHTML = "";
+  $("fg-mkt-table").innerHTML = `<div class="empty">Four to six requests for the whole market — a few seconds cold.</div>`;
+  setStatus("FLAGGED: SCANNING THE MARKET");
+  try {
+    const d = await api(`/api/v1/flagged/market?screen=${screen}&year=${year}&limit=${limit}`);
+    const x = d.extra || {};
+    $("fg-mkt-note").textContent =
+      `${x.universe ?? "?"} filers compared · ${x.crossed_gates ?? "?"} crossed the gates · ` +
+      `${x.returned ?? d.results.length} shown` +
+      (x.misaligned_periods_dropped ? ` · ${x.misaligned_periods_dropped} off-calendar filers not compared` : "");
+    const artifact = fgArtifact(d.results[0]?.flag || "");
+    const cols = FG_MKT_COLS[screen] || [];
+    $("fg-mkt-table").innerHTML = `<table>
+      <tr><th>#</th><th>Symbol</th><th>Company</th><th>Filed</th><th>Pctl</th>${cols.map((c) => `<th>${c[1]}</th>`).join("")}<th>Filing</th></tr>` +
+      d.results.map((r, i) => `<tr>
+        <td class="dim">${i + 1}</td>
+        <td><a href="#" data-fg-sym="${escapeHtml(r.symbol)}" class="mono">${escapeHtml(r.symbol)}</a></td>
+        <td style="text-align:left;white-space:normal;max-width:220px">${escapeHtml(r.issuer || "")}</td>
+        <td class="mono dim">${escapeHtml(r.known_on || "")}</td>
+        <td class="fg-pctl">${r.market_percentile != null ? r.market_percentile.toFixed(1) : "-"}</td>
+        ${cols.map((c) => `<td class="mono">${r[c[0]] == null ? "-" : c[2](r[c[0]])}</td>`).join("")}
+        <td>${r.accession_number ? `<a href="https://www.sec.gov/Archives/edgar/data/${parseInt(r.cik, 10)}/${escapeHtml(r.accession_number.replace(/-/g, ""))}/" target="_blank" rel="noopener">${escapeHtml(r.form || "filing")} ↗</a>` : "-"}</td>
+      </tr>`).join("") + `</table>` +
+      (artifact ? `<div class="fg-artifact"><b>How this flag lies:</b> ${escapeHtml(artifact)}</div>` : "");
+    $("fg-mkt-table").querySelectorAll("[data-fg-sym]").forEach((a) => {
+      a.onclick = (ev) => { ev.preventDefault(); fgScanSymbol(a.dataset.fgSym); };
+    });
+    if (d.warnings?.length) $("fg-mkt-warn").innerHTML = `<div class="warnbox">${escapeHtml(d.warnings[0])}</div>`;
+    setStatus("FLAGGED: MARKET SCREEN READY");
+  } catch (e) {
+    $("fg-mkt-note").textContent = "";
+    $("fg-mkt-table").innerHTML = `<div class="empty">${escapeHtml(e.message)}</div>`;
+    setStatus("ERR: " + e.message);
+  }
+}
+
+// --- one company ---
+function fgScanSymbol(sym) {
+  document.querySelector('#fg-tabs .tab[data-fgtab="company"]').click();
+  $("fg-scan-symbol").value = sym;
+  fgRunScan();
+}
+
+function fgFilingLinks(r) {
+  const parts = [];
+  if (r.form || r.period_end) parts.push(`${r.form || ""}${r.period_end ? " for period ending " + r.period_end : ""}`.trim());
+  if (r.filing_url) parts.push(`<a href="${escapeHtml(r.filing_url)}" target="_blank" rel="noopener">filing ↗</a>`);
+  if (r.prior_filing_url) parts.push(`<a href="${escapeHtml(r.prior_filing_url)}" target="_blank" rel="noopener">prior filing${r.prior_filing_date ? " (" + r.prior_filing_date + ")" : ""} ↗</a>`);
+  if (r.accession_number && !r.filing_url && r.cik) parts.push(`<a href="https://www.sec.gov/Archives/edgar/data/${parseInt(r.cik, 10)}/${escapeHtml(r.accession_number.replace(/-/g, ""))}/" target="_blank" rel="noopener">filing ↗</a>`);
+  if (r.market_percentile != null) parts.push(`${r.market_percentile}th percentile of ${r.universe || "?"} filers`);
+  if (r.read_via) parts.push(`read via ${escapeHtml(r.read_via)}`);
+  if (r.auditor_source) parts.push(`auditor from ${escapeHtml(r.auditor_source)}`);
+  return parts.join(" · ");
+}
+
+function fgCard(r) {
+  let body = "";
+  if (r.paragraphs?.length) {
+    body += `<div class="fg-paras">` + r.paragraphs.map((p) =>
+      `<div class="fg-para">${p.heading ? `<b>${escapeHtml(p.heading)}</b> — ` : ""}${escapeHtml(p.text)}` +
+      `${p.best_match != null ? `<span class="fg-match">nearest ${(p.best_match * 100).toFixed(0)}%</span>` : ""}</div>`).join("") +
+      (r.count > r.paragraphs.length ? `<div class="fg-para dim">…and ${r.count - r.paragraphs.length} more</div>` : "") +
+      `</div>`;
+    if (r.rewrite_suspected) body += `<div class="fg-meta warn">Additions and removals balance — likely a rewrite of the section rather than a change of position.</div>`;
+  }
+  if (r.quote) body += `<div class="fg-paras"><div class="fg-para">“${escapeHtml(r.quote)}”</div></div>`;
+  if (r.watched?.length) {
+    body += `<div class="fg-paras">` + r.watched.map((w) =>
+      `<div class="fg-para"><b>${escapeHtml(w.means || w.concept)}</b> — ${escapeHtml(w.concept)}${w.value != null ? ` = ${escapeHtml(String(w.value))} ${escapeHtml(w.unit || "")}` : ""}</div>`).join("") + `</div>`;
+  }
+  if (r.top_sellers?.length || r.top_buyers?.length) {
+    const movers = (r.direction === "distribution" ? r.top_sellers : r.top_buyers) || [];
+    body += `<div class="fg-paras">` + movers.slice(0, 5).map((m) =>
+      `<div class="fg-para"><b>${escapeHtml(m.filer)}</b> <span class="mono ${m.change < 0 ? "neg" : "pos"}">${m.change > 0 ? "+" : ""}${fgCount(m.change)}</span>` +
+      `${m.held_now ? ` — still holds ${fgCount(m.held_now)}` : " — position closed"}${m.passive ? " <span class=\"fg-kind\">index</span>" : ""}${m.filed ? ` <span class="dim mono">filed ${escapeHtml(m.filed)}</span>` : ""}</div>`).join("") + `</div>`;
+  }
+  if (r.actions?.length) {
+    body += `<div class="fg-paras">` + r.actions.map((a) =>
+      `<div class="fg-para"><span class="mono">${escapeHtml(a.date)}</span> ${escapeHtml(a.firm)} <b class="${a.action === "up" ? "pos" : "neg"}">${escapeHtml(a.action)}</b> ${a.from_grade ? escapeHtml(a.from_grade) + " → " : ""}${escapeHtml(a.to_grade)}</div>`).join("") + `</div>`;
+  }
+  return `<div class="fg-card">
+    <div class="fg-card-h">
+      <span class="fg-sym" data-fg-open="${escapeHtml(r.symbol)}">${escapeHtml(r.symbol)}</span>
+      <span class="dim">${escapeHtml(r.issuer || "")}</span>
+      <span class="fg-flag">${escapeHtml(fgFlagLabel(r.flag))}</span>
+      <span class="fg-date">first public ${escapeHtml(r.known_on)}</span>
+    </div>
+    <div class="fg-summary">${escapeHtml(r.summary || "")}</div>
+    ${body}
+    <div class="fg-meta">${fgFilingLinks(r)}</div>
+    <div class="fg-artifact"><b>How this flag lies:</b> ${escapeHtml(fgArtifact(r.flag))}</div>
+  </div>`;
+}
+
+async function fgRunScan() {
+  const symbol = $("fg-scan-symbol").value.trim().toUpperCase();
+  if (!symbol) { $("fg-scan-symbol").focus(); return; }
+  if (!fgKinds || !fgKinds.size) { $("fg-scan-warn").innerHTML = `<div class="warnbox">Tick at least one flag type.</div>`; return; }
+  const kinds = [...fgKinds].join(",");
+  const period = $("fg-scan-period").value;
+  const heavy = [...fgKinds].some((k) => (fgCatalogue || []).find((f) => f.flag === k)?.read_from === "document");
+  $("fg-scan-note").textContent = "scanning…";
+  $("fg-scan-warn").innerHTML = "";
+  $("fg-scan-out").innerHTML = `<div class="empty">${heavy ? "Reading two annual reports per symbol — a few seconds on a cold cache." : "Reading the tagged facts…"}</div>`;
+  setStatus("FLAGGED: SCANNING " + symbol);
+  try {
+    const d = await api(`/api/v1/flagged/scan?symbol=${encodeURIComponent(symbol)}&kinds=${encodeURIComponent(kinds)}&period=${period}`);
+    const x = d.extra || {};
+    $("fg-scan-note").textContent = `${x.flags ?? d.results.length} flag(s) across ${(x.symbols || []).length} symbol(s), ${(x.kinds || []).length} type(s) checked`;
+    $("fg-scan-out").innerHTML = d.results.map(fgCard).join("") || `<div class="empty">Nothing moved.</div>`;
+    $("fg-scan-out").querySelectorAll("[data-fg-open]").forEach((s) => { s.onclick = () => openStock(s.dataset.fgOpen, "flagged"); });
+    const skipped = (x.skipped || []);
+    if (skipped.length) $("fg-scan-warn").innerHTML = `<div class="warnbox">Could not read: ${escapeHtml(skipped.join(" · "))}</div>`;
+    setStatus("FLAGGED: SCAN READY");
+  } catch (e) {
+    $("fg-scan-note").textContent = "";
+    // A quiet filer is a 404 by platform convention; say so in plain words.
+    const quiet = /No flags for/.test(e.message);
+    $("fg-scan-out").innerHTML = `<div class="empty">${quiet ? "Nothing moved on the ticked dimensions." : escapeHtml(e.message)}</div>`;
+    if (quiet) {
+      const m = e.message.match(/\(skipped: (.*)\)/);
+      if (m) $("fg-scan-warn").innerHTML = `<div class="warnbox">Could not read: ${escapeHtml(m[1])}</div>`;
+    }
+    setStatus(quiet ? "FLAGGED: NOTHING MOVED" : "ERR: " + e.message);
+  }
+}
+
+// --- 13F flow against the tape ---
+function fgFlowRow(r) {
+  const movers = (r.direction === "distribution" ? r.top_sellers : r.top_buyers) || [];
+  const labels = [];
+  if (r.issuance_suspected) labels.push("issuance?");
+  if (r.single_filer_suspect) labels.push("single filer?");
+  if (r.denominator_suspect) labels.push("denominators?");
+  if (r.foreign_domicile) labels.push(escapeHtml(r.domicile));
+  if (r.passive_share >= 0.25) labels.push(`${(r.passive_share * 100).toFixed(0)}% index`);
+  return `<tr>
+    <td class="dim">${r.screen_rank || "-"}</td>
+    <td><a href="#" data-fg-flsym="${escapeHtml(r.symbol)}" class="mono">${escapeHtml(r.symbol)}</a></td>
+    <td style="text-align:left;white-space:normal;max-width:200px">${escapeHtml(r.issuer || "")}</td>
+    <td class="${r.direction === "distribution" ? "neg" : "pos"}">${r.direction === "distribution" ? "selling" : "buying"}</td>
+    <td class="mono">${r.days_of_volume.toFixed(1)}</td>
+    <td class="mono">${r.overhang_days != null ? r.overhang_days.toFixed(1) : "-"}</td>
+    <td class="mono">${(r.net_change > 0 ? "+" : "") + fgCount(r.net_change)}</td>
+    <td class="mono">${fgCount(r.adv_shares)}</td>
+    <td class="mono">${fgMoney(r.adv_dollars)}</td>
+    <td class="mono">${fgMoney(r.market_cap)}</td>
+    <td class="mono">${(r.institutional_pct * 100).toFixed(0)}%</td>
+    <td style="text-align:left;white-space:normal;max-width:260px">${movers.slice(0, 2).map((m) =>
+      `${escapeHtml(String(m.filer).slice(0, 26))} <span class="mono ${m.change < 0 ? "neg" : "pos"}">${m.change > 0 ? "+" : ""}${fgCount(m.change)}</span>${m.held_now ? ` <span class="dim">holds ${fgCount(m.held_now)}</span>` : ""}`).join("<br>")}</td>
+    <td style="text-align:left"><span class="fg-kind">${labels.join("</span> <span class=\"fg-kind\">") || "—"}</span></td>
+  </tr>`;
+}
+
+async function fgRunFlows(symbol) {
+  const qs = symbol
+    ? `symbol=${encodeURIComponent(symbol)}`
+    : `direction=${$("fg-fl-direction").value}&max_market_cap_bn=${$("fg-fl-cap").value}` +
+      `&min_days_of_volume=${$("fg-fl-days").value}&include_suspect=${$("fg-fl-suspect").checked}&limit=100`;
+  $("fg-fl-note").textContent = symbol ? `reading ${symbol}…` : "reading two 13F data sets and the tape…";
+  $("fg-fl-warn").innerHTML = "";
+  $("fg-fl-out").innerHTML = `<div class="empty">First run on a cold cache reads ~200 MB of SEC data sets (about a minute); afterwards a few seconds.</div>`;
+  setStatus("FLAGGED: 13F FLOW");
+  try {
+    const d = await api(`/api/v1/flagged/flows?${qs}`);
+    const x = d.extra || {};
+    $("fg-fl-note").textContent =
+      `${x.period_end || "?"} vs ${x.prior_period_end || "?"} · known ${x.known_on || "?"} · ` +
+      (symbol ? `${d.results.length} row(s)` :
+        `${x.common_filers ?? "?"} filers in both quarters · ${x.priced ?? "?"} priced · ${x.crossed_gates ?? "?"} crossed · ` +
+        `${x.suspect_dropped ?? 0} suspect, ${x.spacs_dropped ?? 0} SPACs, ${x.identity_changes_dropped ?? 0} identity changes set aside`);
+    $("fg-fl-out").innerHTML = `<div class="tablewrap"><table>
+      <tr><th>#</th><th>Symbol</th><th>Company</th><th>Side</th><th>Days of vol</th><th>Overhang</th><th>Net shares</th><th>ADV</th><th>ADV $</th><th>Mkt cap</th><th>Inst %</th><th>Largest movers</th><th>Labels</th></tr>` +
+      d.results.map(fgFlowRow).join("") + `</table></div>` +
+      `<div class="fg-artifact"><b>How this flag lies:</b> ${escapeHtml(fgArtifact("institutional_flow"))}</div>`;
+    $("fg-fl-out").querySelectorAll("[data-fg-flsym]").forEach((a) => {
+      a.onclick = (ev) => { ev.preventDefault(); openStock(a.dataset.fgFlsym, "flagged"); };
+    });
+    setStatus("FLAGGED: 13F FLOW READY");
+  } catch (e) {
+    $("fg-fl-note").textContent = "";
+    $("fg-fl-out").innerHTML = `<div class="empty">${escapeHtml(e.message)}</div>`;
+    setStatus("ERR: " + e.message);
+  }
+}
+
+// --- shared end-market read-through ---
+function fgLineName(key) { return String(key || "").replace(/_/g, " "); }
+
+async function fgRunReadThrough() {
+  const hub = $("fg-rt-symbol").value.trim().toUpperCase();
+  if (!hub) { $("fg-rt-symbol").focus(); return; }
+  const peers = $("fg-rt-peers").value.trim().toUpperCase();
+  const qs = `symbol=${encodeURIComponent(hub)}&min_agreeing=${$("fg-rt-agree").value}&min_exposure_pct=${$("fg-rt-exposure").value}` +
+    (peers ? `&peers=${encodeURIComponent(peers)}` : "");
+  $("fg-rt-note").textContent = `clustering ${hub}…`;
+  $("fg-rt-warn").innerHTML = "";
+  $("fg-rt-out").innerHTML = `<div class="empty">Reading the peer group, then a filing per member…</div>`;
+  setStatus("FLAGGED: READ-THROUGH " + hub);
+  let d;
+  try {
+    d = await api(`/api/v1/flagged/read_through?${qs}`);
+  } catch (e) {
+    // "No laggard" is a 404 with the cluster summary in the message — still worth showing.
+    $("fg-rt-note").textContent = "";
+    $("fg-rt-out").innerHTML = `<div class="empty">${escapeHtml(e.message)}</div>`;
+    setStatus(/No laggard/.test(e.message) ? "FLAGGED: NO READ-THROUGH" : "ERR: " + e.message);
+    return;
+  }
+  const x = d.extra || {};
+  $("fg-rt-note").textContent = `${(x.cluster || []).length} in cluster · ${(x.members_disaggregating || []).length} disaggregate · ${(x.lines || []).length} shared lines · ${d.results.length} read-through(s)`;
+  const linesTable = `<div class="subhead" style="margin-top:14px">SHARED LINES</div><div class="tablewrap"><table>
+      <tr><th>Line</th><th>Members</th><th>Reported this quarter</th><th>Accelerating</th><th>Decelerating</th><th>Verdict</th><th>Known</th></tr>` +
+    (x.lines || []).map((c) => `<tr>
+      <td>${escapeHtml(fgLineName(c.line))}</td>
+      <td class="mono">${(c.members || []).length}</td>
+      <td class="mono">${(c.reported_this_quarter || []).length}</td>
+      <td style="text-align:left" class="pos">${(c.accelerating || []).join(", ") || "-"}</td>
+      <td style="text-align:left" class="neg">${(c.decelerating || []).join(", ") || "-"}</td>
+      <td style="text-align:left" class="${c.verdict === "common inflection" ? "warn" : "dim"}">${escapeHtml(c.verdict || "")}${c.direction ? " (" + c.direction + ")" : ""}</td>
+      <td class="mono dim">${escapeHtml(c.known_on || "")}</td>
+    </tr>`).join("") + `</table></div>`;
+  const cards = d.results.map((r) => `<div class="fg-card">
+      <div class="fg-card-h">
+        <span class="fg-sym" data-fg-open="${escapeHtml(r.symbol)}">${escapeHtml(r.symbol)}</span>
+        <span class="fg-flag">${escapeHtml(fgLineName(r.line))} · ${r.direction === "down" ? "decelerating" : "accelerating"}</span>
+        <span class="fg-kind">${escapeHtml(r.own_status || "")}</span>
+        <span class="fg-date">pattern complete ${escapeHtml(r.known_on)}</span>
+      </div>
+      <div class="fg-summary">${escapeHtml(r.summary)}</div>
+      <div class="fg-paras">${(r.confirmers || []).map((c) =>
+        `<div class="fg-para"><b>${escapeHtml(c.symbol)}</b> ${fgLineName(r.line)} growth ${c.growth != null ? fmtPct(c.growth, true) : "?"} ` +
+        `<span class="mono ${c.inflection < 0 ? "neg" : "pos"}">(${c.inflection > 0 ? "+" : ""}${(c.inflection * 100).toFixed(0)}pp)</span> quarter to ${escapeHtml(c.quarter || "?")}, filed ${escapeHtml(c.filed || "?")}` +
+        `${c.consensus_drift_90d != null ? ` · consensus ${fmtPct(c.consensus_drift_90d, true)} / 90d` : ""}</div>`).join("")}</div>
+      <div class="fg-meta">exposure ${(r.exposure * 100).toFixed(0)}% of revenue on ${escapeHtml(r.line_label || r.line)} (${escapeHtml(r.dimension || "")}) · ` +
+      `own FY1 EPS consensus ${fmtPct(r.consensus_drift_90d, true)} over 90d, net revisions ${r.net_revisions_30d ?? "?"} · cluster: ${(r.cluster || []).join(", ")}</div>
+      <div class="fg-artifact"><b>How this flag lies:</b> ${escapeHtml(fgArtifact("read_through"))}</div>
+    </div>`).join("");
+  $("fg-rt-out").innerHTML = cards + linesTable;
+  $("fg-rt-out").querySelectorAll("[data-fg-open]").forEach((s) => { s.onclick = () => openStock(s.dataset.fgOpen, "flagged"); });
+  setStatus("FLAGGED: READ-THROUGH READY");
+}
+$("fg-rt-run").onclick = fgRunReadThrough;
+$("fg-rt-symbol").onkeydown = (ev) => { if (ev.key === "Enter") fgRunReadThrough(); };
+
+$("fg-fl-run").onclick = () => fgRunFlows(null);
+$("fg-fl-one").onclick = () => { const s = $("fg-fl-symbol").value.trim().toUpperCase(); if (s) fgRunFlows(s); };
+$("fg-fl-symbol").onkeydown = (ev) => { if (ev.key === "Enter") $("fg-fl-one").click(); };
+
+$("fg-mkt-run").onclick = fgRunMarket;
+$("fg-scan-run").onclick = fgRunScan;
+$("fg-scan-symbol").onkeydown = (ev) => { if (ev.key === "Enter") fgRunScan(); };

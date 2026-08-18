@@ -254,8 +254,11 @@ def triage_status(user: User = Depends(get_current_user)) -> dict:
 
 
 @router.get("/triage/sources")
-def triage_source_menu(user: User = Depends(get_current_user)) -> dict:
-    """Every registered idea source, with the tunables each one accepts.
+def triage_source_menu(
+    universe: Optional[str] = None,
+    user: User = Depends(get_current_user),
+) -> dict:
+    """Registered idea sources, optionally filtered by generator tab.
 
     Insider clusters were the first funnel, not the only one. A caller building
     a picker reads this rather than hardcoding a list, and the params it
@@ -264,7 +267,17 @@ def triage_source_menu(user: User = Depends(get_current_user)) -> dict:
     """
     from ..thesis import sources
 
-    return {"sources": sources.catalogue(), "default": sources.DEFAULT}
+    if universe is not None and universe not in (
+        sources.STOCK_UNIVERSE, sources.SECTOR_UNIVERSE
+    ):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "universe must be 'stocks' or 'sectors'",
+        )
+    return {
+        "sources": sources.catalogue(universe),
+        "default": sources.default_for(universe),
+    }
 
 
 @router.post("/triage")
@@ -331,10 +344,13 @@ def run_triage(
     symbols = [r["symbol"] for r in rows]
 
     # Price context for the cards — one batched call; absence is survivable.
+    # SPY goes first because the batch is truncated at 50 symbols upstream, and
+    # a benchmark appended last is the first thing a long funnel drops. Losing
+    # it costs every card its "vs SPY" line, silently.
     moves_by_symbol: dict = {}
     spy_moves: dict = {}
     try:
-        perf = execute("/equity/price/performance", symbol=",".join(symbols + ["SPY"]))
+        perf = execute("/equity/price/performance", symbol=",".join(["SPY"] + symbols))
         for row in perf.results:
             if row.get("symbol") == "SPY":
                 spy_moves = row
@@ -541,7 +557,15 @@ def run_deepdive(
                                  "reason": "unregistered command or bad comparator"})
                 continue
             by_days = check.get("by_date_days")
-            candidate = ThesisCheck(
+            # Named for what it is. This used to be called ``candidate``, which
+            # is also the name of this endpoint's request body — so installing
+            # any falsifier rebound the triage candidate to a ThesisCheck, and
+            # the ``memory.record_deepdive`` call below then tried to write an
+            # ORM object into a JSON column. That write is wrapped in a
+            # try/except that logs and moves on, so the symptom was not an
+            # error: it was deep dives quietly never reaching the graded log,
+            # and only the ones that installed a falsifier.
+            proposed = ThesisCheck(
                 thesis_id=thesis.id, name=str(check["name"])[:200],
                 command_path=check["path"], parameters=dict(check.get("params") or {}),
                 field=str(check["field"])[:64], comparator=str(check["comparator"]),
@@ -555,13 +579,13 @@ def run_deepdive(
             # believed is not yet crossed; both are claims about live data, and
             # neither survives being wrong quietly. A rejected check is visible
             # in the response rather than dropped.
-            _, state, problem = spine.preflight(candidate)
+            _, state, problem = spine.preflight(proposed)
             if problem:
-                rejected.append({"name": candidate.name,
-                                 "path": candidate.command_path,
+                rejected.append({"name": proposed.name,
+                                 "path": proposed.command_path,
                                  "reason": problem})
                 continue
-            db.add(candidate)
+            db.add(proposed)
             installed += 1
     db.commit()
     db.refresh(thesis)

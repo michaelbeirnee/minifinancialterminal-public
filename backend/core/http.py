@@ -156,6 +156,20 @@ def get_csv(url: str, *, read_kwargs: Optional[Dict[str, Any]] = None, **kwargs:
         raise ProviderError(f"Could not parse CSV from {url}: {exc}")
 
 
+def get_excel(url: str, *, read_kwargs: Optional[Dict[str, Any]] = None, **kwargs: Any) -> pd.DataFrame:
+    """Read a spreadsheet the way :func:`get_csv` reads a CSV.
+
+    Fund sponsors publish their daily holdings files as .xlsx rather than CSV,
+    and those files carry a preamble above the table, so callers normally pass
+    ``read_kwargs={"header": None}`` and locate the header row themselves.
+    """
+    body = fetch(url, **kwargs)
+    try:
+        return pd.read_excel(io.BytesIO(body), **(read_kwargs or {}))
+    except Exception as exc:  # noqa: BLE001 - openpyxl/pandas raise a wide range here
+        raise ProviderError(f"Could not parse spreadsheet from {url}: {exc}")
+
+
 def get_xml(url: str, **kwargs: Any) -> ET.Element:
     body = fetch(url, **kwargs)
     try:

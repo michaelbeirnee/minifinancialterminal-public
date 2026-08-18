@@ -27,6 +27,33 @@ def test_int_param_coerces_and_clamps():
     assert param.coerce("banana") == 2
 
 
+def test_int_param_accepts_a_decimal_string():
+    """``limit=20.0`` is a value the caller meant, not a parse failure.
+
+    Falling back to the default here is the worst of the three options: the
+    caller gets neither what they asked for nor a clamp bound, and nothing
+    says so.
+    """
+    param = sources.Param("int", 2, 1, 8)
+    assert param.coerce("4.0") == 4
+    assert param.coerce("4.7") == 4      # truncated, not rounded
+    assert param.coerce("99.9") == 8     # clamped first, then narrowed
+
+
+def test_params_refuse_nan_and_infinity():
+    """A clamp does not clamp NaN: ``max(nan, low)`` is ``nan``.
+
+    Left through, it reaches a scanner as a gate no row can satisfy, and the
+    funnel returns nothing for a reason nobody can see.
+    """
+    number = sources.Param("float", 12.0, 1.0, 80.0)
+    assert number.coerce("nan") == 12.0
+    assert number.coerce("inf") == 12.0
+    assert number.coerce("-inf") == 12.0
+    assert number.coerce(float("nan")) == 12.0
+    assert sources.Param("int", 20, 1, 40).coerce("nan") == 20
+
+
 def test_bool_and_float_params():
     flag = sources.Param("bool", False)
     assert flag.coerce("true") is True
@@ -84,6 +111,26 @@ def test_every_registered_source_is_well_formed():
         assert source.family_namespace, name
 
 
+def test_every_declared_param_is_accepted_by_its_funnel():
+    """A tunable the scanner does not take is a control that silently does nothing.
+
+    ``run_triage`` calls ``execute(src.command, **params)``, so a param name
+    that drifted from its function signature raises ``TypeError`` inside the
+    endpoint's bare ``except`` and is reported as "funnel produced no
+    candidates" — an empty scan indistinguishable from a real one.
+    """
+    import backend.extensions  # noqa: F401 - fills REGISTRY as a side effect
+
+    from backend.core.registry import REGISTRY
+
+    for name in sources.names():
+        source = sources.get(name)
+        accepted = {p["name"] for p in REGISTRY[source.command].parameters}
+        unknown = set(source.params) - accepted
+        assert not unknown, "{} declares {} which {} does not accept".format(
+            name, sorted(unknown), source.command)
+
+
 def test_every_source_names_a_registered_funnel():
     """Lazy validation catches a source whose command was never registered."""
     import backend.extensions  # noqa: F401 - fills REGISTRY as a side effect
@@ -97,7 +144,19 @@ def test_catalogue_describes_every_source():
     assert [entry["name"] for entry in catalogue] == sources.names()
     for entry in catalogue:
         assert set(entry) >= {"name", "label", "scope", "command",
-                              "namespace", "params"}
+                              "namespace", "universe", "params"}
+
+
+def test_catalogue_can_split_stock_and_sector_generators():
+    stock_names = set(sources.names(sources.STOCK_UNIVERSE))
+    sector_names = set(sources.names(sources.SECTOR_UNIVERSE))
+
+    assert stock_names
+    assert sector_names == {sources.SECTOR_ROTATION}
+    assert stock_names.isdisjoint(sector_names)
+    assert stock_names | sector_names == set(sources.names())
+    assert sources.default_for(sources.STOCK_UNIVERSE) == sources.DEFAULT
+    assert sources.default_for(sources.SECTOR_UNIVERSE) == sources.SECTOR_ROTATION
 
 
 # --------------------------------------------------------------------------- #
@@ -236,6 +295,29 @@ def test_source_menu_lists_every_funnel(auth_client):
     # The params advertised are the query keys the endpoint will honour.
     assert "min_officers" in insider["params"]
     assert insider["params"]["min_officers"]["max"] == 10
+
+
+def test_source_menu_filters_each_generator_tab(auth_client):
+    stocks = auth_client.get(
+        "/api/theses/triage/sources?universe=stocks"
+    ).json()
+    sectors = auth_client.get(
+        "/api/theses/triage/sources?universe=sectors"
+    ).json()
+
+    assert stocks["default"] == sources.DEFAULT
+    assert {entry["name"] for entry in stocks["sources"]} == set(
+        sources.names(sources.STOCK_UNIVERSE)
+    )
+    assert sectors["default"] == sources.SECTOR_ROTATION
+    assert [entry["name"] for entry in sectors["sources"]] == [
+        sources.SECTOR_ROTATION
+    ]
+    assert all(entry["universe"] == sources.SECTOR_UNIVERSE
+               for entry in sectors["sources"])
+
+    invalid = auth_client.get("/api/theses/triage/sources?universe=commodities")
+    assert invalid.status_code == 422
 
 
 def test_source_menu_carries_what_the_frontend_renders(auth_client):

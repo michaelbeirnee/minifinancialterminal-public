@@ -3,7 +3,7 @@
 **[michaelbeirnee.github.io/minifinancialterminal-public](https://michaelbeirnee.github.io/minifinancialterminal-public/)** — project site
 
 An **open-source financial research terminal** — an OpenBB-style data platform with
-**277 commands** across equities, ETFs, crypto, FX, derivatives, macro, fixed income
+**310 commands** across equities, ETFs, crypto, FX, derivatives, macro, fixed income
 and regulatory filings, plus a factor-model engine, a backtester and HTML tearsheets.
 
 Every data source is **free or public-domain**. There is no paid vendor anywhere in
@@ -32,7 +32,7 @@ mft.quantitative.performance(symbol="AAPL,MSFT,SPY")
 | **REST API** | `GET /api/v1/equity/price/historical?symbol=AAPL` — one route per command, documented at `/docs` |
 | **Python** | `from backend.core.interface import mft` then `mft.equity.price.historical(...)` |
 | **CLI** | `python -m cli.terminal` — menu navigation, tab completion, CSV export |
-| **Web UI** | `http://localhost:8000` → **DATA** tab browses every command; **PORTFOLIO** tab tracks what you own; **SAVED** tab holds watchlists, alerts, saved commands and history; any stock page has a **FINANCIALS** tab with the three statements — annual, quarterly, or the year so far beside an estimate of where the full year lands — plus the revenue behind them split by segment, geography and product line; an **EXPOSURE** map of who it buys from and sells to; a **COMPARE** tab that builds a peer group out of three disagreeing sources and puts it side by side on valuation, growth, risk and what each company actually sells; **THESIS** tab tracks falsifiable claims and the signals behind them; **MODELING** tab builds savable DCFs seeded from the filings; **ASSISTANT** tab answers questions and runs commands for you |
+| **Web UI** | `http://localhost:8000` → **RESEARCH WORKBENCH** keeps top-down and bottom-up evidence separate, makes the exposure bridge explicit, and freezes the joined packet into a tracked thesis; **DATA** browses every command; **PORTFOLIO** tracks what you own; **SAVED** holds watchlists, alerts, saved commands and history; any stock page has **FINANCIALS**, **EXPOSURE** and **COMPARE** tabs; **MODELING** builds savable DCFs; **CALENDAR** maps dated events; **FLAGGED** diffs a company's newest filing against its previous one and screens the whole market for accrual changes; **VOLATILITY** reads the fear gauges and sets a name's realised vol against what its options imply; **ASSISTANT** answers questions and runs commands for you |
 
 All four read the same registry, so a command added under `backend/extensions/`
 appears in every one of them with no extra wiring.
@@ -45,10 +45,10 @@ appears in every one of them with no extra wiring.
 |---|---:|---|
 | **equity** | 70 | prices, quotes, performance, profile, search, screener, 10 discovery screens, 5 calendars, 20 fundamental commands (including the three statements as one ordered document and revenue split by segment, geography and product line), 5 estimates, 7 ownership, shorts, dark pool, 3 supply-chain relationship commands mined from filings, and a peer group blended from classification, SIC registration and the filings that name the company as competition — with the side-by-side comparison built on it |
 | **technical** | 40 | 35+ indicators: MAs (SMA/EMA/WMA/HMA/ZLMA/DEMA/TEMA), RSI, MACD, stochastic, CCI, ADX, Aroon, Ichimoku, Supertrend, PSAR, Bollinger, Keltner, Donchian, OBV, A/D, CMF, MFI, VWAP, Fisher, TSI, PPO, DeMark, vol cones, Hurst, Clenow momentum |
-| **economy** | 34 | CPI, PCE, GDP, unemployment, payrolls, claims, money supply, Fed balance sheet, SLOOS, financial conditions, house prices, trade, debt, country profiles, calendars, surveys |
+| **economy** | 47 | CPI, PCE, GDP, unemployment, payrolls, claims, money supply, SLOOS, financial conditions, house prices, trade, debt, country profiles, calendars, surveys — plus `fed/*`, the whole Fed surface read from the Fed's own publications: every hike and cut since 1982 and the cycles they group into, what each cycle did to stocks, bonds and gold, the SEP and the dot plot with the revision against the last one, the statement with its vote, dissents and a sentence diff of what changed in the wording, speeches and congressional testimony, the balance sheet and its runoff pace, the emergency lending facilities, and the days the expected path repriced |
 | **quantitative** | 18 | normality battery, unit root, CAPM, rolling stats, Sharpe/Sortino/Calmar/Omega/Ulcer, VaR & CVaR, drawdown |
 | **fixedincome** | 15 | Treasury curves, auctions, debt, TIPS, spreads, ICE BofA, Moody's, commercial paper, HQM, SOFR/EFFR/OBFR/IORB, mortgage rates |
-| **etf** | 11 | search, profile, holdings, sector & asset-class weights, bond ratings, performance, reverse equity exposure |
+| **etf** | 16 | search, profile, holdings, sector & asset-class weights, bond ratings, performance, reverse equity exposure — plus `basket/*` for SPDR funds, which reads the sponsor's own daily file instead of a ten-row summary: every line of the basket with its running weight, concentration (HHI, effective holdings, how few names are half the fund), the GICS industry split under the sector label, return attribution by holding, and weight overlap between two funds |
 | **econometrics** | 10 | correlation/covariance, OLS (+ full summary), VIF, Granger causality, cointegration, unit root, autocorrelation diagnostics, panel models (pooled / fixed / between / first-difference / Fama-MacBeth) |
 | **regulators** | 10 | SEC CIK maps, registrant search, EDGAR full-text search, SIC codes, press releases, bulk datasets; CFTC COT |
 | **charting** | 9 | candlesticks, comparison, drawdown, histogram, correlation heatmap, yield curve, performance bars, vol cones, and a generic "chart any command" |
@@ -56,10 +56,15 @@ appears in every one of them with no extra wiring.
 | **derivatives** | 8 | option chains, expirations, unusual activity, IV surface, put/call snapshots, futures history and term structure |
 | **index** | 7 | membership for 16 indices, index prices, regional snapshots, sector breakdown, 11 long-run S&P 500 valuation series |
 | **crypto** | 6 | prices, ranked market table, global dominance, categories, coin universe |
-| **thesis** | 12 | candidate funnels for insider and congressional clusters, undervalued large caps, undervalued growth, crowded shorts and one-month price dislocations; issuer-level insider/holder detail; and the graded signal log with per-family base rates |
+| **thesis** | 23 | separate stock and sector thesis generators; 17 candidate funnels — insider and congressional clusters, two valuation screens, high growth, quality, free cash flow yield, margin expansion, balance-sheet stress, momentum, dividend growth, estimate revisions, crowded shorts, price dislocations, propagation along disclosed supply-chain links, cointegrated-pair dislocations restricted to those same links, and the market-wide accrual flags from `/flagged` — plus sector rotation, issuer-level detail, and the graded signal log with per-family base rates |
 | **currency** | 4 | pairs, history, ECB reference rates, cross-rate snapshots |
-| **news** | 4 | company headlines, merged newswire tape, topic search, feed list |
+| **news** | 5 | company headlines; a newswire tape merged from ~290 feeds in 20 desks (market wires, business, economy, policy and the international press by default; energy, healthcare, tech, real estate, commodities, FX, crypto, opinion and more on request); topic search; feed and desk catalogues |
+| **calendar** | 3 | earnings, ex-dividend and payment dates, splits, IPOs, macro releases, FOMC decisions and minutes, and Fed speeches and testimony normalised onto one dated row shape and filterable by type, symbol and size; a ranked, region-filterable economic calendar; and the event-type catalogue, which also names the types no free source can fill |
 | **sentiment** | 5 | lexicon-scored news sentiment: market-wide mood, all 11 GICS sectors, per-ticker summaries, story-by-story scores, historical weekly series rebuilt from the Google News archive (feeds the `news_sentiment` backtest strategy — sector ETFs like XLE trade their sector's news) |
+| **screener** | 2 | ETF and mutual-fund screeners |
+| **overview** | 1 | joined daily market brief with regime, movers, headlines and earnings |
+| **research** | 1 | traceable top-down and bottom-up context packet with sector-specific frameworks, an explicit exposure bridge and a source manifest |
+| **flagged** | 5 | change detection instead of levels: what moved between a filer's newest filing and its own previous one — risk factors added or dropped, a customer concentration appearing or vanishing, an auditor change, a share count rising against buybacks, deferred revenue diverging from revenue, receivables outrunning sales, a concept tagged for the first time, a one-sided cluster of rating changes — each dated to the day it became public; the three accrual flags computed for the entire market from SEC's cross-company XBRL frames and ranked by percentile; institutional-flow inflections at small caps from SEC's 13F data sets, stated in days of the name's own volume with what the sellers still hold; shared-end-market read-through, where peers disclosing the same geography or product line report the same inflection and one member's consensus has not moved; and the flag catalogue, which states how each flag lies |
 
 `GET /api/v1/_registry` returns the whole surface; `/api/v1/_search?query=…` finds a command.
 
@@ -73,13 +78,16 @@ appears in every one of them with no extra wiring.
 | **SEC EDGAR** | XBRL fundamentals, segment revenue read from the filings, filings, full-text search, Form 4, 13F, fails-to-deliver, supplier/customer relationships | none |
 | **FRED** | US macro, rates, credit spreads (key-free CSV endpoint) | optional |
 | **US Treasury / TreasuryDirect / NY Fed** | yield curves, auctions, debt, SOFR/EFFR/OBFR | none |
+| **Federal Reserve Board** | the FOMC calendar, statements and minutes, the SEP and dot-plot tables, and the speech/testimony/press feeds | none |
+| **BEA** | when each national-accounts report was actually published (PCE, GDP) | none |
 | **ECB · World Bank · IMF · OECD · Frankfurter** | euro-area curves, FX, cross-country macro, WEO forecasts | none |
 | **FINRA · CFTC** | short-sale volume, ATS/dark-pool volume, Commitments of Traders | none |
 | **Senate EFD** | STOCK Act periodic transaction reports — congressional trading (Senate only) | none |
+| **State Street (SSGA)** | the full daily holdings file behind every SPDR ETF — the whole basket, not a top-ten summary | none |
 | **Stooq · Cboe · Nasdaq · Wikipedia · multpl** | backup prices, delayed option chains, calendars, index membership, CAPE | none |
 | **CoinGecko** | crypto prices, market caps, dominance | none |
 | **EIA · BLS** | energy reports, labour & price statistics | EIA needs a free key |
-| **RSS newswires** | ~40 feeds: WSJ, FT, NYT, Economist, CNBC, MarketWatch, Yahoo, Fortune, Business Insider, Benzinga, TheStreet, Nasdaq, BBC, Guardian, NPR, Fed, ECB, BoE, SEC, OilPrice, CoinDesk, Cointelegraph — plus Reuters, Bloomberg and Barron's via Google News RSS search | none |
+| **RSS newswires** | ~290 feeds in 20 desks — Bloomberg, FT, NYT, Economist, CNBC, MarketWatch, Yahoo, Fortune, Forbes, Fox Business, CBS/NBC/ABC business desks, Benzinga, TheStreet, Nasdaq, Seeking Alpha; the Fed, ECB, BoE, BoJ, BoC, RBA, RBNZ, Riksbank, RBI and BIS central-banker speeches; SEC, CFTC, OCC, CFPB, FTC, DOJ, FCA, HM Treasury, USTR, WTO, the Federal Register; BEA, Census, ONS; Nikkei, SCMP, Economic Times, Livemint, Straits Times, Financial Post, SMH, DW, France 24, Sky, City A.M.; sector trades from Rigzone, Mining.com and FreightWaves to STAT, Endpoints, HousingWire, TechCrunch and CoinDesk; and ~30 economics blogs and newsletters — plus Reuters, WSJ, Barron's, Nikkei Asia and Kitco via Google News RSS search. Every feed is checked to parse *and* to be current when added | none |
 
 Only EIA strictly requires a key (free, 30 seconds to get). FRED and BLS work without
 one and simply get higher limits or extra endpoints when a key is present — every
@@ -251,6 +259,24 @@ rather than a bare symbol is the whole of the new analytics.
 
 ---
 
+## Research Workbench
+
+The **RESEARCH WORKBENCH** is the expandable shell between discovery and the
+thesis ledger. `GET /api/v1/research/context` assembles one reusable packet with
+independent top-down and bottom-up lanes, a transparent mechanical read, and a
+manifest of every command and provider used. One unavailable source degrades
+coverage without discarding the other evidence.
+
+The joined read does not pretend that a macro theme automatically belongs to a
+company. Its exposure bridge requires four links — driver, disclosed exposure,
+financial transmission and expectations gap — before the user writes a
+falsifiable claim. Creating a tracked thesis freezes the same context command as
+point-in-time evidence. The module rail routes into stock ideas, sector ideas,
+modeling, catalysts and monitoring, and is the extension point for later
+research categories.
+
+---
+
 ## The thesis engine
 
 Most of this platform answers questions. The **THESIS** tab is the part that
@@ -270,8 +296,61 @@ sources     the menu of funnels; insider was the first, not the only
               /thesis/congress_clusters  — the same shape over STOCK Act filings
               /thesis/undervalued_large_caps — low P/E + PEG discrepancy queue
               /thesis/undervalued_growth — growth and valuation disagree
+              /thesis/high_growth        — explicit revenue, EPS and market-cap gates
+              /thesis/quality_compounders — high ROE and margin, low leverage
+              /thesis/cash_generative    — ranked by free cash flow yield
+              /thesis/margin_expansion   — profits growing far faster than sales
+              /thesis/balance_sheet_stress — distress zone; either side of the trade
+              /thesis/momentum_leaders   — near 52w highs; the mirror of dislocations
+              /thesis/dividend_growers   — long payout streaks still yielding
+              /thesis/estimate_revisions — the one funnel screening a change, not a level
               /thesis/crowded_shorts     — short case or squeeze case; direction-neutral
               /thesis/price_dislocations — large 1m drawdowns that need explaining
+              /thesis/link_propagation   — selects on a disclosed relationship, not a company
+              /thesis/pair_dislocation   — cointegration only where a filing joins the pair
+              /thesis/sector_rotation    — 11 sector ETFs ranked by 3m return vs SPY
+```
+
+Sixteen of those are stock funnels and one is a sector funnel; `Source.universe`
+is what splits them across the two generator tabs, and `GET /triage/sources?
+universe=stocks` is what each tab reads. The frontend renders whatever that
+endpoint describes, so registering the eighteenth needs no frontend change.
+
+**Two of them select on an edge rather than a node.** Every other funnel here
+ranks companies by a property of the company. `/thesis/link_propagation` starts
+from the supply-chain graph mined out of filings — "sales to Company A accounted
+for 27% of our net sales" — waits for something material to move at A, and emits
+candidates at everyone who disclosed a dependence on it, carrying the disclosed
+percentage as the transmission channel and the counterparty's own untouched
+estimates as the reason it might not be priced. What moved at A is read three
+ways: the next-year consensus (cheap, timely, and only the sell side's view), a
+reportable segment shrinking or decelerating two quarters running in A's own
+XBRL (slow, and the only channel measuring demand rather than expectations), and
+the price. The candidate arrives with its falsifier already attached — *B's
+estimates have not moved* is a claim that dies the moment they do — which is why
+rows whose estimates already moved are emitted alongside rather than filtered
+out: they are the control group the others get graded against. See
+[docs/link-propagation.md](docs/link-propagation.md).
+
+**The second turns the same edges into a search space.** Run a cointegration
+test over every pair in an index and the 5% that pass by chance outnumber the
+ones with a reason to. `/thesis/pair_dislocation` refuses to test a pair unless a
+filing joins the two companies first — one discloses the other as a supplier or
+customer with a percentage attached, one names the other as competition in its
+10-K, or two independent classifications put them in the same segment — and only
+then fits the log-price relationship, tests it with Engle-Granger, and reads the
+most recent quarter against it *out of sample*: the hedge ratio, the sigma and
+the cointegration test all come from history the recent window never touched.
+Pairs at least `z_threshold` sigmas from that fit are emitted as `dislocated`
+(the whole window still cointegrates: stretched) or `broken` (it no longer does:
+something may have changed), the leg that moved less is the candidate, the
+sentence that admitted the pair is on the card, and the result reports how many
+pairs were tested so the reader can see how many chances the search had to fool
+them. Restricting the search to economically justified pairs is what keeps this
+from being data mining. See [docs/pair-dislocation.md](docs/pair-dislocation.md).
+
+```
+
 triage      one structured model call: rank, and add world knowledge as hypotheses
 deep dive   a tool loop that verifies a candidate and proposes falsifiers
 spine       the thesis itself: frozen evidence, executable checks, derived status
@@ -284,10 +363,22 @@ accepts and their clamps, the lines it renders on a card, and `artifact_rule`:
 the way *this* funnel characteristically produces false positives. Insiders
 trade on calendar, not conviction; a congressional "cluster" is often unrelated
 trades whose 45-day deadlines fell in the same week; cheap screens can be peak
-earnings in the denominator; a crowded short can become either a short or a
-squeeze; and a drawdown does not reveal its cause. Each source states its own
-failure mode and it lands in the triage prompt as the rule the model must argue
-past, so nothing below the funnel needs to know which scanner ran.
+earnings in the denominator; a high return on equity is often just a denominator
+shrunk by buybacks; profits outrunning sales is as easily a one-off cost cut as
+operating leverage; a momentum screen selects on the outcome it is being asked
+to predict; a crowded short can become either a short or a squeeze; a drawdown
+does not reveal its cause; and a disclosed link is exactly as old as the filing
+it came out of, sized against a whole company rather than against the hub
+segment that actually moved. Each source states its own failure mode and
+it lands in the triage prompt as the rule the model must argue past, so nothing
+below the funnel needs to know which scanner ran.
+
+One thing every screen-backed funnel has to work around: **Yahoo's screener does
+not return the fields it was filtered on.** A screen gated on EBITDA growth
+answers with an ordinary quote payload that has never carried it, so reading the
+gate back off the row yields `None` — silently, forever. Each funnel therefore
+gates with the screen and then reads its own numbers back from the company
+profile before grading anything.
 
 Everything downstream is shared: the card frame (symbol, price context, measured
 base rate), the anti-slop pass, the deep dive, the spine, the graded log. A new
@@ -387,6 +478,88 @@ the Senate disclosed on the symbol under the STOCK Act. The second is a
 different population under a different statute, never corroboration of the
 first. Both are off with `relationships=false` / `politicians=false`, and both
 make the first scan on a cold cache slow and every later one fast.
+
+---
+
+## Flagged — change detection
+
+Every screen above measures a level. Levels are the commodity part of market
+data: the number is on the tape, every vendor sells it, and by the time a screen
+can rank on it the ranking is common knowledge. What is not commodity is the
+**delta between two filings by the same filer**, because computing one means
+holding both documents open and knowing which parts are comparable. That is
+what `/flagged/*` does — twelve flag types, ten of them a diff of a company's
+newest filing against its own previous one and two that read across filers:
+
+```
+GET /api/v1/flagged/scan?symbol=NVDA&kinds=all              every flag for one company
+GET /api/v1/flagged/market?screen=receivables&year=2025     one accrual flag, every SEC filer
+GET /api/v1/flagged/flows?direction=distribution            13F flow vs the tape, every small cap
+GET /api/v1/flagged/read_through?symbol=AMAT                 peers' disclosures as a laggard's evidence
+GET /api/v1/flagged/catalogue                                what each flag compares, and how it lies
+```
+
+| Flag | Read from |
+|---|---|
+| Risk factor added / removed — Item 1A paragraphs with no counterpart in the other year's report | two 10-K / 20-F documents |
+| Concentration appeared / vanished — a customer, supplier or receivable concentration stated in one annual report and not the other | two annual reports |
+| Auditor change — an 8-K Item 4.01, or the PCAOB firm id on the cover page changing | filing index + inline XBRL |
+| Share count against buybacks — cash out for repurchases while the diluted count still rose | XBRL facts |
+| Deferred revenue diverging from recognised revenue | XBRL facts |
+| Receivables outrunning sales — DSO rising | XBRL facts |
+| Accounting concept tagged for the first time | XBRL facts |
+| Sell-side ratings moved one way — a cluster of dated actions, or the consensus mix drifting | Yahoo (the one vendor-fed flag) |
+| Institutional flow against the tape — a 13F position change at a small cap, in days of the name's own volume, with the sellers' remaining overhang | SEC 13F data sets + the tape |
+| Shared end-market read-through — peers disclosing the same geography or product line report the same inflection; one exposed member's consensus has not moved | peers' filing XBRL + consensus |
+
+Two properties make the set worth having together. **Every flag is dated** —
+the filing date is the first day anyone outside the company could have known —
+so a flag drops straight into the graded signal log with an honest `known_on`
+and earns or fails to earn a base rate exactly like every other idea source;
+nothing here asserts a flag predicts anything, the log will say. And **the
+numeric half is computable for the whole market without a vendor**: SEC's XBRL
+frames endpoint answers "every filer's value for this concept in this period" in
+one request, so `/flagged/market` covers a couple of thousand filers in four to
+six requests and each row carries its percentile in the distribution the screen
+just computed. The market screen is registered as an idea source
+(`flagged_market`), so it triages through the same one-call model stage as
+every other funnel.
+
+Most of the code is not the diffs; it is what makes a diff honest. Item 1A is
+found by heading-shaped markers so a late "see Item 1A" cannot claim the rest of
+the filing; paragraphs match on bigram *or* content-word overlap with thresholds
+set against a filer that rewrote its whole risk section, and a balanced
+addition/removal count is labelled a rewrite and scored down; concentration
+sentences are reduced to *role | basis | counterparty-or-quantifier* keys, with
+the disclosure threshold ("10% or more") skipped and the comparative year's
+sentence dropped; the auditor is read from the `dei:AuditorFirmId` inline-XBRL
+tag, because a firm that renames itself keeps its PCAOB number; the market join
+insists that a balance and a flow end in the same period, because SEC's calendar
+frames pair a June year-end's December balance with its June revenue; and every
+market list ranks on the *capped* measure, then by size, so the top is not the
+filer with the most pathological denominator. `docs/flagged.md` has the whole
+argument and what the tops of the lists actually turned out to be.
+
+Two of the flags read across filers rather than within one. **Institutional
+flow against the tape** aggregates every 13F filer's position per issuer from
+SEC's structured data sets — filers present in both quarters only, so a manager
+crossing the reporting threshold is not a trade — and states the change in *days
+of the name's own average volume*, because at a small cap the entry or exit is
+the liquidity event and what the sellers still hold (`overhang_days`) is the
+forecastable part; index managers' share, probable PIPEs, single implausible
+filers and dual listings are labelled and scored down. **Shared end-market
+read-through** clusters a company with the peers whose revenue notes disclose
+the same geography or product line, finds the lines where several members
+report the same inflection in the same fiscal cohort, and names the exposed
+member whose consensus has not moved — the peers' disclosures are the evidence
+for its claim, and its print is the catalyst.
+
+The catalogue is the point. Every flag type states how it characteristically
+produces a false positive — a season's boilerplate arriving across a whole
+industry, a stock-financed acquisition swamping a year of buybacks, an ASC 606
+tag migration reading as a deferred-revenue collapse — and the Flagged view
+prints that note under every row. A reader should start from the objection, not
+the headline.
 
 ---
 
@@ -505,8 +678,8 @@ backend/
                  models.py     Result / MFTObject (results, provider, warnings, extra)
                  caching.py    graded TTLs        utils.py  JSON coercion, date/symbol helpers
   providers/     yahoo, sec, fred, treasury, intl, finra, markets, coingecko,
-                 govstats, newsfeeds — one module per data source, no command logic
-  extensions/    equity, equity_fundamental, etf, crypto, currency, derivatives,
+                 govstats, newsfeeds, spdr — one module per data source, no command logic
+  extensions/    equity, equity_fundamental, etf, basket, crypto, currency, derivatives,
                  index, news, sentiment, economy, fixedincome, commodity, regulators,
                  technical (+ indicators.py), quantitative, econometrics, charting
   assistant/     prompt.py     system prompt generated from the registry
@@ -584,11 +757,22 @@ they need network access.
 
 ## Known limits
 
+What is blocked at the source, what will rot and what is still an open call is
+tracked in [docs/future-fixes.md](docs/future-fixes.md), with what would close
+each one.
+
 * Yahoo's endpoints are unofficial and rate-limit under load; commands report which
   provider served them, and fall back where a second free source exists (Stooq for
   prices, SEC for fundamentals).
 * `/etf/equity_exposure` scans a fixed ETF universe because no free source publishes a
   reverse holdings index — pass `universe=` to widen it.
+* `/etf/basket/*` reads each fund sponsor's own daily holdings file, and only State
+  Street's is wired up, so full-basket coverage is SPDR funds — which is what the
+  sectors view runs on. Every other ETF still has Yahoo's ten-row `/etf/holdings`.
+* `/etf/basket/contribution` weights each holding by the share it held when the window
+  opened, backed out of today's published weight. That assumes the position's share
+  count did not change in between, so index additions and the quarterly rebalance leak
+  into the residual — which the command reports rather than absorbs.
 * Panel econometrics are estimated with OLS on the appropriate transform; the random
   effects estimator is not implemented (it needs `linearmodels`).
 * EIA commands need a free key; the crude/gas/nat-gas *prices* they wrap are available
@@ -611,6 +795,33 @@ they need network access.
   a filer's SIC code is used to throw out the unrelated ones. Every row says which
   sources found it and links the filing that named it, and the group is editable and
   remembered per symbol. See [docs/peer-comparison.md](docs/peer-comparison.md).
+* No free source publishes market-implied rate-hike probabilities. CME's FedWatch reads
+  them out of fed funds futures, which are licensed data, so `/economy/fed/*` reports no
+  implied percentages at all rather than inventing them from something else. What it does
+  give is the market's own rate: `stance` puts the 2-year Treasury next to the target
+  midpoint, which is the same directional read — a 2-year well below the midpoint is the
+  market pricing cuts. The FOMC calendar page carries about six years of meetings, so
+  `/economy/fed/meetings` starts there while the decisions in `rate_changes` run back to
+  1982. Press-conference *tone* is out for a different reason — the transcripts are PDFs
+  and this project has no PDF dependency — so the language flags and the sentence diff in
+  `/economy/fed/statement` run on the statement, which is the document the committee
+  actually voted on. See [docs/fed-policy.md](docs/fed-policy.md).
+* CPI and the jobs report have no key-free release *schedule*: the BLS returns HTTP 403 to
+  automated readers on both its calendar pages and its own RSS. BEA's feed covers PCE and
+  GDP, and a free `MFT_FRED_API_KEY` fills in the official US release calendar. So
+  `/economy/fed/data_reaction` lists every day the 2-year Treasury repriced and names the
+  events it can date, marking the rest `none` — which means "nothing this platform can
+  date", not "nothing happened". The link between a move and an event on the same day is
+  left to the reader rather than asserted.
+* The calendar fills **nine of the sixteen** event types a terminal usually lists.
+  Earnings calls, sales results, conference appearances, shareholder meetings, corporate
+  access, analyst marketing and deal roadshows come from IR feeds and broker calendars
+  with no free public equivalent. They are still returned by `/calendar/event_types`,
+  marked unavailable with the reason, and drawn greyed out — a filter that silently
+  omitted them would read as "nothing scheduled" rather than "no source". Dividends
+  exist only as a per-day feed on a host that is politely rate-limited, so a cold month
+  of them takes about a minute and is cached after; the UI says so before the wait and
+  defaults to the fast source. See [docs/calendar.md](docs/calendar.md).
 * Revenue segments are read out of the filings themselves, because the XBRL company-facts
   API publishes every fact with its dimensions stripped off. Coverage therefore stops
   where a filer's tagging does: a company that only ever cross-tabs its segments against
@@ -625,6 +836,50 @@ they need network access.
   Amounts are brackets rather than sizes, and the filing can lag the trade by 45 days,
   so everything measured anchors on the filing date. See
   [docs/congressional-disclosures.md](docs/congressional-disclosures.md).
+* Propagation along a disclosed link inherits every limit of the disclosure it walks.
+  The percentage is a share of the counterparty's **whole company** in the year of its
+  filing, while the shock is usually one segment of the hub — nothing in either filing
+  says the counterparty serves that segment, and making the join is the reader's job,
+  not the scanner's. Magnitude only travels in the direction the filer wrote it, so
+  only counterparty-disclosed edges are walked: a hub naming a supplier tells you what
+  the supplier is worth to the hub, never the reverse. And "estimates have not moved"
+  has three causes — nobody is looking, everybody looked and judged it immaterial, or
+  the revenue has already been re-sourced — of which only the first is an opportunity.
+  Events are also anchored on the scan date rather than on the day the hub moved, so
+  this family's measured base rate depends partly on how promptly the scanner is run;
+  that one is a fix rather than a limit, and the doc ranks it against the rest of the
+  future work — including the two things that look worth automating and are not.
+  See [docs/link-propagation.md](docs/link-propagation.md).
+* Pair dislocation restricts the search and does not remove the statistics. Engle-Granger
+  is a weak, asymmetric test, run with the anchor as the dependent variable; at the
+  p-value ceiling one in ten unrelated pairs still passes, which is why
+  `extra.pairs_tested` and `extra.expected_false_cointegrations` are returned. Both
+  states describe the **spread**, not the business: a spread that no longer cointegrates
+  is what a relationship that genuinely ended looks like and also what a large lag looks
+  like, and the filing that admitted the pair — as old as its date — is the only thing
+  on the card that can tell them apart. See
+  [docs/pair-dislocation.md](docs/pair-dislocation.md).
+* The 13F flow screen is always a quarter behind — the filing deadline is 45 days after
+  quarter end and SEC publishes the data set a fortnight later — and it divides by the US
+  tape only, so a Canadian or Israeli dual listing's days of volume is overstated and the
+  row says so. It reads long positions only, and it cannot net a sub-adviser and its
+  parent both reporting the same shares; the per-filer attribution on the row is what
+  lets a reader see one book move. The read-through's cluster is the peer group and no
+  more coherent than that, and sharing a line is not sharing an exposure — the exposure
+  share is on the row for that reason. See [docs/flagged.md](docs/flagged.md).
+* Change detection sees what the filings let it see. The risk-factor and concentration
+  diffs need two annual reports on EDGAR, so a company's first 10-K has nothing to
+  compare against; the paragraph matcher is tuned on real filings but a rewrite of a
+  whole Item 1A still produces rows, labelled `rewrite_suspected` and scored down. Most
+  first-appearance concepts are the FASB moving rather than the company, which is why a
+  curated `watched` set is named and the rest merely counted. The market screens read
+  SEC's calendar frames, which pair an off-calendar filer's balance and flow from
+  different fiscal periods; those filers are dropped rather than mis-compared, and the
+  per-symbol scan reads them. The rating flag is the one row in the section with no
+  filing behind it — Yahoo's action feed is mostly "maintains", so the consensus mix is
+  read alongside — and it carries no conventional reading, since a wave of downgrades
+  is a short setup and a capitulation bottom in equal measure. See
+  [docs/flagged.md](docs/flagged.md).
 
 ## Licence
 

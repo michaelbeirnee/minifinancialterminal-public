@@ -66,6 +66,12 @@ def news_company(symbol: str, limit: int = 25, provider: Optional[str] = None) -
 @command("/news/world", providers=("rss", "google"), summary="Merged financial newswire tape")
 def news_world(sources: Optional[str] = None, query: Optional[str] = None, limit: int = 50,
                provider: Optional[str] = None) -> Result:
+    """``sources`` is a comma-separated mix of feed names and desks — ``energy``,
+    ``policy,cnbc_top``, ``all`` — as listed by ``/news/sources`` and
+    ``/news/categories``. Empty means the default desks: the market wires,
+    business and economy pages, central banks and regulators, and the
+    international business press. Sector desks, commentary and crypto are
+    opt-in so the default tape stays a reading of the market."""
     src = resolve_provider(provider, ("rss", "google"))
     if src == "google" or query:
         return Result(newsfeeds.google_news(query or "financial markets", limit), provider="google")
@@ -74,8 +80,17 @@ def news_world(sources: Optional[str] = None, query: Optional[str] = None, limit
 
 
 @command("/news/sources", providers=("rss",), summary="Configured news feeds")
-def news_sources() -> Result:
-    return Result(newsfeeds.available_sources(), provider="rss")
+def news_sources(category: Optional[str] = None) -> Result:
+    """Every feed with its desk and whether the default tape reads it; pass a
+    ``category`` to list one desk."""
+    return Result(newsfeeds.available_sources(category), provider="rss")
+
+
+@command("/news/categories", providers=("rss",), summary="News desks (feed groups)")
+def news_categories() -> Result:
+    """The desks a ``sources`` argument can name in place of individual feeds,
+    with feed counts and which of them the default tape reads."""
+    return Result(newsfeeds.available_categories(), provider="rss")
 
 
 @command("/news/search", providers=("google",), summary="Search the news for any topic")

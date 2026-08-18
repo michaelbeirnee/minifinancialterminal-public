@@ -11,11 +11,13 @@ from typing import List
 
 MODULES: List[str] = [
     "overview",
+    "research",
     "equity",
     "equity_fundamental",
     "compare",
     "relationships",
     "etf",
+    "basket",
     "crypto",
     "currency",
     "derivatives",
@@ -24,6 +26,8 @@ MODULES: List[str] = [
     "sentiment",
     "calendar",
     "economy",
+    "fed",
+    "fed_signals",
     "fixedincome",
     "commodity",
     "regulators",
@@ -34,7 +38,10 @@ MODULES: List[str] = [
     "econometrics",
     "charting",
     "thesis_candidates",
+    "thesis_propagation",
+    "thesis_pairs",
     "thesis_signals",
+    "flagged",
 ]
 
 _loaded = False
