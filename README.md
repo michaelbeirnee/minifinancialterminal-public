@@ -3,7 +3,7 @@
 **[michaelbeirnee.github.io/minifinancialterminal-public](https://michaelbeirnee.github.io/minifinancialterminal-public/)** — project site
 
 An **open-source financial research terminal** — an OpenBB-style data platform with
-**314 commands** across equities, ETFs, crypto, FX, derivatives, macro, fixed income
+**316 commands** across equities, ETFs, crypto, FX, derivatives, macro, fixed income
 and regulatory filings, plus a factor-model engine, a backtester and HTML tearsheets.
 
 Every data source is **free or public-domain**. There is no paid vendor anywhere in
@@ -53,7 +53,7 @@ appears in every one of them with no extra wiring.
 | **regulators** | 10 | SEC CIK maps, registrant search, EDGAR full-text search, SIC codes, press releases, bulk datasets; CFTC COT |
 | **charting** | 9 | candlesticks, comparison, drawdown, histogram, correlation heatmap, yield curve, performance bars, vol cones, and a generic "chart any command" |
 | **commodity** | 8 | spot prices, futures, complex performance, COT, EIA petroleum/STEO/gas storage |
-| **derivatives** | 8 | option chains, expirations, unusual activity, IV surface, put/call snapshots, futures history and term structure |
+| **derivatives** | 10 | option chains, expirations, unusual activity, IV surface, put/call snapshots, futures history and term structure — plus computed Black-Scholes greeks on every contract of a chain and a standalone pricer/implied-vol calculator, with spot, dividend yield and the Treasury rate assembled from the free sources already here |
 | **index** | 7 | membership for 16 indices, index prices, regional snapshots, sector breakdown, 11 long-run S&P 500 valuation series |
 | **crypto** | 6 | prices, ranked market table, global dominance, categories, coin universe |
 | **thesis** | 23 | separate stock and sector thesis generators; 17 candidate funnels — insider and congressional clusters, two valuation screens, high growth, quality, free cash flow yield, margin expansion, balance-sheet stress, momentum, dividend growth, estimate revisions, crowded shorts, price dislocations, propagation along disclosed supply-chain links, cointegrated-pair dislocations restricted to those same links, and the market-wide accrual flags from `/flagged` — plus sector rotation, issuer-level detail, and the graded signal log with per-family base rates |
@@ -874,6 +874,13 @@ each one.
   lets a reader see one book move. The read-through's cluster is the peer group and no
   more coherent than that, and sharing a line is not sharing an exposure — the exposure
   share is on the row for that reason. See [docs/flagged.md](docs/flagged.md).
+* The options greeks are computed, not fetched — no free source publishes them. The
+  model is Black-Scholes-Merton: European exercise on American contracts, so a put
+  (or a high-dividend call) is understated by the early-exercise premium. Yahoo's
+  per-contract implied vols are used as given by default and are frequently junk on
+  illiquid strikes; `iv_source=solved` re-derives the vol from the quote mid and
+  honestly returns null where no Black-Scholes vol reproduces the price. See
+  [docs/options-greeks.md](docs/options-greeks.md).
 * Live prices are as licensed as their source. Yahoo's streamer is real-time and
   key-free but undocumented, carries no bid/ask on most names, and can change without
   notice like every other yfinance call. Alpaca's free IEX feed is licensed and does
