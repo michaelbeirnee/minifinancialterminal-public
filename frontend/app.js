@@ -32,6 +32,156 @@ async function api(path, { method = "GET", body, form } = {}) {
   return data;
 }
 
+// ---------- live quotes ----------
+// One Server-Sent-Events connection per provider carries the union of every
+// symbol some view is watching; the views themselves only ever register a
+// callback. Watchers carry a `scope` (the view they belong to) so switching
+// views parks their symbols instead of streaming prices nobody can see. The
+// tape is scope "global" and streams everywhere.
+const Live = (() => {
+  const watchers = new Map();          // id -> {symbols, provider, scope, onTick}
+  const conns = new Map();             // provider -> {abort, symbols, state}
+  const status = { available: null, providers: {} };
+  let nextId = 1, activeView = "market", rebuildTimer = null;
+  const DEFAULT = "default";
+
+  function pill(state, provider, detail) {
+    const el = $("live-pill");
+    if (!el) return;
+    el.dataset.state = state;
+    const label = provider && provider !== DEFAULT ? provider.toUpperCase() : (status.available?.default_provider || "yahoo").toUpperCase();
+    el.textContent = state === "live" ? `● LIVE · ${label}` : state === "connecting" ? "● CONNECTING" : state === "error" ? "● RECONNECTING" : "● IDLE";
+    el.title = detail || (state === "live" ? "Streaming prices" : state === "idle" ? "No live view open" : "");
+  }
+
+  async function ensureStatus() {
+    if (status.available) return status.available;
+    try { status.available = await api("/api/stream/status"); } catch { status.available = { default_provider: "yahoo", providers: {} }; }
+    return status.available;
+  }
+
+  function wanted() {
+    const byProv = new Map();
+    watchers.forEach((w) => {
+      if (w.scope !== "global" && w.scope !== activeView) return;
+      const p = w.provider || DEFAULT;
+      if (!byProv.has(p)) byProv.set(p, new Set());
+      w.symbols.forEach((s) => byProv.get(p).add(s));
+    });
+    return byProv;
+  }
+
+  function dispatch(provider, ticks) {
+    watchers.forEach((w) => {
+      if ((w.provider || DEFAULT) !== provider) return;
+      if (w.scope !== "global" && w.scope !== activeView) return;
+      const mine = ticks.filter((t) => w.symbols.has(t.symbol));
+      if (mine.length) { try { w.onTick(mine); } catch (e) { console.warn("live watcher", e); } }
+    });
+  }
+
+  function refreshPill() {
+    const live = [...conns.values()].filter((c) => c.state === "live");
+    if (live.length) return pill("live", live[0].provider, `${live.map((c) => c.symbols.size).reduce((a, b) => a + b, 0)} symbols streaming`);
+    const bad = [...conns.values()].find((c) => c.state === "error");
+    if (bad) return pill("error", bad.provider, bad.detail);
+    if (conns.size) return pill("connecting");
+    pill("idle");
+  }
+
+  async function open(provider, symbols) {
+    const conn = { provider, symbols, abort: new AbortController(), state: "connecting", detail: "", backoff: 1000 };
+    conns.set(provider, conn);
+    refreshPill();
+    const url = `/api/stream/quotes?symbols=${encodeURIComponent([...symbols].join(","))}` +
+      (provider !== DEFAULT ? `&provider=${encodeURIComponent(provider)}` : "");
+    for (;;) {
+      if (conn.abort.signal.aborted) return;
+      try {
+        const res = await fetch(API + url, { headers: { Authorization: `Bearer ${token}` }, signal: conn.abort.signal });
+        if (res.status === 401) { logout(); return; }
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          conn.state = "error"; conn.detail = body.detail || `HTTP ${res.status}`; refreshPill();
+          if (res.status < 500) return;               // a bad request will not fix itself
+          throw new Error(conn.detail);
+        }
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const frames = buffer.split("\n\n");
+          buffer = frames.pop();
+          for (const frame of frames) {
+            const line = frame.split("\n").find((l) => l.startsWith("data: "));
+            if (!line) continue;
+            let ev; try { ev = JSON.parse(line.slice(6)); } catch { continue; }
+            if (ev.type === "hello") { conn.provider = ev.provider; conn.backoff = 1000; }
+            else if (ev.type === "status") {
+              conn.state = ev.connected ? "live" : "error"; conn.detail = ev.last_error || ""; refreshPill();
+            } else if (ev.type === "ticks") {
+              if (conn.state !== "live") { conn.state = "live"; refreshPill(); }
+              dispatch(provider, ev.ticks);
+            }
+          }
+        }
+      } catch (e) {
+        if (conn.abort.signal.aborted) return;
+        conn.state = "error"; conn.detail = e.message; refreshPill();
+      }
+      if (conn.abort.signal.aborted) return;
+      await new Promise((r) => setTimeout(r, conn.backoff));
+      conn.backoff = Math.min(conn.backoff * 2, 30000);
+    }
+  }
+
+  function rebuild() {
+    rebuildTimer = null;
+    const want = wanted();
+    conns.forEach((conn, provider) => {
+      const w = want.get(provider);
+      const same = w && w.size === conn.symbols.size && [...w].every((s) => conn.symbols.has(s));
+      if (!same) { conn.abort.abort(); conns.delete(provider); }
+    });
+    want.forEach((symbols, provider) => {
+      if (!conns.has(provider) && symbols.size) open(provider, symbols);
+    });
+    refreshPill();
+  }
+  function schedule() { clearTimeout(rebuildTimer); rebuildTimer = setTimeout(rebuild, 250); }
+
+  return {
+    /** Stream `symbols`; `onTick(ticks)` gets the newest tick per symbol. Returns a handle with close(). */
+    watch(symbols, onTick, { scope = "global", provider = null } = {}) {
+      const id = nextId++;
+      const set = new Set((Array.isArray(symbols) ? symbols : String(symbols).split(",")).map((s) => String(s).trim().toUpperCase()).filter(Boolean));
+      watchers.set(id, { symbols: set, provider, scope, onTick });
+      schedule();
+      return { id, close() { if (watchers.delete(id)) schedule(); } };
+    },
+    setView(view) { activeView = view; schedule(); },
+    ensureStatus,
+    providers() { return status.available?.providers || {}; },
+    defaultProvider() { return status.available?.default_provider || "yahoo"; },
+    closeAll() { watchers.clear(); schedule(); },
+  };
+})();
+
+// Flash a cell green or red as its number moves. `prev` is compared to `next`
+// so an unchanged print stays quiet.
+function livePaint(el, next, prev, text) {
+  if (!el) return;
+  if (text != null) el.textContent = text;
+  if (prev == null || next == null || next === prev) return;
+  el.classList.remove("flash-up", "flash-down");
+  void el.offsetWidth; // restart the animation
+  el.classList.add(next > prev ? "flash-up" : "flash-down");
+}
+const fmtLive = (x) => (x == null ? "-" : x >= 1000 ? x.toLocaleString(undefined, { maximumFractionDigits: 2 }) : x >= 10 ? x.toFixed(2) : x.toFixed(4).replace(/0+$/, "").replace(/\.$/, ".0"));
+
 const fmtPct = (x, sign) => { const s = (x * 100).toFixed(1) + "%"; return sign && x >= 0 ? "+" + s : s; };
 // Portfolio weights need a second decimal — the tail of a basket lives below 0.1%.
 const pctWeight = (x, dp = 2) => (x == null ? "-" : (x * 100).toFixed(dp) + "%");
@@ -101,6 +251,7 @@ $("au-submit").onclick = async () => {
   } catch (e) { msg.textContent = e.message; }
 };
 function logout() {
+  Live.closeAll();
   token = null;
   registry = null;
   localStorage.removeItem("mft_token");
@@ -120,6 +271,7 @@ async function enterTerminal() {
   workspaceOwner = me.username || "local";
   workspaceItems = null;
   $("who").textContent = `${me.username} · research`;
+  Live.ensureStatus();
   loadStockMode();
   await Promise.all([loadStrategies(), loadWatchCards(), loadMarketAll()]);
 }
@@ -133,6 +285,7 @@ document.querySelectorAll(".navbtn").forEach((b) => {
     $("view-" + b.dataset.view).classList.add("active");
     document.querySelector(".container").classList.toggle("workspace-open", b.dataset.view === "workspace");
     document.querySelector(".container").classList.remove("stock-wide");
+    Live.setView(b.dataset.view);
     if (b.dataset.view === "workspace") loadWorkspace();
     if (b.dataset.view === "history") loadHistory();
     if (b.dataset.view === "system") loadSystem();
@@ -498,6 +651,7 @@ async function ensureMarketWatchlist(refresh) {
   return marketWatchlist;
 }
 
+let tapeLive = null;
 async function loadWatchCards() {
   try {
     const w = await ensureMarketWatchlist(true);
@@ -514,8 +668,8 @@ async function loadWatchCards() {
     $("tape").innerHTML = quotes.map((q) => {
       const chg = (q.change_percent ?? 0) * 100;
       const dir = chg >= 0 ? "up" : "down";
-      return `<span class="tick"><span class="sym">${q.symbol}</span> ${q.last_price.toFixed(2)}
-        <span class="${dir}">${chg >= 0 ? "▲" : "▼"}${Math.abs(chg).toFixed(2)}%</span></span>`;
+      return `<span class="tick" data-sym="${escapeHtml(q.symbol)}"><span class="sym">${q.symbol}</span> <span class="px">${q.last_price.toFixed(2)}</span>
+        <span class="chg ${dir}">${chg >= 0 ? "▲" : "▼"}${Math.abs(chg).toFixed(2)}%</span></span>`;
     }).join("");
 
     const ups = quotes.filter((q) => (q.change_percent ?? 0) >= 0).length;
@@ -538,6 +692,37 @@ async function loadWatchCards() {
     document.querySelectorAll("#mk-grid .qcard").forEach((c) => {
       c.onclick = () => openStock(c.dataset.sym);
     });
+    // The tape rides along everywhere; the cards only while Markets is open.
+    if (tapeLive) tapeLive.close();
+    const tapeSpans = {}, cardEls = {}, tapeLast = {};
+    quotes.forEach((q) => { tapeLast[q.symbol] = q.last_price; });
+    document.querySelectorAll("#tape .tick").forEach((el) => { tapeSpans[el.dataset.sym] = el; });
+    document.querySelectorAll("#mk-grid .qcard").forEach((el) => { cardEls[el.dataset.sym] = el; });
+    const paintTape = (t) => {
+      const el = tapeSpans[t.symbol];
+      if (!el || t.price == null) return;
+      livePaint(el.querySelector(".px"), t.price, tapeLast[t.symbol], fmtLive(t.price));
+      const c = el.querySelector(".chg");
+      if (c && t.change_percent != null) {
+        const pct = t.change_percent * 100;
+        c.className = "chg " + (pct >= 0 ? "up" : "down");
+        c.textContent = `${pct >= 0 ? "▲" : "▼"}${Math.abs(pct).toFixed(2)}%`;
+      }
+    };
+    const paintCard = (t) => {
+      const el = cardEls[t.symbol];
+      if (!el || t.price == null) return;
+      livePaint(el.querySelector(".p"), t.price, tapeLast[t.symbol], fmtLive(t.price));
+      const c = el.querySelector(".c");
+      if (c && t.change_percent != null) {
+        const pct = t.change_percent * 100;
+        c.className = "c " + (pct >= 0 ? "up" : "down");
+        c.textContent = `${pct >= 0 ? "▲ +" : "▼ "}${Math.abs(pct).toFixed(2)}% today`;
+      }
+    };
+    tapeLive = Live.watch(quotes.map((q) => q.symbol), (ticks) => {
+      ticks.forEach((t) => { paintTape(t); paintCard(t); tapeLast[t.symbol] = t.price ?? tapeLast[t.symbol]; });
+    }, { scope: "global" });
     document.querySelectorAll("#mk-grid .q-x").forEach((x) => {
       x.onclick = async (ev) => {
         ev.stopPropagation(); // don't open the stock we're removing
@@ -626,6 +811,7 @@ const MARKET_TILES = [
 ];
 const PALETTE = ["#00c805", "#5ac8fa", "#ffd60a", "#ff5000", "#bf5af2", "#f5f6f7", "#ff8fab", "#64d2ff"];
 
+let mkTilesLive = null;
 async function loadMarketTiles() {
   try {
     const syms = MARKET_TILES.map(([s]) => s).join(",");
@@ -648,6 +834,24 @@ async function loadMarketTiles() {
     document.querySelectorAll("#mk-indices .tile").forEach((t) => {
       t.onclick = () => openStock(t.dataset.sym);
     });
+    // From here the tiles move on their own: the board subscribes to the
+    // live feed and repaints price and change as prints arrive.
+    if (mkTilesLive) mkTilesLive.close();
+    const lastPx = Object.fromEntries(MARKET_TILES.map(([sym]) => [sym, bySym[sym]?.last_price]));
+    mkTilesLive = Live.watch(MARKET_TILES.map(([sym]) => sym), (ticks) => {
+      ticks.forEach((t) => {
+        const tile = document.querySelector(`#mk-indices .tile[data-sym="${CSS.escape(t.symbol)}"]`);
+        if (!tile || t.price == null) return;
+        livePaint(tile.querySelector(".t-px"), t.price, lastPx[t.symbol], fmtLive(t.price));
+        lastPx[t.symbol] = t.price;
+        const chg = tile.querySelector(".t-chg");
+        if (chg && t.change_percent != null) {
+          chg.className = `t-chg ${cls(t.change_percent)}`;
+          chg.textContent = (t.change_percent >= 0 ? "▲ " : "▼ ") + fmtPct(Math.abs(t.change_percent));
+        }
+      });
+      $("mk-asof").textContent = "live · " + new Date().toLocaleTimeString();
+    }, { scope: "market" });
   } catch (e) { $("mk-indices").innerHTML = `<div class="errbox">${escapeHtml(e.message)}</div>`; }
 }
 $("mk-refresh").onclick = loadMarketTiles;
@@ -725,7 +929,15 @@ const WS_CATALOG = {
     title: "Portfolio", icon: "P", defaultSize: "standard",
     description: "Total value, today's move, cash, and largest holdings.",
   },
+  monitor: {
+    title: "Quote monitor", icon: "◉", defaultSize: "wide",
+    description: "A streaming grid of any tickers: last, change, bid/ask, size, time.",
+  },
 };
+const WS_MONITOR_DEFAULT = ["SPY", "QQQ", "AAPL", "MSFT", "NVDA", "TSLA", "BTC-USD", "EURUSD=X"];
+// Live handles per workspace box, closed whenever the box is redrawn or removed.
+const wsLive = {};
+function wsLiveClose(id) { if (wsLive[id]) { wsLive[id].close(); delete wsLive[id]; } }
 
 let workspaceItems = null;
 let wsRenderVersion = 0;
@@ -760,6 +972,11 @@ function wsRead() {
         type: item.type,
         size: item.size === "wide" ? "wide" : "standard",
         ...(item.type === "quote" ? { symbol: /^[A-Z0-9^.=-]{1,15}$/.test(symbol) ? symbol : "AAPL" } : {}),
+        ...(item.type === "monitor" ? {
+          symbols: (Array.isArray(item.symbols) ? item.symbols : WS_MONITOR_DEFAULT)
+            .map((x) => String(x).toUpperCase().slice(0, 20)).filter((x) => /^[A-Z0-9^.=-]{1,20}$/.test(x)).slice(0, 40),
+          provider: item.provider === "alpaca" ? "alpaca" : null,
+        } : {}),
       };
     });
   } catch {
@@ -799,6 +1016,7 @@ function openWsPicker() {
         id: `${type}-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
         type, size: meta.defaultSize,
         ...(type === "quote" ? { symbol: "AAPL" } : {}),
+        ...(type === "monitor" ? { symbols: [...WS_MONITOR_DEFAULT], provider: null } : {}),
       });
       wsSave();
       $("ws-dialog").close();
@@ -831,6 +1049,7 @@ function renderWorkspace() {
   Object.keys(charts).filter((id) => id.startsWith("ws-chart-")).forEach((id) => {
     charts[id].destroy(); delete charts[id];
   });
+  Object.keys(wsLive).forEach(wsLiveClose);
 
   if (!workspaceItems.length) {
     grid.innerHTML = `<div class="workspace-empty">
@@ -847,6 +1066,9 @@ function renderWorkspace() {
     const meta = WS_CATALOG[item.type];
     const sub = item.type === "quote"
       ? `<button class="ws-symbol-button" data-ws-symbol title="Change ticker">${escapeHtml(item.symbol || "AAPL")} ▾</button>`
+      : item.type === "monitor"
+      ? `<button class="ws-symbol-button" data-ws-symbols title="Edit tickers">${(item.symbols || []).length} tickers ▾</button>
+         <button class="ws-symbol-button ws-provider-button" data-ws-provider title="Price source">${escapeHtml((item.provider || "auto").toUpperCase())}</button>`
       : `<span class="workspace-widget-sub">LIVE VIEW</span>`;
     return `<article class="workspace-widget ${item.size === "wide" ? "ws-wide" : ""}"
         data-wsid="${item.id}" data-render="${version}" draggable="true">
@@ -879,6 +1101,7 @@ function renderWorkspace() {
       wsSave(); renderWorkspace();
     };
     card.querySelector("[data-ws-remove]").onclick = () => {
+      wsLiveClose(id);
       workspaceItems = workspaceItems.filter((entry) => entry.id !== id);
       wsSave(); renderWorkspace();
       setStatus(`${WS_CATALOG[item.type].title.toUpperCase()} REMOVED FROM WORKSPACE`);
@@ -890,6 +1113,26 @@ function renderWorkspace() {
       const clean = next.trim().toUpperCase();
       if (!/^[A-Z0-9^.=-]{1,15}$/.test(clean)) { setStatus("ENTER A VALID TICKER"); return; }
       item.symbol = clean; wsSave(); renderWorkspace();
+    };
+    const symbols = card.querySelector("[data-ws-symbols]");
+    if (symbols) symbols.onclick = () => {
+      const next = prompt("Tickers, comma-separated (up to 40)", (item.symbols || []).join(", "));
+      if (next == null) return;
+      const clean = [...new Set(next.split(/[,\s]+/).map((x) => x.trim().toUpperCase()).filter(Boolean))];
+      if (!clean.length || clean.some((x) => !/^[A-Z0-9^.=-]{1,20}$/.test(x))) { setStatus("ENTER VALID TICKERS"); return; }
+      item.symbols = clean.slice(0, 40); wsSave(); renderWorkspace();
+    };
+    const providerBtn = card.querySelector("[data-ws-provider]");
+    if (providerBtn) providerBtn.onclick = async () => {
+      await Live.ensureStatus();
+      const alpaca = Live.providers().alpaca;
+      if (!alpaca || !alpaca.available) {
+        setStatus("ALPACA NOT CONFIGURED — SET MFT_ALPACA_API_KEY/SECRET FOR BID/ASK");
+        alert("Auto uses Yahoo's key-free feed (last price only).\n\n" + (alpaca?.note || "Set MFT_ALPACA_API_KEY and MFT_ALPACA_API_SECRET to add licensed bid/ask."));
+        return;
+      }
+      item.provider = item.provider === "alpaca" ? null : "alpaca";
+      wsSave(); renderWorkspace();
     };
 
     card.ondragstart = (event) => {
@@ -931,6 +1174,7 @@ async function loadWsWidget(item, version) {
     else if (item.type === "markets") await loadWsMarkets(item, version);
     else if (item.type === "yield") await loadWsYield(item, version);
     else if (item.type === "portfolio") await loadWsPortfolio(item, version);
+    else if (item.type === "monitor") await loadWsMonitor(item, version);
     else await loadWsPulse(item, version);
   } catch (error) { wsFail(item, version, error); }
 }
@@ -968,6 +1212,23 @@ async function loadWsQuote(item, version) {
     [{ label: sym, data: closes, color: periodChange >= 0 ? "#00c805" : "#ff5000", fill: true }],
     { fitBox: true });
   body.querySelector("[data-open-symbol]").onclick = () => openStock(sym, "workspace");
+  // The hero price follows the live feed; the chart stays the daily history.
+  wsLiveClose(item.id);
+  let lastPx = q.last_price ?? last;
+  const priceEl = body.querySelector(".ws-hero-price");
+  const changeEl = body.querySelector(".ws-hero-change");
+  wsLive[item.id] = Live.watch([sym], (ticks) => {
+    const t = ticks[ticks.length - 1];
+    if (!t || t.price == null || !priceEl.isConnected) return;
+    // Repaint only the price text node; the change line is its own element.
+    livePaint(priceEl, t.price, lastPx);
+    priceEl.firstChild.nodeValue = "$" + fmtLive(t.price);
+    lastPx = t.price;
+    if (t.change_percent != null) {
+      changeEl.className = `ws-hero-change ${cls(t.change_percent)}`;
+      changeEl.textContent = `${t.change_percent >= 0 ? "▲ +" : "▼ "}${Math.abs(t.change_percent * 100).toFixed(2)}% today`;
+    }
+  }, { scope: "workspace" });
 }
 
 async function loadWsPulse(item, version) {
@@ -1002,6 +1263,18 @@ async function loadWsMarkets(item, version) {
   body.querySelectorAll("[data-ws-market]").forEach((tile) => {
     tile.onclick = () => openStock(tile.dataset.wsMarket, "workspace");
   });
+  wsLiveClose(item.id);
+  const lastPx = Object.fromEntries(selected.map(([sym]) => [sym, quotes[sym]?.last_price]));
+  wsLive[item.id] = Live.watch(selected.map(([sym]) => sym), (ticks) => {
+    ticks.forEach((t) => {
+      const tile = body.querySelector(`[data-ws-market="${CSS.escape(t.symbol)}"]`);
+      if (!tile || t.price == null) return;
+      livePaint(tile.querySelector(".p"), t.price, lastPx[t.symbol], fmtLive(t.price));
+      lastPx[t.symbol] = t.price;
+      const c = tile.querySelector(".c");
+      if (c && t.change_percent != null) { c.className = `c ${cls(t.change_percent)}`; c.textContent = fmtPct(t.change_percent, true); }
+    });
+  }, { scope: "workspace" });
 }
 
 async function loadWsWatchlist(item, version) {
@@ -1019,6 +1292,68 @@ async function loadWsWatchlist(item, version) {
   body.querySelectorAll("[data-ws-watch]").forEach((button) => {
     button.onclick = () => openStock(button.dataset.wsWatch, "workspace");
   });
+  wsLiveClose(item.id);
+  const lastPx = Object.fromEntries(rows.map((q) => [q.symbol, q.last_price]));
+  wsLive[item.id] = Live.watch(rows.map((q) => q.symbol), (ticks) => {
+    ticks.forEach((t) => {
+      const button = body.querySelector(`[data-ws-watch="${CSS.escape(t.symbol)}"]`);
+      const tr = button && button.closest("tr");
+      if (!tr || t.price == null) return;
+      const cells = tr.querySelectorAll("td.mono");
+      livePaint(cells[0], t.price, lastPx[t.symbol], "$" + fmtLive(t.price));
+      lastPx[t.symbol] = t.price;
+      if (cells[1] && t.change_percent != null) { cells[1].className = `mono ${cls(t.change_percent)}`; cells[1].textContent = fmtPct(t.change_percent, true); }
+    });
+  }, { scope: "workspace" });
+}
+
+// The quote monitor is the one box that is *only* live: it draws its rows
+// from the stream's own snapshot and never calls the delayed quote endpoint.
+async function loadWsMonitor(item, version) {
+  const symbols = (item.symbols || []).length ? item.symbols : WS_MONITOR_DEFAULT;
+  const status = await Live.ensureStatus();
+  const provider = item.provider === "alpaca" && status.providers?.alpaca?.available ? "alpaca" : null;
+  const showBook = provider === "alpaca";
+  const body = wsBody(item, version);
+  if (!body) return;
+  const feedNote = provider ? "Alpaca · licensed trades and bid/ask (IEX feed)"
+    : `Yahoo · key-free last price${status.providers?.alpaca?.available ? " · switch the source above for bid/ask" : ""}`;
+  body.innerHTML = `<div class="ws-monitor-note"><span class="ws-monitor-dot"></span><span data-monitor-note>${escapeHtml(feedNote)} · waiting for prints…</span></div>
+    <div class="ws-monitor-wrap"><table class="ws-table ws-monitor">
+      <tr><th>Symbol</th><th class="num">Last</th><th class="num">Chg</th><th class="num">Chg %</th>${showBook ? '<th class="num">Bid</th><th class="num">Ask</th>' : ""}<th class="num">${showBook ? "Size" : "Volume"}</th><th class="num">Time</th></tr>
+      ${symbols.map((sym) => `<tr data-monitor-row="${escapeHtml(sym)}">
+        <td><button class="linkbtn" data-monitor-open="${escapeHtml(sym)}">${escapeHtml(sym)}</button></td>
+        <td class="mono num" data-f="price">-</td><td class="mono num" data-f="change">-</td><td class="mono num" data-f="pct">-</td>
+        ${showBook ? '<td class="mono num" data-f="bid">-</td><td class="mono num" data-f="ask">-</td>' : ""}
+        <td class="mono num" data-f="size">-</td><td class="mono num dim" data-f="time">-</td>
+      </tr>`).join("")}
+    </table></div>`;
+  body.querySelectorAll("[data-monitor-open]").forEach((b) => { b.onclick = () => openStock(b.dataset.monitorOpen, "workspace"); });
+  const lastPx = {};
+  let prints = 0;
+  const note = body.querySelector("[data-monitor-note]");
+  const paint = (t) => {
+    const tr = body.querySelector(`[data-monitor-row="${CSS.escape(t.symbol)}"]`);
+    if (!tr) return;
+    const cell = (f) => tr.querySelector(`[data-f="${f}"]`);
+    if (t.price != null) { livePaint(cell("price"), t.price, lastPx[t.symbol], fmtLive(t.price)); lastPx[t.symbol] = t.price; }
+    if (t.change != null) { const c = cell("change"); c.textContent = (t.change >= 0 ? "+" : "-") + fmtLive(Math.abs(t.change)); c.className = `mono num ${cls(t.change)}`; }
+    if (t.change_percent != null) { const c = cell("pct"); c.textContent = (t.change_percent >= 0 ? "+" : "") + (t.change_percent * 100).toFixed(2) + "%"; c.className = `mono num ${cls(t.change_percent)}`; }
+    if (showBook) {
+      const bid = cell("bid"), ask = cell("ask");
+      if (t.bid != null) bid.textContent = `${fmtLive(t.bid)}${t.bid_size != null ? " ×" + t.bid_size : ""}`;
+      if (t.ask != null) ask.textContent = `${fmtLive(t.ask)}${t.ask_size != null ? " ×" + t.ask_size : ""}`;
+      if (t.size != null) cell("size").textContent = Number(t.size).toLocaleString();
+    } else if (t.volume != null) cell("size").textContent = Number(t.volume).toLocaleString();
+    if (t.time) cell("time").textContent = new Date(t.time).toLocaleTimeString([], { hour12: false });
+  };
+  wsLiveClose(item.id);
+  wsLive[item.id] = Live.watch(symbols, (ticks) => {
+    if (!body.isConnected) return;
+    ticks.forEach(paint);
+    prints += ticks.length;
+    if (note) note.textContent = `${feedNote} · ${prints.toLocaleString()} prints · ${new Date().toLocaleTimeString([], { hour12: false })}`;
+  }, { scope: "workspace", provider });
 }
 
 async function loadWsNews(item, version) {

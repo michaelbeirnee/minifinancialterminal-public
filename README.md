@@ -3,7 +3,7 @@
 **[michaelbeirnee.github.io/minifinancialterminal-public](https://michaelbeirnee.github.io/minifinancialterminal-public/)** — project site
 
 An **open-source financial research terminal** — an OpenBB-style data platform with
-**310 commands** across equities, ETFs, crypto, FX, derivatives, macro, fixed income
+**314 commands** across equities, ETFs, crypto, FX, derivatives, macro, fixed income
 and regulatory filings, plus a factor-model engine, a backtester and HTML tearsheets.
 
 Every data source is **free or public-domain**. There is no paid vendor anywhere in
@@ -32,7 +32,7 @@ mft.quantitative.performance(symbol="AAPL,MSFT,SPY")
 | **REST API** | `GET /api/v1/equity/price/historical?symbol=AAPL` — one route per command, documented at `/docs` |
 | **Python** | `from backend.core.interface import mft` then `mft.equity.price.historical(...)` |
 | **CLI** | `python -m cli.terminal` — menu navigation, tab completion, CSV export |
-| **Web UI** | `http://localhost:8000` → **RESEARCH WORKBENCH** keeps top-down and bottom-up evidence separate, makes the exposure bridge explicit, and freezes the joined packet into a tracked thesis; **DATA** browses every command; **PORTFOLIO** tracks what you own; **SAVED** holds watchlists, alerts, saved commands and history; any stock page has **FINANCIALS**, **EXPOSURE** and **COMPARE** tabs; **MODELING** builds savable DCFs; **CALENDAR** maps dated events; **FLAGGED** diffs a company's newest filing against its previous one and screens the whole market for accrual changes; **VOLATILITY** reads the fear gauges and sets a name's realised vol against what its options imply; **ASSISTANT** answers questions and runs commands for you |
+| **Web UI** | `http://localhost:8000` → **RESEARCH WORKBENCH** keeps top-down and bottom-up evidence separate, makes the exposure bridge explicit, and freezes the joined packet into a tracked thesis; **DATA** browses every command; **PORTFOLIO** tracks what you own; **SAVED** holds watchlists, alerts, saved commands and history; any stock page has **FINANCIALS**, **EXPOSURE** and **COMPARE** tabs; **MODELING** builds savable DCFs; **CALENDAR** maps dated events; **FLAGGED** diffs a company's newest filing against its previous one and screens the whole market for accrual changes; **VOLATILITY** reads the fear gauges and sets a name's realised vol against what its options imply; **ASSISTANT** answers questions and runs commands for you; the ticker tape, the Markets board and a **QUOTE MONITOR** workspace box stream live prices |
 
 All four read the same registry, so a command added under `backend/extensions/`
 appears in every one of them with no extra wiring.
@@ -43,7 +43,7 @@ appears in every one of them with no extra wiring.
 
 | Menu | Cmds | What's in it |
 |---|---:|---|
-| **equity** | 70 | prices, quotes, performance, profile, search, screener, 10 discovery screens, 5 calendars, 20 fundamental commands (including the three statements as one ordered document and revenue split by segment, geography and product line), 5 estimates, 7 ownership, shorts, dark pool, 3 supply-chain relationship commands mined from filings, and a peer group blended from classification, SIC registration and the filings that name the company as competition — with the side-by-side comparison built on it |
+| **equity** | 71 | prices, quotes, a live-streamed quote, performance, profile, search, screener, 10 discovery screens, 5 calendars, 20 fundamental commands (including the three statements as one ordered document and revenue split by segment, geography and product line), 5 estimates, 7 ownership, shorts, dark pool, 3 supply-chain relationship commands mined from filings, and a peer group blended from classification, SIC registration and the filings that name the company as competition — with the side-by-side comparison built on it |
 | **technical** | 40 | 35+ indicators: MAs (SMA/EMA/WMA/HMA/ZLMA/DEMA/TEMA), RSI, MACD, stochastic, CCI, ADX, Aroon, Ichimoku, Supertrend, PSAR, Bollinger, Keltner, Donchian, OBV, A/D, CMF, MFI, VWAP, Fisher, TSI, PPO, DeMark, vol cones, Hurst, Clenow momentum |
 | **economy** | 47 | CPI, PCE, GDP, unemployment, payrolls, claims, money supply, SLOOS, financial conditions, house prices, trade, debt, country profiles, calendars, surveys — plus `fed/*`, the whole Fed surface read from the Fed's own publications: every hike and cut since 1982 and the cycles they group into, what each cycle did to stocks, bonds and gold, the SEP and the dot plot with the revision against the last one, the statement with its vote, dissents and a sentence diff of what changed in the wording, speeches and congressional testimony, the balance sheet and its runoff pace, the emergency lending facilities, and the days the expected path repriced |
 | **quantitative** | 18 | normality battery, unit root, CAPM, rolling stats, Sharpe/Sortino/Calmar/Omega/Ulcer, VaR & CVaR, drawdown |
@@ -74,7 +74,7 @@ appears in every one of them with no extra wiring.
 
 | Provider | Covers | Key |
 |---|---|---|
-| **Yahoo Finance** (`yfinance`) | prices, fundamentals, options, holders, estimates, screeners, calendars | none |
+| **Yahoo Finance** (`yfinance`) | prices, fundamentals, options, holders, estimates, screeners, calendars — and its public streamer for live last prices | none |
 | **SEC EDGAR** | XBRL fundamentals, segment revenue read from the filings, filings, full-text search, Form 4, 13F, fails-to-deliver, supplier/customer relationships | none |
 | **FRED** | US macro, rates, credit spreads (key-free CSV endpoint) | optional |
 | **US Treasury / TreasuryDirect / NY Fed** | yield curves, auctions, debt, SOFR/EFFR/OBFR | none |
@@ -86,6 +86,7 @@ appears in every one of them with no extra wiring.
 | **State Street (SSGA)** | the full daily holdings file behind every SPDR ETF — the whole basket, not a top-ten summary | none |
 | **Stooq · Cboe · Nasdaq · Wikipedia · multpl** | backup prices, delayed option chains, calendars, index membership, CAPE | none |
 | **CoinGecko** | crypto prices, market caps, dominance | none |
+| **Alpaca Markets** | live trades *and* bid/ask over the free IEX feed — the one optional source behind the live layer | free key, optional |
 | **EIA · BLS** | energy reports, labour & price statistics | EIA needs a free key |
 | **RSS newswires** | ~290 feeds in 20 desks — Bloomberg, FT, NYT, Economist, CNBC, MarketWatch, Yahoo, Fortune, Forbes, Fox Business, CBS/NBC/ABC business desks, Benzinga, TheStreet, Nasdaq, Seeking Alpha; the Fed, ECB, BoE, BoJ, BoC, RBA, RBNZ, Riksbank, RBI and BIS central-banker speeches; SEC, CFTC, OCC, CFPB, FTC, DOJ, FCA, HM Treasury, USTR, WTO, the Federal Register; BEA, Census, ONS; Nikkei, SCMP, Economic Times, Livemint, Straits Times, Financial Post, SMH, DW, France 24, Sky, City A.M.; sector trades from Rigzone, Mining.com and FreightWaves to STAT, Endpoints, HousingWire, TechCrunch and CoinDesk; and ~30 economics blogs and newsletters — plus Reuters, WSJ, Barron's, Nikkei Asia and Kitco via Google News RSS search. Every feed is checked to parse *and* to be current when added | none |
 
@@ -221,6 +222,7 @@ docker exec -it 5milliondollars python -m cli.terminal
 | **Reports** | Tearsheet metrics (CAGR, Sharpe, Sortino, Calmar, max drawdown, win rate) plus a self-contained HTML report with equity and drawdown charts. |
 | **Auth** | JWT bearer auth with bcrypt hashing and **revocable sessions** — logout and password changes kill the token server-side. Platform routes require a token unless `MFT_PLATFORM_REQUIRE_AUTH=false`. |
 | **Caching** | Graded-TTL cache (memory + disk) in front of every outbound call — 2 min for quotes, a week for reference data. Stats at `/api/system/cache`. |
+| **Live prices** | One upstream socket per provider fanned out to any number of Server-Sent-Events readers at `/api/stream/quotes`. Yahoo's public streamer by default (key-free, last price for stocks, ETFs, indices, futures, FX, crypto); Alpaca's free IEX feed when keys are set (licensed trades and bid/ask). The tape, the Markets board and the workspace boxes move on their own; `/equity/price/live` is the same feed as a command. See [docs/live-streaming.md](docs/live-streaming.md). |
 
 ---
 
@@ -687,7 +689,9 @@ backend/
                  service.py    the streaming chat loop
   models.py database.py auth.py          SQL schema, engine wiring, JWT + sessions
   routers/       auth, user (saved actions), portfolio, data, factors, backtest,
-                 reports, system, assistant
+                 reports, system, assistant, stream (live quotes over SSE)
+  stream/        hub.py        one upstream socket per provider, fanned out to readers
+                 sources.py    Yahoo's streamer (key-free) and Alpaca's IEX feed (keyed)
   backtest/ factors/ portfolio/ reports/ the research + accounting stack
 cli/terminal.py  interactive shell (stdlib only)
 frontend/        index.html, styles.css, app.js — no build step
@@ -731,6 +735,9 @@ Environment variables, prefixed `MFT_` (see `backend/config.py`):
 | `MFT_FRED_API_KEY` | unset | Free. Unlocks FRED series search and release dates. |
 | `MFT_EIA_API_KEY` | unset | Free. Required for the EIA energy reports. |
 | `MFT_BLS_API_KEY` | unset | Free. Raises BLS daily limits. |
+| `MFT_ALPACA_API_KEY` / `MFT_ALPACA_API_SECRET` | unset | Free, no funded account. Adds Alpaca as a live-price source with licensed bid/ask. |
+| `MFT_ALPACA_FEED` | `iex` | `iex` (free), `sip` (paid), `delayed_sip`, `test`. |
+| `MFT_STREAM_DEFAULT_PROVIDER` | `yahoo` | Source for a stream request that names none; `alpaca` is honoured only once its keys are set. |
 | `MFT_ANTHROPIC_API_KEY` | unset | **Paid.** Switches on the Assistant tab and the thesis triage / deep-dive steps. Nothing else in the platform uses it. |
 | `MFT_ASSISTANT_MODEL` | `claude-opus-5` | Model backing the assistant. |
 | `MFT_ASSISTANT_EFFORT` | `medium` | `low`…`max` — how hard it thinks per reply. |
@@ -867,6 +874,12 @@ each one.
   lets a reader see one book move. The read-through's cluster is the peer group and no
   more coherent than that, and sharing a line is not sharing an exposure — the exposure
   share is on the row for that reason. See [docs/flagged.md](docs/flagged.md).
+* Live prices are as licensed as their source. Yahoo's streamer is real-time and
+  key-free but undocumented, carries no bid/ask on most names, and can change without
+  notice like every other yfinance call. Alpaca's free IEX feed is licensed and does
+  carry a quote, but IEX is one venue — a few percent of volume, not the consolidated
+  tape — and nothing free carries depth of book, so there is no Level 2 here and the
+  UI does not pretend otherwise. See [docs/live-streaming.md](docs/live-streaming.md).
 * Change detection sees what the filings let it see. The risk-factor and concentration
   diffs need two annual reports on EDGAR, so a company's first 10-K has nothing to
   compare against; the paragraph matcher is tuned on real filings but a rewrite of a

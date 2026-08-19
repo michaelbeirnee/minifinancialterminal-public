@@ -113,6 +113,27 @@ a{color:var(--blue);text-decoration:none} a:hover{filter:brightness(1.2)}
 .tick .sym{color:var(--muted)}
 .tick .up{color:var(--green)} .tick .down{color:var(--red)}
 
+/* ---- live quotes: the topbar pill and the tick flash ---- */
+.live-pill{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:1px;padding:4px 9px;border-radius:999px;
+  border:1px solid var(--line);color:var(--muted);white-space:nowrap;user-select:none}
+.live-pill[data-state="live"]{color:var(--green);border-color:rgba(0,200,5,.45);background:rgba(0,200,5,.08)}
+.live-pill[data-state="connecting"]{color:var(--soft);animation:live-blink 1.2s ease-in-out infinite}
+.live-pill[data-state="error"]{color:var(--red);border-color:rgba(255,80,0,.45);background:rgba(255,80,0,.08)}
+@keyframes live-blink{0%,100%{opacity:1}50%{opacity:.35}}
+.flash-up{animation:flash-up .9s ease-out}
+.flash-down{animation:flash-down .9s ease-out}
+@keyframes flash-up{0%{background:rgba(0,200,5,.45);color:#fff}100%{background:transparent}}
+@keyframes flash-down{0%{background:rgba(255,80,0,.45);color:#fff}100%{background:transparent}}
+.tick .px,.tile .t-px,.qcard .p,.ws-hero-price,.ws-table td.mono{border-radius:3px;transition:background .2s}
+
+/* ---- quote monitor box ---- */
+.ws-monitor-note{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:11px;margin-bottom:8px;font-family:'IBM Plex Mono',monospace}
+.ws-monitor-dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 6px var(--green);animation:live-blink 2s ease-in-out infinite}
+.ws-monitor-wrap{overflow:auto;max-height:100%}
+.ws-monitor th.num,.ws-monitor td.num{text-align:right;white-space:nowrap}
+.ws-monitor td.dim{color:var(--faint)}
+.ws-provider-button{margin-left:6px;font-size:10px;letter-spacing:1px}
+
 .shell{display:flex;flex:1;min-height:0}
 .sidebar{width:238px;flex-shrink:0;background:var(--deep);border-right:1px solid var(--line);
   overflow-y:auto;padding:18px 12px 20px;display:flex;flex-direction:column;gap:20px}

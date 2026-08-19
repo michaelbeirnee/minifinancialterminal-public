@@ -41,6 +41,7 @@ def providers() -> dict:
         "eia": bool(settings.eia_api_key),
         "bls": bool(settings.bls_api_key),
         "nasdaq": bool(settings.nasdaq_api_key),
+        "alpaca": bool(settings.alpaca_api_key and settings.alpaca_api_secret),
     }
     rows = []
     for row in provider_table():

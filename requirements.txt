@@ -24,6 +24,12 @@ numpy>=1.26,<3
 scipy>=1.10
 statsmodels>=0.14
 yfinance>=0.2
+# Live prices: the streaming hub speaks to Yahoo's and Alpaca's websockets
+# directly (yfinance already pulls both of these in; named so the import is
+# explicit) and trusts certifi's roots where the interpreter ships none.
+websockets>=13
+protobuf>=3.19
+certifi
 
 # Data platform — HTTP client plus HTML/XML parsing for the free providers
 httpx>=0.27

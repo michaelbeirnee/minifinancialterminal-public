@@ -79,6 +79,18 @@ class Settings(BaseSettings):
     bls_api_key: Optional[str] = None  # https://data.bls.gov/registrationEngine/
     nasdaq_api_key: Optional[str] = None  # https://data.nasdaq.com/sign-up
 
+    # --- Live streaming ----------------------------------------------------
+    # Yahoo's public streamer needs nothing and is the default. Alpaca is the
+    # optional second source: a free app key (no funded account) buys licensed
+    # trades *and* bid/ask over the IEX feed. https://alpaca.markets
+    alpaca_api_key: Optional[str] = None
+    alpaca_api_secret: Optional[str] = None
+    # iex (free) | sip (paid) | delayed_sip (free, 15-minute) | test (FAKEPACA)
+    alpaca_feed: str = "iex"
+    # yahoo | alpaca — which source a stream request uses when it names none.
+    # "alpaca" is only honoured once its keys are set; otherwise Yahoo serves.
+    stream_default_provider: str = "yahoo"
+
     # --- Assistant (the only paid dependency in the stack) -----------------
     # The one feature that is NOT free. Leave the key unset and every other
     # part of the platform still works; the Assistant tab simply reports that

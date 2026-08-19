@@ -22,6 +22,7 @@ a documented key-free path so the platform is fully functional unconfigured.
 | ``spdr``        | full daily holdings for SPDR ETF baskets   | no        |
 | ``thirteenf``   | SEC 13F data sets — every filer's holdings| no        |
 | ``fomc``        | the Fed's own FOMC meeting calendar       | no        |
+| ``alpaca``      | live trades and bid/ask, IEX feed (stream)| optional  |
 +-----------------+-------------------------------------------+-----------+
 """
 from __future__ import annotations
@@ -74,6 +75,10 @@ PROVIDERS: Dict[str, Dict[str, object]] = {
              "description": "State Street — full daily holdings for every SPDR fund"},
     "federalreserve": {"module": "fomc", "requires_key": False,
                        "description": "Federal Reserve Board — the FOMC meeting calendar"},
+    # Streaming only (backend.stream): Yahoo's streamer rides the ``yahoo``
+    # entry above; Alpaca is the one source that wants a key.
+    "alpaca": {"module": "stream", "requires_key": True,
+               "description": "Alpaca Markets — licensed live trades and bid/ask on the free IEX feed"},
 }
 
 

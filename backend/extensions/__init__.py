@@ -13,6 +13,7 @@ MODULES: List[str] = [
     "overview",
     "research",
     "equity",
+    "live",
     "equity_fundamental",
     "compare",
     "relationships",

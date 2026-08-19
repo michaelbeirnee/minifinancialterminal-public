@@ -25,10 +25,12 @@ from .routers import (
     modeling,
     portfolio,
     reports,
+    stream,
     system,
     thesis,
     user,
 )
+from .stream import shutdown_all as shutdown_streams
 from .thesis import scheduler
 
 FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
@@ -51,6 +53,8 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         await scheduler.stop(grader)
+        # Close any upstream quote sockets so the process exits cleanly.
+        await shutdown_streams()
 
 
 app = FastAPI(
@@ -80,7 +84,7 @@ if settings.cors_origin_list:
     )
 
 for r in (auth, user, portfolio, hedge, data, factors, backtest, reports, system, thesis,
-          modeling, assistant):
+          modeling, assistant, stream):
     app.include_router(r.router)
 # The single-name hedge simulator is not book-scoped, so it carries its own prefix.
 app.include_router(hedge.simulate_router)
