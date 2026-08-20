@@ -220,6 +220,7 @@ def capture_snapshots(
         "symbols": len(symbols),
         "feature_rows": len(result["captured"]),
         "raw_rows": result["raw_rows"],
+        "rate_limited_symbols": result.get("rate_limited_symbols", []),
         "warnings": result["warnings"][:25],
     }
 

@@ -642,7 +642,11 @@ def archive_current_snapshots(
                 raw_items.extend(_raw_crowding_payloads(sym))
         return sym, payloads, raw_items, errs
 
-    with ThreadPoolExecutor(max_workers=min(8, max(1, len(syms)))) as pool:
+    # Capture runs unattended after the close, so slow-and-complete beats
+    # fast-and-throttled: at 8 workers Yahoo rate-limits the tail of a ~120
+    # name universe, which would systematically clip whichever sector sits
+    # last in the list. Three workers stays under the limit.
+    with ThreadPoolExecutor(max_workers=min(3, max(1, len(syms)))) as pool:
         futures = [pool.submit(capture, sym) for sym in syms]
         captured = [future.result() for future in as_completed(futures)]
 
@@ -679,7 +683,18 @@ def archive_current_snapshots(
                 existing.provider = "yahoo"
             rows.append({"symbol": sym, "family": family, "features": features})
     db.commit()
-    return {"as_of": as_of, "captured": rows, "raw_rows": raw_rows, "warnings": warnings}
+    # Symbols the capture could not fully cover — a rate-limited tail shows up
+    # here explicitly instead of hiding inside the warning list.
+    rate_limited = sorted({
+        w.split(":", 1)[0] for w in warnings if "Too Many Requests" in w or "Rate limited" in w
+    })
+    return {
+        "as_of": as_of,
+        "captured": rows,
+        "raw_rows": raw_rows,
+        "rate_limited_symbols": rate_limited,
+        "warnings": warnings,
+    }
 
 
 def _load_archived_panels(

@@ -57,6 +57,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 "symbols": len(symbols),
                 "feature_rows": len(result["captured"]),
                 "raw_rows": result["raw_rows"],
+                "rate_limited_symbols": result.get("rate_limited_symbols", []),
                 "warnings": result["warnings"][:20],
             }, indent=2, default=str))
             return 0 if result["raw_rows"] or result["captured"] else 1
