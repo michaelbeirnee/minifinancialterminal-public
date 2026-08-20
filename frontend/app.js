@@ -7652,6 +7652,15 @@ $("bt-signal-wf-run").onclick = async () => {
         crowding_surcharge_bps: 900,
         hard_to_borrow_short_float: 0.35,
         hard_to_borrow_days_to_cover: 15,
+        stock_risk_aware: true,
+        factor_risk_lookback_days: Math.max(60, parseInt($("bt-risk-lookback").value, 10) || 252),
+        factor_risk_refresh_days: 21,
+        factor_risk_min_observations: shortRun ? 60 : 80,
+        residual_covariance_shrinkage: Math.max(0, Math.min(1, (parseFloat($("bt-risk-shrink").value) || 50) / 100)),
+        target_annual_volatility: Math.max(0.01, Math.min(2, (parseFloat($("bt-risk-vol-target").value) || 12) / 100)),
+        max_market_factor_exposure: 0.05,
+        max_style_factor_exposure: Math.max(0, Math.min(2, parseFloat($("bt-risk-factor-cap").value) || 0.15)),
+        covariance_risk_aversion: 0.25,
       },
     });
 
@@ -7679,7 +7688,9 @@ $("bt-signal-wf-run").onclick = async () => {
       <td>${row.validated_signals}</td>
       <td class="dim">${(row.sleeves || []).map((x) => `${escapeHtml(x.name)} ${(Number(x.risk_budget || 0) * 100).toFixed(0)}%`).join(" · ") || ((row.blend || []).map((x) => `${escapeHtml(x.signal)} ${(Number(x.weight) * 100).toFixed(0)}%`).join(" · ") || "flat")}</td>
     </tr>`).join("");
-    const decisionRows = (d.decisions || []).slice(-10).reverse().map((row) => `<tr>
+    const decisionRows = (d.decisions || []).slice(-10).reverse().map((row) => {
+      const risk = row.executed_risk || {};
+      return `<tr>
       <td>${escapeHtml(row.signal_date)}</td>
       <td>${escapeHtml(row.research_as_of)}</td>
       <td>${(Number(row.executable_gross_exposure || 0) * 100).toFixed(0)}%</td>
@@ -7687,9 +7698,19 @@ $("bt-signal-wf-run").onclick = async () => {
       <td>${(Number(row.turnover || 0) * 100).toFixed(1)}%</td>
       <td>${Number(row.cost_bps_of_capital || 0).toFixed(2)}</td>
       <td>${Number(row.beta_exposure || 0).toFixed(4)}</td>
+      <td>${risk.predicted_annual_volatility != null ? (Number(risk.predicted_annual_volatility) * 100).toFixed(1) + "%" : "—"}</td>
+      <td>${risk.max_positive_name_risk_share != null ? (Number(risk.max_positive_name_risk_share) * 100).toFixed(1) + "%" : "—"}</td>
+      <td>${risk.worst_stress_return != null ? (Number(risk.worst_stress_return) * 100).toFixed(1) + "%" : "—"}</td>
       <td>${row.risk_constraints && row.risk_constraints.max_abs_name_weight != null ? (Number(row.risk_constraints.max_abs_name_weight) * 100).toFixed(1) + "%" : "—"}</td>
       <td>${row.risk_constraints && row.risk_constraints.crowded_short_gross != null ? (Number(row.risk_constraints.crowded_short_gross) * 100).toFixed(1) + "%" : "—"}</td>
-    </tr>`).join("");
+    </tr>`;
+    }).join("");
+
+    const latestDecision = (d.decisions || []).length ? d.decisions[d.decisions.length - 1] : null;
+    const latestRisk = latestDecision && latestDecision.executed_risk ? latestDecision.executed_risk : {};
+    const nameRiskRows = (latestRisk.top_name_risk || []).slice(0, 8).map((row) => `<tr><td>${escapeHtml(row.symbol)}</td><td>${(Number(row.weight || 0) * 100).toFixed(2)}%</td><td>${(Number(row.risk_share || 0) * 100).toFixed(1)}%</td></tr>`).join("");
+    const pairRiskRows = (latestRisk.top_correlated_pairs || []).slice(0, 8).map((row) => `<tr><td>${escapeHtml(row.left)} / ${escapeHtml(row.right)}</td><td>${Number(row.correlation || 0).toFixed(2)}</td><td>${Number(row.variance_contribution || 0).toExponential(2)}</td></tr>`).join("");
+    const stressRows = (latestRisk.stress_tests || []).slice(0, 6).map((row) => `<tr><td>${escapeHtml(row.scenario)}</td><td>${(Number(row.portfolio_return || 0) * 100).toFixed(2)}%</td></tr>`).join("");
 
     out.innerHTML = `<div class="panel">
       <div class="panel-h">WALK-FORWARD FUND SIMULATION <span class="panel-note">research vintages frozen through time</span></div>
@@ -7700,6 +7721,9 @@ $("bt-signal-wf-run").onclick = async () => {
         <span class="badge">${sim.capacity_constrained_decisions || 0} capacity constrained</span>
         <span class="badge">avg gross ${(Number(sim.average_gross_exposure || 0) * 100).toFixed(0)}%</span>
         <span class="badge">avg sleeves ${Number(sim.average_active_sleeves || 0).toFixed(1)}</span>
+        <span class="badge">pred vol ${(Number(sim.average_predicted_annual_volatility || 0) * 100).toFixed(1)}%</span>
+        <span class="badge">risk names ${Number(sim.average_effective_risk_names || 0).toFixed(1)}</span>
+        <span class="badge">worst stress ${(Number(sim.worst_factor_stress_return || 0) * 100).toFixed(1)}%</span>
         <span class="badge">borrow ${fmt$(Number(d.borrow_costs || 0))}</span>
         <span class="badge">refresh ${config.research_refresh_days || "—"}d</span>
         <span class="badge">rebalance ${config.portfolio_rebalance_days || "—"}d</span>
@@ -7714,8 +7738,13 @@ $("bt-signal-wf-run").onclick = async () => {
       <div class="panel-h" style="margin-top:14px">ALPHA SLEEVE RISK BUDGETS</div>
       <div class="tablewrap"><table><tr><th>Sleeve</th><th>Vintages</th><th>Rate</th><th>Avg risk budget</th><th>Trailing vol</th></tr>${sleeveRows || `<tr><td colspan="5" class="dim">No sleeve received risk budget.</td></tr>`}</table></div>
       <div class="panel-h" style="margin-top:14px">LATEST PORTFOLIO DECISIONS</div>
-      <div class="tablewrap"><table><tr><th>Signal date</th><th>Research used</th><th>Gross</th><th>Capacity scale</th><th>Turnover</th><th>Cost bp</th><th>Beta</th><th>Max stock</th><th>Crowded short</th></tr>${decisionRows}</table></div>
-      <div class="dim" style="margin-top:8px">Each decision uses only the latest completed research vintage, applies family-sleeve risk budgets and point-in-time crowding/borrow controls, then executes one bar later. Historical sector caps stay off unless a dated classification source is supplied.</div>
+      <div class="tablewrap"><table><tr><th>Signal date</th><th>Research used</th><th>Gross</th><th>Capacity scale</th><th>Turnover</th><th>Cost bp</th><th>Beta</th><th>Pred vol</th><th>Top name risk</th><th>Worst stress</th><th>Max stock</th><th>Crowded short</th></tr>${decisionRows}</table></div>
+      <div class="grid3" style="margin-top:14px">
+        <div><div class="panel-h">TOP STOCK RISK</div><div class="tablewrap"><table><tr><th>Stock</th><th>Weight</th><th>Risk share</th></tr>${nameRiskRows || `<tr><td colspan="3" class="dim">No active risk model.</td></tr>`}</table></div></div>
+        <div><div class="panel-h">CORRELATED POSITION RISK</div><div class="tablewrap"><table><tr><th>Pair</th><th>Corr</th><th>Var contrib</th></tr>${pairRiskRows || `<tr><td colspan="3" class="dim">No active pairs.</td></tr>`}</table></div></div>
+        <div><div class="panel-h">FACTOR STRESS TESTS</div><div class="tablewrap"><table><tr><th>Shock</th><th>Book return</th></tr>${stressRows || `<tr><td colspan="2" class="dim">No stress output.</td></tr>`}</table></div></div>
+      </div>
+      <div class="dim" style="margin-top:8px">Each decision uses only the latest completed research vintage, applies alpha-sleeve and point-in-time borrow controls, estimates a trailing stock covariance model from the price prefix, projects the target through volatility/factor limits, then executes one bar later.</div>
     </div>`;
     renderMetrics("bt-signal-wf-metrics", d.metrics, d);
     drawLine("bt-signal-wf-chart", d.equity_curve.dates, [

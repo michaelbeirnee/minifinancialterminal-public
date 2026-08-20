@@ -2193,7 +2193,23 @@
               Base borrow (bp/yr)
               <input id="bt-borrow-base" value="30" class="mono" style="width:80px" />
             </label>
-            <span class="hintline">Signals must clear OOS evidence, group-neutral, FDR, redundancy and execution gates. The historical fund run then assigns family sleeves, caps correlated/event risk, applies stock/crowded-short constraints and charges daily borrow. Current sector labels are not used as historical portfolio caps by default. Sector/industry neutralization is strict: it needs several classified names per group, so leave it off for small or ETF-heavy baskets.</span>
+            <label style="display:flex;flex-direction:column;gap:4px;color:var(--muted);font-size:12px">
+              Predicted vol target (%)
+              <input id="bt-risk-vol-target" value="12" class="mono" style="width:90px" />
+            </label>
+            <label style="display:flex;flex-direction:column;gap:4px;color:var(--muted);font-size:12px">
+              Risk lookback (days)
+              <input id="bt-risk-lookback" value="252" class="mono" style="width:90px" />
+            </label>
+            <label style="display:flex;flex-direction:column;gap:4px;color:var(--muted);font-size:12px">
+              Residual shrink (%)
+              <input id="bt-risk-shrink" value="50" class="mono" style="width:80px" />
+            </label>
+            <label style="display:flex;flex-direction:column;gap:4px;color:var(--muted);font-size:12px">
+              Style factor cap
+              <input id="bt-risk-factor-cap" value="0.15" class="mono" style="width:80px" />
+            </label>
+            <span class="hintline">Signals clear the statistical and execution gates first. The historical fund then allocates alpha sleeves, applies dated borrow/crowding limits, and projects each stock book through a trailing factor + shrunk residual covariance model before trading. Current sector labels are not used as historical portfolio caps by default. Sector/industry neutralization is strict: it needs several classified names per group, so leave it off for small or ETF-heavy baskets.</span>
           </div>
           <div class="row wrap">
             <button id="bt-signal-run" class="ghost">Test the full signal library</button>

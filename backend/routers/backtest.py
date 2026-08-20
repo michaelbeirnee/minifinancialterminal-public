@@ -13,6 +13,11 @@ from ..auth import get_current_user
 from ..backtest import analysis
 from ..backtest.engine import run_backtest
 from ..backtest.execution_research import build_execution_panels, current_execution_book
+from ..backtest.factor_risk import (
+    build_factor_risk_model,
+    factor_risk_model_summary,
+    portfolio_risk_diagnostics,
+)
 from ..backtest.strategies import REGISTRY
 from ..backtest.stat_arb import stat_arb_snapshot
 from ..backtest.walkforward_research import walk_forward_multisource_portfolio
@@ -37,6 +42,7 @@ from ..schemas import (
     BacktestRequest,
     BacktestSweepRequest,
     CostSensitivityRequest,
+    FactorRiskSnapshotRequest,
     ResearchArchiveRequest,
     SignalResearchRequest,
     SignalPortfolioWalkForwardRequest,
@@ -154,6 +160,32 @@ def signals_catalog(_: User = Depends(get_current_user)) -> dict:
 def multisource_signals_catalog(_: User = Depends(get_current_user)) -> dict:
     """All price, volume, fundamental, event, archived and relationship signals."""
     return {"signals": multisource_signal_catalog()}
+
+
+@router.post("/signals/risk_snapshot")
+def factor_risk_snapshot(
+    req: FactorRiskSnapshotRequest, _: User = Depends(get_current_user)
+) -> dict:
+    """Inspect the current point-in-time factor/covariance model for a basket."""
+    try:
+        prices = get_price_panel(req.symbols, req.start, req.end)
+        if prices.empty:
+            raise ValueError("No price data for requested symbols/period")
+        model = build_factor_risk_model(
+            prices,
+            lookback=req.lookback_days,
+            min_obs=req.min_observations,
+            residual_shrinkage=req.residual_covariance_shrinkage,
+        )
+        payload = factor_risk_model_summary(model)
+        if req.weights:
+            weights = pd.Series({str(k).upper(): float(v) for k, v in req.weights.items()}, dtype=float)
+            payload["portfolio_risk"] = portfolio_risk_diagnostics(weights, model)
+        else:
+            payload["portfolio_risk"] = None
+        return payload
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @router.post("/signals/archive")
@@ -381,6 +413,15 @@ def walk_forward_signal_portfolio(
             crowding_surcharge_bps=req.crowding_surcharge_bps,
             hard_to_borrow_short_float=req.hard_to_borrow_short_float,
             hard_to_borrow_days_to_cover=req.hard_to_borrow_days_to_cover,
+            stock_risk_aware=req.stock_risk_aware,
+            factor_risk_lookback_days=req.factor_risk_lookback_days,
+            factor_risk_refresh_days=req.factor_risk_refresh_days,
+            factor_risk_min_observations=req.factor_risk_min_observations,
+            residual_covariance_shrinkage=req.residual_covariance_shrinkage,
+            target_annual_volatility=req.target_annual_volatility,
+            max_market_factor_exposure=req.max_market_factor_exposure,
+            max_style_factor_exposure=req.max_style_factor_exposure,
+            covariance_risk_aversion=req.covariance_risk_aversion,
         )
         payload = output.to_dict()
         payload["classification_status"] = classification_status

@@ -471,6 +471,26 @@ class SignalPortfolioWalkForwardRequest(SignalResearchRequest):
     crowding_surcharge_bps: float = Field(default=900.0, ge=0.0, le=50000.0)
     hard_to_borrow_short_float: float = Field(default=0.35, ge=0.0, le=1.0)
     hard_to_borrow_days_to_cover: float = Field(default=15.0, ge=0.0, le=365.0)
+    # Stock-level point-in-time covariance/factor-risk layer.
+    stock_risk_aware: bool = True
+    factor_risk_lookback_days: int = Field(default=252, ge=60, le=1260)
+    factor_risk_refresh_days: int = Field(default=21, ge=1, le=252)
+    factor_risk_min_observations: int = Field(default=80, ge=20, le=756)
+    residual_covariance_shrinkage: float = Field(default=0.50, ge=0.0, le=1.0)
+    target_annual_volatility: Optional[float] = Field(default=0.12, gt=0.0, le=2.0)
+    max_market_factor_exposure: float = Field(default=0.05, ge=0.0, le=2.0)
+    max_style_factor_exposure: float = Field(default=0.15, ge=0.0, le=2.0)
+    covariance_risk_aversion: float = Field(default=0.25, ge=0.0, le=100.0)
+
+
+class FactorRiskSnapshotRequest(BaseModel):
+    symbols: list[str] = Field(min_length=3, max_length=100)
+    start: str = "2023-01-01"
+    end: Optional[str] = None
+    weights: dict[str, float] = Field(default_factory=dict)
+    lookback_days: int = Field(default=252, ge=60, le=1260)
+    min_observations: int = Field(default=80, ge=20, le=756)
+    residual_covariance_shrinkage: float = Field(default=0.50, ge=0.0, le=1.0)
 
 
 class ResearchArchiveRequest(BaseModel):

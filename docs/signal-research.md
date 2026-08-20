@@ -354,6 +354,7 @@ The walk-forward multi-source simulation is the historical research harness. It 
 - `POST /api/backtest/signals/multisource_research` — point-in-time multi-source OOS research.
 - `POST /api/backtest/signals/walk_forward_portfolio` — historical research vintages feeding a cost-aware neutral portfolio.
 - `POST /api/backtest/signals/archive` — capture today's estimates/options/crowding fields for future research and short-risk controls.
+- `POST /api/backtest/signals/risk_snapshot` — inspect the current factor/covariance model and optional portfolio risk decomposition.
 - `POST /api/backtest/signals/adaptive_snapshot` — current price-only adaptive target.
 - `POST /api/backtest/run` with `strategy="stat_arb_research"` — current adaptive price-only simulation.
 
@@ -394,7 +395,16 @@ The walk-forward portfolio request extends those fields with:
   "max_name_weight": 0.20,
   "max_crowded_short_gross": 0.15,
   "borrow_aware": true,
-  "base_borrow_bps": 30.0
+  "base_borrow_bps": 30.0,
+  "stock_risk_aware": true,
+  "factor_risk_lookback_days": 252,
+  "factor_risk_refresh_days": 21,
+  "factor_risk_min_observations": 80,
+  "residual_covariance_shrinkage": 0.50,
+  "target_annual_volatility": 0.12,
+  "max_market_factor_exposure": 0.05,
+  "max_style_factor_exposure": 0.15,
+  "covariance_risk_aversion": 0.25
 }
 ```
 
@@ -458,13 +468,48 @@ The response now includes sleeve activation/risk-budget history, per-decision
 constraint diagnostics, total execution cost, total borrow cost and the borrow
 data mode used.
 
+## Stock-level factor and covariance risk
+
+The walk-forward portfolio also builds a point-in-time stock risk model on a
+separate refresh cadence (21 trading days by default). Each risk vintage uses
+only prices available at that date. The model reconstructs three internal
+factors from the supplied universe — market, momentum and low-volatility — and
+regresses each stock on those factor returns over a trailing window.
+
+The covariance estimate is:
+
+```text
+stock covariance = B × factor covariance × B' + shrunk residual covariance
+```
+
+Residual off-diagonal covariance is shrunk toward zero and the final matrices
+are projected to positive semidefinite form. This avoids treating a noisy
+sample covariance matrix as exact. The model is intentionally a research proxy:
+it does not claim to reproduce a commercial factor-risk system with a dated
+industry taxonomy and proprietary descriptors.
+
+When enabled, the security-level projection still enforces dollar neutrality,
+rolling-beta neutrality, gross/name/borrow/crowding limits and optional group
+caps. It then additionally:
+
+- penalizes predicted stock covariance in the minimum-distance objective,
+- caps predicted annual portfolio volatility,
+- caps market and style-factor exposure, and
+- fails closed if the requested risk constraints cannot be satisfied.
+
+Each portfolio decision reports predicted volatility, factor/residual variance
+shares, factor exposures, marginal/component risk by stock, the largest weighted
+covariance pairs, an effective number of risk contributors and transparent
+factor/single-name stress scenarios. The current model can also be inspected
+independently with `POST /api/backtest/signals/risk_snapshot`.
+
 ## Next research upgrades
 
 The highest-value remaining additions are:
 
 1. an observed point-in-time borrow/locate feed instead of the GC + crowding proxy,
 2. a dated sector/industry classification history so group caps can run without current-label contamination,
-3. a multi-factor covariance model for stock-level residual risk and factor crowding,
+3. richer dated style descriptors (size, value, quality, earnings revisions) in the risk model,
 4. HAC (Newey-West style) significance estimates, which would recover the
    efficiency the current non-overlapping subsampling gives up while staying
    honest about overlapping forward-return horizons,

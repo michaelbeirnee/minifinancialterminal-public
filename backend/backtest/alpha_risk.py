@@ -406,14 +406,21 @@ def project_portfolio_constraints(
     max_crowded_short_gross: float = 0.15,
     groups: Mapping[str, Any] | pd.Series | None = None,
     group_net_cap: float | None = None,
+    covariance: pd.DataFrame | None = None,
+    factor_exposures: pd.DataFrame | None = None,
+    factor_exposure_caps: Mapping[str, float] | None = None,
+    target_annual_vol: float | None = None,
+    risk_aversion: float = 0.0,
 ) -> tuple[pd.Series, dict[str, Any]]:
     """Project a neutral desired book into security-level risk constraints.
 
     SLSQP minimises squared distance to the sleeve-combined target while
     preserving dollar neutrality, beta neutrality (when identifiable), gross
     exposure, name limits, short-availability bounds, crowded-short gross and
-    optional group-net limits. Failure is fail-closed: the function returns a
-    flat book instead of silently violating a constraint.
+    optional group-net limits.  When a point-in-time covariance model is
+    supplied, the objective also penalises predicted variance and can enforce
+    annual-volatility and style-factor exposure limits. Failure is fail-closed:
+    the function returns a flat book instead of silently violating a constraint.
     """
 
     desired = desired.astype(float).fillna(0.0)
@@ -442,6 +449,43 @@ def project_portfolio_constraints(
     crowded_mask = crowd.to_numpy(dtype=float) >= float(crowded_short_threshold)
     crowded_cap = max(0.0, float(max_crowded_short_gross))
 
+    cov_values: np.ndarray | None = None
+    if covariance is not None:
+        aligned_cov = covariance.reindex(index=names, columns=names).astype(float)
+        if aligned_cov.notna().all().all() and np.isfinite(aligned_cov.to_numpy(dtype=float)).all():
+            cov_values = aligned_cov.to_numpy(dtype=float)
+            cov_values = (cov_values + cov_values.T) / 2.0
+
+    factor_matrix: np.ndarray | None = None
+    factor_names: list[str] = []
+    factor_caps: dict[str, float] = {}
+    if factor_exposures is not None and factor_exposure_caps:
+        aligned_factors = factor_exposures.reindex(index=names).astype(float)
+        factor_names = [
+            str(name) for name in aligned_factors.columns
+            if str(name) in factor_exposure_caps and float(factor_exposure_caps[str(name)]) >= 0.0
+        ]
+        if factor_names:
+            selected = aligned_factors[factor_names]
+            if selected.notna().all().all() and np.isfinite(selected.to_numpy(dtype=float)).all():
+                factor_matrix = selected.to_numpy(dtype=float)
+                factor_caps = {name: max(0.0, float(factor_exposure_caps[name])) for name in factor_names}
+            else:
+                factor_names = []
+
+    vol_cap = None if target_annual_vol is None else max(0.0, float(target_annual_vol))
+    risk_aversion = max(0.0, float(risk_aversion))
+
+    def _risk_snapshot(x: np.ndarray) -> tuple[float | None, dict[str, float]]:
+        predicted_vol = None
+        if cov_values is not None:
+            predicted_vol = float(np.sqrt(max(0.0, float(x @ cov_values @ x))))
+        exposures: dict[str, float] = {}
+        if factor_matrix is not None:
+            raw = x @ factor_matrix
+            exposures = {name: float(raw[i]) for i, name in enumerate(factor_names)}
+        return predicted_vol, exposures
+
     bounds = [
         (0.0 if not bool(shortable_series.loc[name]) else -name_cap, name_cap)
         for name in names
@@ -459,6 +503,12 @@ def project_portfolio_constraints(
     group_ok = True
     if groups is not None and group_net_cap is not None:
         group_ok = all(abs(value) <= float(group_net_cap) + 1e-10 for value in candidate_group.values())
+    candidate_vol, candidate_factor_exposures = _risk_snapshot(d)
+    vol_ok = vol_cap is None or candidate_vol is None or candidate_vol <= vol_cap + 1e-10
+    factor_ok = all(
+        abs(candidate_factor_exposures.get(name, 0.0)) <= factor_caps[name] + 1e-10
+        for name in factor_names
+    )
     neutral_ok = abs(float(candidate.sum())) <= 1e-9
     beta_ok = (
         abs(float((candidate * beta.reindex(candidate.index).fillna(0.0)).sum())) <= 1e-8
@@ -472,6 +522,9 @@ def project_portfolio_constraints(
         and not candidate_unshortable
         and candidate_crowded <= crowded_cap + 1e-10
         and group_ok
+        and vol_ok
+        and factor_ok
+        and risk_aversion <= 0.0
     ):
         return candidate, {
             "status": "ready",
@@ -482,6 +535,9 @@ def project_portfolio_constraints(
             "crowded_short_gross": round(candidate_crowded, 8),
             "unshortable_names": [str(name) for name in names if not bool(shortable_series.loc[name])],
             "group_net_exposures": {key: round(float(value), 8) for key, value in sorted(candidate_group.items())},
+            "predicted_annual_volatility": None if candidate_vol is None else round(float(candidate_vol), 8),
+            "factor_exposures": {key: round(float(value), 8) for key, value in sorted(candidate_factor_exposures.items())},
+            "risk_aversion": round(risk_aversion, 6),
             "optimizer_message": "constraints_not_binding",
         }
 
@@ -499,6 +555,21 @@ def project_portfolio_constraints(
             "type": "ineq",
             "fun": lambda x, mask=crowded_mask, cap=crowded_cap: float(cap - np.sum(np.maximum(-x[mask], 0.0))),
         })
+
+    if cov_values is not None and vol_cap is not None and vol_cap > 0.0:
+        constraints.append({
+            "type": "ineq",
+            "fun": lambda x, cov=cov_values, cap=vol_cap: float(cap * cap - x @ cov @ x),
+        })
+
+    if factor_matrix is not None:
+        for j, name in enumerate(factor_names):
+            cap = factor_caps[name]
+            vector = factor_matrix[:, j].copy()
+            constraints.append({
+                "type": "ineq",
+                "fun": lambda x, vv=vector, cc=cap: float(cc - abs(np.dot(x, vv))),
+            })
 
     group_members: dict[str, list[int]] = {}
     if groups is not None and group_net_cap is not None:
@@ -519,8 +590,18 @@ def project_portfolio_constraints(
             })
 
     scale = max(1e-8, float(np.dot(d, d)))
+    base_variance = float(d @ cov_values @ d) if cov_values is not None else 0.0
+    risk_scale = max(1e-8, (vol_cap * vol_cap) if vol_cap is not None and vol_cap > 0.0 else base_variance)
+
+    def _objective(x: np.ndarray) -> float:
+        distance = float(np.dot(x - d, x - d) / scale)
+        if cov_values is None or risk_aversion <= 0.0:
+            return distance
+        variance_penalty = float(x @ cov_values @ x) / risk_scale
+        return distance + risk_aversion * variance_penalty
+
     result = minimize(
-        lambda x: float(np.dot(x - d, x - d) / scale),
+        _objective,
         x0,
         method="SLSQP",
         bounds=bounds,
@@ -538,6 +619,7 @@ def project_portfolio_constraints(
     group_exp = _group_exposures(out, groups)
     crowded_short = float(np.maximum(-out.loc[names].to_numpy(dtype=float)[crowded_mask], 0.0).sum()) if crowded_mask.any() else 0.0
     unshortable = [str(name) for name in names if not bool(shortable_series.loc[name])]
+    predicted_vol, predicted_factor_exposures = _risk_snapshot(result.x)
     return out, {
         "status": "ready",
         "gross_exposure": round(float(out.abs().sum()), 8),
@@ -547,6 +629,9 @@ def project_portfolio_constraints(
         "crowded_short_gross": round(crowded_short, 8),
         "unshortable_names": unshortable,
         "group_net_exposures": {key: round(float(value), 8) for key, value in sorted(group_exp.items())},
+        "predicted_annual_volatility": None if predicted_vol is None else round(float(predicted_vol), 8),
+        "factor_exposures": {key: round(float(value), 8) for key, value in sorted(predicted_factor_exposures.items())},
+        "risk_aversion": round(risk_aversion, 6),
         "optimizer_message": str(result.message),
     }
 

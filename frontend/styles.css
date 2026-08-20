@@ -435,6 +435,7 @@ td.pos,.v.pos{color:var(--green)} td.neg,.v.neg{color:var(--red)}
 .cmddesc{color:var(--muted);font-size:12.5px;line-height:1.5;margin-bottom:12px}
 .cmddesc code{color:var(--blue);font-family:'IBM Plex Mono',monospace}
 .grid2{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
 .grid2 label{display:flex;flex-direction:column;gap:4px;color:var(--muted);font-size:11px}
 .grid2 label small{color:var(--muted);font-size:10px;opacity:.75}
 @media (max-width:900px){.explorer{grid-template-columns:1fr}.explorer-side{position:static;max-height:none}}

@@ -35,6 +35,7 @@ from sqlalchemy.orm import Session
 
 from ..reports.generator import compute_metrics
 from .execution_research import ExecutionPanels, build_execution_panels
+from .factor_risk import build_factor_risk_model, portfolio_risk_diagnostics
 from .alpha_risk import (
     BorrowPanels,
     build_alpha_sleeve_plan,
@@ -105,6 +106,27 @@ class WalkForwardResearchOutput:
         total_execution_cost_dollars = float((self.daily_costs * prior_equity).sum())
         total_borrow_cost_dollars = float((self.daily_borrow_costs * prior_equity).sum())
         total_cost_dollars = total_execution_cost_dollars + total_borrow_cost_dollars
+        risk_rows = [
+            row.get("executed_risk") for row in self.decisions
+            if isinstance(row.get("executed_risk"), dict) and row.get("executed_risk", {}).get("status") == "ready"
+        ]
+        avg_predicted_vol = (
+            float(np.mean([float(row.get("predicted_annual_volatility", 0.0)) for row in risk_rows]))
+            if risk_rows else 0.0
+        )
+        avg_effective_risk_names = (
+            float(np.mean([float(row.get("effective_risk_names", 0.0)) for row in risk_rows]))
+            if risk_rows else 0.0
+        )
+        max_name_risk_share = (
+            max(float(row.get("max_positive_name_risk_share", 0.0)) for row in risk_rows)
+            if risk_rows else 0.0
+        )
+        worst_stress = (
+            min(float(row.get("worst_stress_return", 0.0)) for row in risk_rows)
+            if risk_rows else 0.0
+        )
+        risk_model_refreshes = len({str(row.get("as_of")) for row in risk_rows if row.get("as_of")})
 
         return {
             "engine": "walk_forward_multisource",
@@ -143,6 +165,12 @@ class WalkForwardResearchOutput:
                 "average_daily_borrow_bps": round(float(self.daily_borrow_costs.mean() * 10_000.0), 6),
                 "average_active_sleeves": round(float(np.mean([len(v.get("sleeves", [])) for v in self.research_vintages])) if self.research_vintages else 0.0, 4),
                 "average_sleeve_budget_utilization": round(float(np.mean([float(v.get("sleeve_budget_sum", 0.0)) for v in self.research_vintages])) if self.research_vintages else 0.0, 6),
+                "risk_model_decisions": len(risk_rows),
+                "risk_model_refreshes": risk_model_refreshes,
+                "average_predicted_annual_volatility": round(avg_predicted_vol, 6),
+                "average_effective_risk_names": round(avg_effective_risk_names, 4),
+                "max_name_risk_share": round(max_name_risk_share, 6),
+                "worst_factor_stress_return": round(worst_stress, 6),
             },
             "config": self.config,
             "methodology": {
@@ -152,6 +180,8 @@ class WalkForwardResearchOutput:
                 "portfolio_capacity": "uniform_scale_of_delta_to_target",
                 "archive_rule": "estimates_options_and_crowding_exist_only_after_actual_capture",
                 "alpha_allocation": "family_sleeves_with_trailing_risk_budgets_and_correlation_caps",
+                "stock_risk_model": "trailing_factor_covariance_plus_shrunk_residual_covariance_prefix_only",
+                "risk_projection": "minimum_distance_plus_covariance_penalty_with_volatility_and_factor_caps",
                 "borrow_cost": "daily_short_notional_times_point_in_time_or_proxy_annual_borrow_rate",
             },
         }
@@ -408,6 +438,15 @@ def walk_forward_multisource_portfolio(
     crowding_surcharge_bps: float = 900.0,
     hard_to_borrow_short_float: float = 0.35,
     hard_to_borrow_days_to_cover: float = 15.0,
+    stock_risk_aware: bool = True,
+    factor_risk_lookback_days: int = 252,
+    factor_risk_refresh_days: int = 21,
+    factor_risk_min_observations: int = 80,
+    residual_covariance_shrinkage: float = 0.50,
+    target_annual_volatility: float | None = 0.12,
+    max_market_factor_exposure: float = 0.05,
+    max_style_factor_exposure: float = 0.15,
+    covariance_risk_aversion: float = 0.25,
 ) -> WalkForwardResearchOutput:
     """Run the research-selection-execution loop through historical time."""
 
@@ -426,6 +465,7 @@ def walk_forward_multisource_portfolio(
     purge_days = int(purge_days)
     portfolio_rebalance_days = max(1, int(portfolio_rebalance_days))
     research_refresh_days = max(1, int(research_refresh_days or test_days))
+    factor_risk_refresh_days = max(1, int(factor_risk_refresh_days))
     gross_target = float(gross_target)
     research_capital_dollars = float(research_capital_dollars)
     initial_capital = float(initial_capital or research_capital_dollars)
@@ -441,6 +481,14 @@ def walk_forward_multisource_portfolio(
         raise ValueError("event_budget_cap must be between 0 and 1")
     if not 0.0 <= float(max_crowded_short_gross) <= 1.5:
         raise ValueError("max_crowded_short_gross must be between 0 and 1.5")
+    if target_annual_volatility is not None and not 0.0 < float(target_annual_volatility) <= 2.0:
+        raise ValueError("target_annual_volatility must be > 0 and <= 2 when enabled")
+    if not 0.0 <= float(residual_covariance_shrinkage) <= 1.0:
+        raise ValueError("residual_covariance_shrinkage must be between 0 and 1")
+    if float(max_market_factor_exposure) < 0.0 or float(max_style_factor_exposure) < 0.0:
+        raise ValueError("factor exposure caps must be non-negative")
+    if float(covariance_risk_aversion) < 0.0:
+        raise ValueError("covariance_risk_aversion must be non-negative")
 
     warmup = train_days + purge_days + test_days
     if len(prices) < warmup + 1:
@@ -580,6 +628,9 @@ def walk_forward_multisource_portfolio(
 
     latest_vintage_pos: int | None = None
     research_pointer = 0
+    latest_factor_risk_model = None
+    latest_factor_risk_pos: int | None = None
+    latest_factor_risk_error: str | None = None
     decision_positions = list(range(first_research_pos, max(first_research_pos, len(prices) - 1), portfolio_rebalance_days))
     for pos in decision_positions:
         while research_pointer < len(research_positions) and research_positions[research_pointer] <= pos:
@@ -618,6 +669,30 @@ def walk_forward_multisource_portfolio(
             )
             effective_sleeves = []
 
+        factor_risk_model = None
+        factor_risk_error = None
+        if stock_risk_aware:
+            should_refresh_risk = (
+                latest_factor_risk_model is None
+                or latest_factor_risk_pos is None
+                or pos - latest_factor_risk_pos >= factor_risk_refresh_days
+            )
+            if should_refresh_risk:
+                try:
+                    latest_factor_risk_model = build_factor_risk_model(
+                        prices.reindex(columns=columns).loc[:dt],
+                        as_of=dt,
+                        lookback=factor_risk_lookback_days,
+                        min_obs=factor_risk_min_observations,
+                        residual_shrinkage=residual_covariance_shrinkage,
+                    )
+                    latest_factor_risk_pos = pos
+                    latest_factor_risk_error = None
+                except ValueError as exc:
+                    latest_factor_risk_error = str(exc)
+            factor_risk_model = latest_factor_risk_model
+            factor_risk_error = latest_factor_risk_error
+
         constraint_info: dict[str, Any] = {"status": "disabled"}
         if alpha_risk_aware:
             shortable_row = None
@@ -625,18 +700,54 @@ def walk_forward_multisource_portfolio(
             if borrow_panels is not None:
                 shortable_row = borrow_panels.shortable.reindex(index=[dt], columns=columns).iloc[0]
                 crowding_row = borrow_panels.crowding_score.reindex(index=[dt], columns=columns).iloc[0]
-            target, constraint_info = project_portfolio_constraints(
-                target,
-                beta_row,
-                gross_limit=gross_target,
-                max_name_weight=max_name_weight,
-                shortable=shortable_row,
-                crowding_score=crowding_row,
-                crowded_short_threshold=crowded_short_threshold,
-                max_crowded_short_gross=max_crowded_short_gross,
-                groups=groups if apply_group_constraints else None,
-                group_net_cap=group_net_cap if apply_group_constraints else None,
-            )
+            projection_beta = beta_row.copy()
+            if stock_risk_aware and factor_risk_model is None:
+                target = pd.Series(0.0, index=columns, dtype=float)
+                constraint_info = {
+                    "status": "flat",
+                    "reason": "factor_risk_model_unavailable",
+                    "risk_model_error": factor_risk_error,
+                }
+            else:
+                if factor_risk_model is not None:
+                    modeled = set(factor_risk_model.covariance.index)
+                    projection_beta.loc[[name for name in columns if name not in modeled]] = np.nan
+                factor_caps = None
+                if factor_risk_model is not None:
+                    factor_caps = {
+                        name: (
+                            float(max_market_factor_exposure)
+                            if name == "MKT"
+                            else float(max_style_factor_exposure)
+                        )
+                        for name in factor_risk_model.exposures.columns
+                    }
+                target, constraint_info = project_portfolio_constraints(
+                    target,
+                    projection_beta,
+                    gross_limit=gross_target,
+                    max_name_weight=max_name_weight,
+                    shortable=shortable_row,
+                    crowding_score=crowding_row,
+                    crowded_short_threshold=crowded_short_threshold,
+                    max_crowded_short_gross=max_crowded_short_gross,
+                    groups=groups if apply_group_constraints else None,
+                    group_net_cap=group_net_cap if apply_group_constraints else None,
+                    covariance=(factor_risk_model.covariance if factor_risk_model is not None else None),
+                    factor_exposures=(factor_risk_model.exposures if factor_risk_model is not None else None),
+                    factor_exposure_caps=factor_caps,
+                    target_annual_vol=(float(target_annual_volatility) if stock_risk_aware and target_annual_volatility is not None else None),
+                    risk_aversion=(float(covariance_risk_aversion) if stock_risk_aware else 0.0),
+                )
+
+        target_risk = (
+            portfolio_risk_diagnostics(target, factor_risk_model)
+            if factor_risk_model is not None and constraint_info.get("status") == "ready"
+            else {
+                "status": "unavailable" if factor_risk_model is None else "flat",
+                "reason": factor_risk_error if factor_risk_model is None else constraint_info.get("reason"),
+            }
+        )
 
         current, execution = _execute_delta(
             current,
@@ -649,6 +760,11 @@ def walk_forward_multisource_portfolio(
             commission_bps=execution_commission_bps,
             slippage_bps=execution_slippage_bps,
             impact_coefficient=impact_coefficient,
+        )
+        executed_risk = (
+            portfolio_risk_diagnostics(current, factor_risk_model)
+            if factor_risk_model is not None
+            else {"status": "unavailable", "reason": factor_risk_error}
         )
         target_weights.loc[dt] = current
         if execution_dt is not None:
@@ -663,6 +779,8 @@ def walk_forward_multisource_portfolio(
                 "blend": effective_blend,
                 "sleeves": effective_sleeves,
                 "risk_constraints": constraint_info,
+                "target_risk": target_risk,
+                "executed_risk": executed_risk,
                 "target_gross_exposure": round(float(target.abs().sum()), 8),
                 "capacity_scale": execution["capacity_scale"],
                 "executable_gross_exposure": execution["gross_exposure"],
@@ -718,6 +836,15 @@ def walk_forward_multisource_portfolio(
         "borrow_aware": bool(borrow_aware),
         "base_borrow_bps": round(float(base_borrow_bps), 6),
         "crowding_surcharge_bps": round(float(crowding_surcharge_bps), 6),
+        "stock_risk_aware": bool(stock_risk_aware),
+        "factor_risk_lookback_days": int(factor_risk_lookback_days),
+        "factor_risk_refresh_days": int(factor_risk_refresh_days),
+        "factor_risk_min_observations": int(factor_risk_min_observations),
+        "residual_covariance_shrinkage": round(float(residual_covariance_shrinkage), 6),
+        "target_annual_volatility": None if target_annual_volatility is None else round(float(target_annual_volatility), 6),
+        "max_market_factor_exposure": round(float(max_market_factor_exposure), 6),
+        "max_style_factor_exposure": round(float(max_style_factor_exposure), 6),
+        "covariance_risk_aversion": round(float(covariance_risk_aversion), 6),
     }
 
     return WalkForwardResearchOutput(
