@@ -306,11 +306,45 @@ The API exposes the exact failures in `exclusion_reasons`, so a `watch` signal
 can be distinguished from a statistically weak signal, a sector-contaminated
 signal, a cost/capacity failure, and a duplicate of a stronger predictor.
 
+## Walk-forward multi-source fund simulation
+
+`POST /api/backtest/signals/walk_forward_portfolio` closes the loop between research and portfolio construction. It does **not** take today's full-sample `recommended_blend` and replay it backward. Instead it builds a sequence of historical research vintages.
+
+The sequence is:
+
+1. build the complete point-in-time signal library once,
+2. wait until one full train / purge / OOS test block exists,
+3. on each research refresh date, slice prices, signals and execution inputs to that historical prefix only,
+4. re-run raw OOS gates, group-neutral evidence, FDR, execution/capacity tests and redundancy selection on that prefix,
+5. freeze the resulting blend as a research vintage,
+6. on each portfolio rebalance, use only the latest vintage completed at or before that signal date,
+7. blend that day's current point-in-time signal scores, project the score to a dollar/beta-neutral target,
+8. trade from the **existing** book toward the new target, uniformly scaling the delta when the ADV ceiling binds,
+9. apply the resulting target one bar later and charge spread/slippage/impact costs on that execution bar.
+
+Research refresh and portfolio rebalance are intentionally separate clocks. The default research refresh is one OOS test block (`test_days`), while the portfolio can rebalance more frequently (5 trading days by default). This mimics a research process that periodically approves or removes predictors while the trading book continues to update current scores between research committee vintages.
+
+The response includes:
+
+- net and pre-execution-cost equity curves,
+- standard performance statistics for both,
+- every research vintage and its frozen blend,
+- every portfolio decision with the research vintage it used,
+- capacity scale, turnover, estimated cost, net exposure and beta exposure at each decision,
+- signal selection frequency and average weight through time,
+- counts of capacity-constrained decisions and active trading days.
+
+The anti-leakage invariant is explicit: changing prices or external feature rows **after** a historical cutoff must not alter any research vintage or portfolio decision before that cutoff. Tests enforce this alongside the one-bar execution lag.
+
+### Capacity during the walk-forward run
+
+The current-book helper uses a flat-start entry assumption. The historical simulation is stricter and more realistic: capacity is measured on `new_target - existing_book`. If any desired trade would exceed the ADV limit, one common scalar is applied to the complete trade vector. This preserves dollar neutrality because both the old and desired books are dollar neutral. Beta can drift between rebalances as rolling betas change; the API reports that realized beta exposure on every decision rather than hiding it.
+
 ## Existing adaptive price strategy
 
 `stat_arb_research` remains the live-safe adaptive price strategy. It uses only already-realized trailing IC and delays an `h`-day label by `h` bars before that label can affect signal weights.
 
-The multi-source layer deliberately keeps data acquisition/research separate from that strategy path for now. Historical volume/fundamental/event/peer signals can already be evaluated honestly; estimates/options need enough archived history before an adaptive multi-source portfolio is worth enabling.
+The walk-forward multi-source simulation is the historical research harness. It remains distinct from a live production strategy because archive-first estimate/options features only become useful after enough real snapshots have accumulated.
 
 ## API
 
@@ -318,6 +352,7 @@ The multi-source layer deliberately keeps data acquisition/research separate fro
 - `GET /api/backtest/signals/multisource_catalog` — all signal families and archive requirements.
 - `POST /api/backtest/signals/research` — price-only OOS research.
 - `POST /api/backtest/signals/multisource_research` — point-in-time multi-source OOS research.
+- `POST /api/backtest/signals/walk_forward_portfolio` — historical research vintages feeding a cost-aware neutral portfolio.
 - `POST /api/backtest/signals/archive` — capture today's estimates/options for future research.
 - `POST /api/backtest/signals/adaptive_snapshot` — current price-only adaptive target.
 - `POST /api/backtest/run` with `strategy="stat_arb_research"` — current adaptive price-only simulation.
@@ -339,6 +374,17 @@ The multi-source layer deliberately keeps data acquisition/research separate fro
   "impact_coefficient": 0.10,
   "min_capacity_fill": 0.90,
   "min_net_alpha_bps": 0.0
+}
+```
+
+The walk-forward portfolio request extends those fields with:
+
+```json
+{
+  "research_refresh_days": 63,
+  "portfolio_rebalance_days": 5,
+  "gross_target": 1.0,
+  "initial_capital": 10000000
 }
 ```
 
@@ -372,9 +418,9 @@ The next additions should keep improving research quality rather than simply
 multiply feature count:
 
 1. archived daily estimates/options jobs so those families collect data automatically,
-2. a walk-forward multi-source portfolio whose blend is fit only on each prior training window,
-3. observed quote/spread history where a licensed data source is available,
-4. HAC (Newey-West style) significance estimates, which would recover the
+2. observed quote/spread history where a licensed data source is available,
+3. HAC (Newey-West style) significance estimates, which would recover the
    efficiency the current non-overlapping subsampling gives up while staying
    honest about overlapping forward-return horizons,
-5. borrow availability/fees and short-sale constraints.
+4. borrow availability/fees and short-sale constraints,
+5. portfolio-level risk budgeting across alpha clusters, sectors and event concentrations.

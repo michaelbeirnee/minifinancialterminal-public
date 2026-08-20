@@ -2157,13 +2157,27 @@
               Min fill (%)
               <input id="bt-signal-fill" value="90" class="mono" style="width:80px" />
             </label>
-            <span class="hintline">A signal must pass raw OOS evidence, the selected group-neutral test, multiple-testing control, its redundancy cluster, and execution-aware net-alpha/capacity gates. Sector/industry neutralization is strict: it needs several classified names per group, so leave it off for small or ETF-heavy baskets.</span>
+            <label style="display:flex;flex-direction:column;gap:4px;color:var(--muted);font-size:12px">
+              Research refresh (days)
+              <input id="bt-signal-refresh" value="63" class="mono" style="width:90px" />
+            </label>
+            <label style="display:flex;flex-direction:column;gap:4px;color:var(--muted);font-size:12px">
+              Portfolio rebalance (days)
+              <input id="bt-signal-rebalance" value="5" class="mono" style="width:90px" />
+            </label>
+            <label style="display:flex;flex-direction:column;gap:4px;color:var(--muted);font-size:12px">
+              Gross target (%)
+              <input id="bt-signal-gross" value="100" class="mono" style="width:90px" />
+            </label>
+            <span class="hintline">A signal must pass raw OOS evidence, the selected group-neutral test, multiple-testing control, its redundancy cluster, and execution-aware net-alpha/capacity gates. The walk-forward run freezes each completed research vintage and only lets later portfolio decisions use it. Sector/industry neutralization is strict: it needs several classified names per group, so leave it off for small or ETF-heavy baskets.</span>
           </div>
           <div class="row wrap">
             <button id="bt-signal-run" class="ghost">Test the full signal library</button>
+            <button id="bt-signal-wf-run" class="ghost">Run walk-forward fund simulation</button>
             <button id="bt-signal-archive" class="ghost">Archive today's estimates + options</button>
           </div>
           <div id="bt-signal-out" style="margin-top:14px"></div>
+          <div id="bt-signal-wf-out" style="margin-top:14px"></div>
         </div>
       </section>
 

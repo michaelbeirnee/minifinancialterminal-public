@@ -15,6 +15,7 @@ from ..backtest.engine import run_backtest
 from ..backtest.execution_research import build_execution_panels, current_execution_book
 from ..backtest.strategies import REGISTRY
 from ..backtest.stat_arb import stat_arb_snapshot
+from ..backtest.walkforward_research import walk_forward_multisource_portfolio
 from ..backtest.signal_research import (
     adaptive_stat_arb_snapshot,
     research_signal_suite,
@@ -38,6 +39,7 @@ from ..schemas import (
     CostSensitivityRequest,
     ResearchArchiveRequest,
     SignalResearchRequest,
+    SignalPortfolioWalkForwardRequest,
     StatArbSnapshotRequest,
     WalkForwardRequest,
 )
@@ -273,6 +275,109 @@ def multisource_signal_research(
         report["catalog_signal_count"] = len(MULTISOURCE_SPEC_BY_NAME)
         report["unavailable_signals"] = [name for name in requested if name not in available]
         return report
+    except (ValueError, KeyError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/signals/walk_forward_portfolio")
+def walk_forward_signal_portfolio(
+    req: SignalPortfolioWalkForwardRequest,
+    _: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Simulate historical research vintages feeding a cost-aware neutral book."""
+    try:
+        prices = get_price_panel(req.symbols, req.start, req.end)
+        if prices.empty:
+            raise ValueError("No price data for requested symbols/period")
+
+        groups = None
+        classification_status = {
+            "requested_level": req.neutralize_by,
+            "mode": "disabled",
+            "coverage": 0.0,
+            "point_in_time": None,
+        }
+        if req.neutralize_by != "none":
+            groups, classification_status = current_symbol_classifications(
+                req.symbols, req.neutralize_by
+            )
+
+        # Fetch every dated family once. The walk-forward engine slices this
+        # library at each research vintage, so future rows never enter an old
+        # selection decision.
+        features = build_feature_panels(prices, params=req.params, db=db)
+        built = build_multisource_signal_library(
+            prices,
+            params=req.params,
+            features=features,
+            db=db,
+            signals=req.signals,
+        )
+        execution_panels = None
+        if req.execution_aware:
+            execution_panels = build_execution_panels(
+                prices,
+                features.panels,
+                adv_window=req.execution_adv_window,
+                vol_window=req.execution_vol_window,
+                spread_window=req.execution_spread_window,
+            )
+
+        output = walk_forward_multisource_portfolio(
+            prices,
+            params=req.params,
+            features=features,
+            db=db,
+            signals=req.signals,
+            built=built,
+            groups=groups,
+            group_label=None if req.neutralize_by == "none" else req.neutralize_by,
+            min_group_names=req.min_group_names,
+            primary_horizon=req.primary_horizon,
+            train_days=req.train_days,
+            test_days=req.test_days,
+            purge_days=req.purge_days,
+            min_names=req.min_names,
+            min_oos_ic=req.min_oos_ic,
+            min_oos_t_stat=req.min_oos_t_stat,
+            min_positive_folds=req.min_positive_folds,
+            min_coverage=req.min_coverage,
+            min_oos_observations=req.min_oos_observations,
+            fdr_alpha=req.fdr_alpha,
+            redundancy_threshold=req.redundancy_threshold,
+            redundancy_min_overlap=req.redundancy_min_overlap,
+            execution_panels=execution_panels,
+            execution_aware=req.execution_aware,
+            research_capital_dollars=req.research_capital_dollars,
+            max_adv_participation=req.max_adv_participation,
+            execution_commission_bps=req.execution_commission_bps,
+            execution_slippage_bps=req.execution_slippage_bps,
+            impact_coefficient=req.impact_coefficient,
+            execution_quantile=req.execution_quantile,
+            min_capacity_fill=req.min_capacity_fill,
+            min_net_alpha_bps=req.min_net_alpha_bps,
+            execution_adv_window=req.execution_adv_window,
+            execution_vol_window=req.execution_vol_window,
+            execution_spread_window=req.execution_spread_window,
+            portfolio_rebalance_days=req.portfolio_rebalance_days,
+            research_refresh_days=req.research_refresh_days,
+            gross_target=req.gross_target,
+            initial_capital=req.initial_capital,
+        )
+        payload = output.to_dict()
+        payload["classification_status"] = classification_status
+        payload["available_signal_count"] = len(built.library.components)
+        payload["catalog_signal_count"] = len(MULTISOURCE_SPEC_BY_NAME)
+        requested = (
+            list(dict.fromkeys(req.signals))
+            if req.signals is not None
+            else list(MULTISOURCE_SPEC_BY_NAME)
+        )
+        payload["unavailable_signals"] = [
+            name for name in requested if name not in built.library.components
+        ]
+        return payload
     except (ValueError, KeyError) as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 

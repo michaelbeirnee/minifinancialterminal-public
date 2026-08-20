@@ -7588,6 +7588,120 @@ $("bt-signal-run").onclick = async () => {
   btn.textContent = "Test the full signal library";
 };
 
+$("bt-signal-wf-run").onclick = async () => {
+  const btn = $("bt-signal-wf-run");
+  const out = $("bt-signal-wf-out");
+  if (btPicked.size < 3) {
+    out.innerHTML = `<div class="empty">Pick at least three stocks so the cross-section can be ranked.</div>`;
+    return;
+  }
+  btn.disabled = true;
+  btn.textContent = "Running walk-forward…";
+  setStatus("RUNNING WALK-FORWARD SIGNAL PORTFOLIO…");
+  try {
+    const params = {};
+    document.querySelectorAll("#bt-params [data-param]").forEach((i) => {
+      params[i.dataset.param] = parseFloat(i.value);
+    });
+    const extraRaw = $("bt-extra").value.trim();
+    if (extraRaw) Object.assign(params, JSON.parse(extraRaw));
+    const years = { "1y": 366, "3y": 1096, "5y": 1827 }[btPeriod];
+    const shortRun = btPeriod === "1y";
+    const researchCapital = Math.max(1, parseFloat($("bt-signal-capital").value) || 10000000);
+    const d = await api("/api/backtest/signals/walk_forward_portfolio", {
+      method: "POST",
+      body: {
+        symbols: [...btPicked],
+        start: isoAgo(years),
+        end: $("bt-end").value.trim() || null,
+        params,
+        horizons: [5],
+        primary_horizon: 5,
+        train_days: shortRun ? 126 : 252,
+        test_days: shortRun ? 42 : 63,
+        purge_days: 5,
+        min_names: Math.min(5, btPicked.size),
+        neutralize_by: $("bt-signal-neutral").value,
+        fdr_alpha: Math.max(0.001, Math.min(1, parseFloat($("bt-signal-fdr").value) || 0.10)),
+        redundancy_threshold: Math.max(0, Math.min(1, parseFloat($("bt-signal-corr").value) || 0.80)),
+        execution_aware: true,
+        research_capital_dollars: researchCapital,
+        initial_capital: researchCapital,
+        max_adv_participation: Math.max(0.0001, Math.min(1, (parseFloat($("bt-signal-adv").value) || 5) / 100)),
+        execution_commission_bps: Math.max(0, parseFloat($("bt-comm").value) || 0),
+        execution_slippage_bps: Math.max(0, parseFloat($("bt-slip").value) || 0),
+        impact_coefficient: Math.max(0, parseFloat($("bt-signal-impact").value) || 0.10),
+        min_capacity_fill: Math.max(0, Math.min(1, (parseFloat($("bt-signal-fill").value) || 90) / 100)),
+        min_net_alpha_bps: 0,
+        research_refresh_days: Math.max(1, parseInt($("bt-signal-refresh").value, 10) || (shortRun ? 42 : 63)),
+        portfolio_rebalance_days: Math.max(1, parseInt($("bt-signal-rebalance").value, 10) || 5),
+        gross_target: Math.max(0.01, Math.min(3, (parseFloat($("bt-signal-gross").value) || 100) / 100)),
+      },
+    });
+
+    const sim = d.simulation || {};
+    const config = d.config || {};
+    const endValue = d.equity_curve && d.equity_curve.values.length
+      ? d.equity_curve.values[d.equity_curve.values.length - 1] : researchCapital;
+    const selectionRows = (d.selection_summary || []).slice(0, 12).map((row) => `<tr>
+      <td><b>${escapeHtml(row.signal)}</b></td>
+      <td>${row.selected_vintages}</td>
+      <td>${(Number(row.selection_rate || 0) * 100).toFixed(0)}%</td>
+      <td>${(Number(row.average_weight_when_selected || 0) * 100).toFixed(1)}%</td>
+    </tr>`).join("");
+    const vintageRows = (d.research_vintages || []).slice(-10).reverse().map((row) => `<tr>
+      <td>${escapeHtml(row.as_of)}</td>
+      <td>${row.folds}</td>
+      <td>${row.available_signals}</td>
+      <td>${row.validated_signals}</td>
+      <td class="dim">${(row.blend || []).map((x) => `${escapeHtml(x.signal)} ${(Number(x.weight) * 100).toFixed(0)}%`).join(" · ") || "flat"}</td>
+    </tr>`).join("");
+    const decisionRows = (d.decisions || []).slice(-10).reverse().map((row) => `<tr>
+      <td>${escapeHtml(row.signal_date)}</td>
+      <td>${escapeHtml(row.research_as_of)}</td>
+      <td>${(Number(row.executable_gross_exposure || 0) * 100).toFixed(0)}%</td>
+      <td>${(Number(row.capacity_scale || 0) * 100).toFixed(0)}%</td>
+      <td>${(Number(row.turnover || 0) * 100).toFixed(1)}%</td>
+      <td>${Number(row.cost_bps_of_capital || 0).toFixed(2)}</td>
+      <td>${Number(row.beta_exposure || 0).toFixed(4)}</td>
+    </tr>`).join("");
+
+    out.innerHTML = `<div class="panel">
+      <div class="panel-h">WALK-FORWARD FUND SIMULATION <span class="panel-note">research vintages frozen through time</span></div>
+      <div class="headline">${fmt$(researchCapital)} became ${fmt$(endValue)} after historical signal selection and execution costs.</div>
+      <div class="row wrap" style="margin:8px 0 10px">
+        <span class="badge">${sim.research_vintages || 0} research vintages</span>
+        <span class="badge">${sim.portfolio_decisions || 0} portfolio decisions</span>
+        <span class="badge">${sim.capacity_constrained_decisions || 0} capacity constrained</span>
+        <span class="badge">avg gross ${(Number(sim.average_gross_exposure || 0) * 100).toFixed(0)}%</span>
+        <span class="badge">refresh ${config.research_refresh_days || "—"}d</span>
+        <span class="badge">rebalance ${config.portfolio_rebalance_days || "—"}d</span>
+      </div>
+      <div id="bt-signal-wf-metrics" class="metrics three"></div>
+      <div class="legend"><span><i class="sw green"></i>Net after execution</span><span><i class="sw gray"></i>Before execution costs</span></div>
+      <canvas id="bt-signal-wf-chart" height="80"></canvas>
+      <div class="grid2" style="margin-top:14px">
+        <div><div class="panel-h">SIGNAL SURVIVAL THROUGH TIME</div><div class="tablewrap"><table><tr><th>Signal</th><th>Vintages</th><th>Rate</th><th>Avg weight</th></tr>${selectionRows || `<tr><td colspan="4" class="dim">No signal survived a completed vintage.</td></tr>`}</table></div></div>
+        <div><div class="panel-h">LATEST RESEARCH VINTAGES</div><div class="tablewrap"><table><tr><th>As of</th><th>Folds</th><th>Tested</th><th>Passed</th><th>Blend</th></tr>${vintageRows}</table></div></div>
+      </div>
+      <div class="panel-h" style="margin-top:14px">LATEST PORTFOLIO DECISIONS</div>
+      <div class="tablewrap"><table><tr><th>Signal date</th><th>Research used</th><th>Gross</th><th>Capacity scale</th><th>Turnover</th><th>Cost bp</th><th>Beta</th></tr>${decisionRows}</table></div>
+      <div class="dim" style="margin-top:8px">Every decision uses only the latest completed research vintage at or before its signal date. The resulting target is applied one bar later.</div>
+    </div>`;
+    renderMetrics("bt-signal-wf-metrics", d.metrics, d);
+    drawLine("bt-signal-wf-chart", d.equity_curve.dates, [
+      { label: "Net after execution", data: d.equity_curve.values, color: "#00c805" },
+      { label: "Before execution costs", data: d.gross_equity_curve.values, color: "#6f7377", dash: true },
+    ]);
+    setStatus(`WALK-FORWARD DONE · ${sim.research_vintages || 0} VINTAGES · ${sim.portfolio_decisions || 0} DECISIONS`);
+  } catch (e) {
+    out.innerHTML = `<div class="empty">${escapeHtml(e.message)}</div>`;
+    setStatus("ERR: " + e.message);
+  }
+  btn.disabled = false;
+  btn.textContent = "Run walk-forward fund simulation";
+};
+
 $("bt-signal-archive").onclick = async () => {
   const btn = $("bt-signal-archive");
   const out = $("bt-signal-out");

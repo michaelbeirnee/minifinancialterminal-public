@@ -443,6 +443,15 @@ class SignalResearchRequest(BaseModel):
     execution_spread_window: int = Field(default=5, ge=1, le=63)
 
 
+class SignalPortfolioWalkForwardRequest(SignalResearchRequest):
+    # Research vintages update on a slower cadence than portfolio rebalances.
+    # Every portfolio decision uses the latest completed vintage only.
+    research_refresh_days: Optional[int] = Field(default=None, ge=1, le=252)
+    portfolio_rebalance_days: int = Field(default=5, ge=1, le=63)
+    gross_target: float = Field(default=1.0, gt=0.0, le=3.0)
+    initial_capital: Optional[float] = Field(default=None, gt=0.0, le=1e12)
+
+
 class ResearchArchiveRequest(BaseModel):
     symbols: list[str] = Field(min_length=1, max_length=100)
     include_estimates: bool = True
