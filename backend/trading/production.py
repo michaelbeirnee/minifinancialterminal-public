@@ -121,9 +121,11 @@ class LedgerBroker:
         self.initial_capital = float(initial_capital)
 
     def positions(self) -> dict[str, float]:
+        # Any recorded fill counts, whatever the order's final state — a
+        # partially-filled-then-cancelled order still moved shares.
         rows = (
             self.db.query(ProductionOrder)
-            .filter(ProductionOrder.status == "filled")
+            .filter(ProductionOrder.fill_qty > 0.0)
             .all()
         )
         out: dict[str, float] = {}
@@ -135,7 +137,7 @@ class LedgerBroker:
     def cash(self) -> float:
         rows = (
             self.db.query(ProductionOrder)
-            .filter(ProductionOrder.status == "filled")
+            .filter(ProductionOrder.fill_qty > 0.0)
             .all()
         )
         cash = self.initial_capital
@@ -165,6 +167,9 @@ class LedgerBroker:
             if run is None:
                 run = self.db.get(ProductionRun, order.run_id)
                 by_run[order.run_id] = run
+            if run is None or not run.as_of:
+                warnings.append(f"{order.symbol}: order {order.id} has no run record")
+                continue
             decision = date.fromisoformat(run.as_of)
             if decision >= today:
                 continue  # execution session has not arrived yet
@@ -266,14 +271,23 @@ class AlpacaDailyBroker:
                 warnings.append(f"{order.symbol}: poll failed: {exc}")
                 continue
             status = str(resp.get("status", ""))
+            filled_qty = float(resp.get("filled_qty") or 0.0)
             if status == "filled":
-                order.fill_qty = float(resp.get("filled_qty") or order.qty)
+                order.fill_qty = filled_qty or float(order.qty)
                 order.fill_price = float(resp.get("filled_avg_price") or 0.0)
                 order.filled_at = str(resp.get("filled_at") or _utcnow_iso())
                 order.status = "filled"
             elif status in ("canceled", "expired", "done_for_day"):
+                # A terminal state can still carry a partial fill — record it,
+                # or the ledger's position rebuild diverges from the broker.
+                if filled_qty > 0.0:
+                    order.fill_qty = filled_qty
+                    order.fill_price = float(resp.get("filled_avg_price") or 0.0)
+                    order.filled_at = str(resp.get("filled_at") or _utcnow_iso())
                 order.status = "cancelled"
-                order.reason = f"broker: {status}"
+                order.reason = f"broker: {status}" + (
+                    f" ({filled_qty} of {order.qty} filled)" if filled_qty > 0.0 else ""
+                )
             elif status == "rejected":
                 order.status = "rejected"
                 order.reason = "broker: rejected"
@@ -690,7 +704,11 @@ def run_daily_cycle(
     check("order_count", len(orders) <= int(cfg["max_order_count"]), str(len(orders)))
     prev_run = (
         db.query(ProductionRun)
-        .filter(ProductionRun.nav.isnot(None), ProductionRun.id != run.id)
+        .filter(
+            ProductionRun.nav.isnot(None),
+            ProductionRun.id != run.id,
+            ProductionRun.broker == broker_kind,  # NAVs from different brokers don't compare
+        )
         .order_by(ProductionRun.id.desc())
         .first()
     )
@@ -742,6 +760,10 @@ def _target_to_orders(
         if price <= 0:
             if abs(float(target.get(symbol, 0.0))) > 1e-10:
                 notes.append(f"{symbol}: no mark price; skipped")
+            elif abs(float(held.get(symbol, 0.0))) > QTY_TOLERANCE:
+                # A held name that left the priced universe cannot be closed by
+                # this cycle — surface it instead of silently carrying it.
+                notes.append(f"{symbol}: held position has no mark price and cannot be traded")
             continue
         desired_shares = float(target.get(symbol, 0.0)) * nav / price
         delta = desired_shares - float(held.get(symbol, 0.0))

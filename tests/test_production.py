@@ -263,6 +263,22 @@ def test_stale_vintage_blocks_the_cycle(db):
     )
 
 
+def test_partial_fill_on_cancelled_order_still_moves_the_ledger(db):
+    run = ProductionRun(as_of="2024-01-02", status="submitted", broker="ledger",
+                        orders_enabled=True, config={})
+    db.add(run)
+    db.flush()
+    db.add(ProductionOrder(
+        run_id=run.id, symbol="S0", side="buy", qty=100.0,
+        status="cancelled", reason="broker: expired (40 of 100 filled)",
+        fill_qty=40.0, fill_price=50.0, fees=0.2,
+    ))
+    db.commit()
+    broker = LedgerBroker(db, 1_000_000.0)
+    assert broker.positions() == {"S0": 40.0}
+    assert broker.cash() == pytest.approx(1_000_000.0 - 40.0 * 50.0 - 0.2)
+
+
 def test_unshortable_orders_are_dropped(db):
     prices = _panel()
     features = _features(prices)
