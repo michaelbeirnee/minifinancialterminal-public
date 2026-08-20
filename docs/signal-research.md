@@ -353,7 +353,7 @@ The walk-forward multi-source simulation is the historical research harness. It 
 - `POST /api/backtest/signals/research` — price-only OOS research.
 - `POST /api/backtest/signals/multisource_research` — point-in-time multi-source OOS research.
 - `POST /api/backtest/signals/walk_forward_portfolio` — historical research vintages feeding a cost-aware neutral portfolio.
-- `POST /api/backtest/signals/archive` — capture today's estimates/options for future research.
+- `POST /api/backtest/signals/archive` — capture today's estimates/options/crowding fields for future research and short-risk controls.
 - `POST /api/backtest/signals/adaptive_snapshot` — current price-only adaptive target.
 - `POST /api/backtest/run` with `strategy="stat_arb_research"` — current adaptive price-only simulation.
 
@@ -384,7 +384,17 @@ The walk-forward portfolio request extends those fields with:
   "research_refresh_days": 63,
   "portfolio_rebalance_days": 5,
   "gross_target": 1.0,
-  "initial_capital": 10000000
+  "initial_capital": 10000000,
+  "alpha_risk_aware": true,
+  "sleeve_lookback_days": 126,
+  "sleeve_correlation_threshold": 0.60,
+  "max_sleeve_budget": 0.45,
+  "max_cluster_budget": 0.65,
+  "event_budget_cap": 0.25,
+  "max_name_weight": 0.20,
+  "max_crowded_short_gross": 0.15,
+  "borrow_aware": true,
+  "base_borrow_bps": 30.0
 }
 ```
 
@@ -412,15 +422,50 @@ redundancy controls still run.
 
 Each source family can also be disabled with `include_volume`, `include_fundamentals`, `include_events`, or `include_archived_snapshots`.
 
+## Alpha sleeves, concentration and borrow risk
+
+The walk-forward fund simulation now adds a second allocation layer after signal
+selection. Validated signals are grouped into interpretable family sleeves
+(reversal, momentum, risk, volume, fundamentals, events, estimates, options and
+relationships). Each sleeve gets its own one-bar-lagged historical PnL stream.
+Trailing sleeve volatility and the vintage's validated blend share determine a
+raw risk budget.
+
+Risk allocation then applies one-way concentration controls:
+
+- a maximum budget for any one sleeve,
+- a shared cap for sleeves whose trailing PnL correlation exceeds the configured threshold,
+- a separate cap for the event sleeve,
+- a maximum absolute stock weight,
+- a maximum gross short allocation to names flagged as crowded,
+- optional group-net caps (off by default because current Yahoo sector/industry labels are not a historical classification timeline).
+
+Security-level constraints are solved as a projection of the desired neutral
+book. Dollar and rolling-beta neutrality remain equality constraints; name,
+gross, crowded-short and optional group limits are inequalities. If the
+projection cannot satisfy the constraints, the engine fails closed to a flat
+book rather than silently violating them.
+
+Short costs are charged every held day, not only on rebalance dates. Without an
+observed stock-loan feed the default is a transparent general-collateral base
+fee. Archived short-interest / days-to-cover snapshots can add a crowding
+surcharge and can conservatively mark extreme names as unavailable to short
+from that capture date onward. The same feature store already accepts future
+point-in-time `borrow_fee_annual_bps` and `short_available` fields from a prime
+broker or licensed borrow source without changing the simulator.
+
+The response now includes sleeve activation/risk-budget history, per-decision
+constraint diagnostics, total execution cost, total borrow cost and the borrow
+data mode used.
+
 ## Next research upgrades
 
-The next additions should keep improving research quality rather than simply
-multiply feature count:
+The highest-value remaining additions are:
 
-1. archived daily estimates/options jobs so those families collect data automatically,
-2. observed quote/spread history where a licensed data source is available,
-3. HAC (Newey-West style) significance estimates, which would recover the
+1. an observed point-in-time borrow/locate feed instead of the GC + crowding proxy,
+2. a dated sector/industry classification history so group caps can run without current-label contamination,
+3. a multi-factor covariance model for stock-level residual risk and factor crowding,
+4. HAC (Newey-West style) significance estimates, which would recover the
    efficiency the current non-overlapping subsampling gives up while staying
    honest about overlapping forward-return horizons,
-4. borrow availability/fees and short-sale constraints,
-5. portfolio-level risk budgeting across alpha clusters, sectors and event concentrations.
+5. automated daily archive jobs for estimates, options and crowding snapshots.

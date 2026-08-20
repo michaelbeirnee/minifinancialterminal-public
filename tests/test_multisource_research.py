@@ -198,3 +198,27 @@ def test_peer_signals_are_calendar_anchored():
         a = full.library.components[name].loc[tail].fillna(0.0)
         b = shifted.library.components[name].loc[tail].fillna(0.0)
         assert np.allclose(a, b, atol=1e-12)
+
+
+def test_crowding_archive_is_point_in_time_and_expires():
+    prices = _prices(days=80, names=3)
+    engine = create_engine("sqlite:///:memory:")
+    ResearchFeatureSnapshot.__table__.create(engine)
+    Session = sessionmaker(bind=engine)
+    db = Session()
+    capture_date = prices.index[25].date().isoformat()
+    db.add(
+        ResearchFeatureSnapshot(
+            as_of_date=capture_date,
+            symbol="S1",
+            family="crowding",
+            provider="test",
+            features={"short_percent_float": 0.42, "short_ratio": 18.0},
+        )
+    )
+    db.commit()
+    panels, status = _load_archived_panels(prices, db, {"crowding_archive_ffill_days": 4})
+    assert panels["short_percent_float"].loc[prices.index[:25], "S1"].isna().all()
+    assert panels["short_percent_float"].loc[prices.index[25], "S1"] == 0.42
+    assert pd.isna(panels["short_percent_float"].loc[prices.index[30], "S1"])
+    assert status["crowding_archive"]["rows"] == 1

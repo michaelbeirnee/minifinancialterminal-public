@@ -450,12 +450,34 @@ class SignalPortfolioWalkForwardRequest(SignalResearchRequest):
     portfolio_rebalance_days: int = Field(default=5, ge=1, le=63)
     gross_target: float = Field(default=1.0, gt=0.0, le=3.0)
     initial_capital: Optional[float] = Field(default=None, gt=0.0, le=1e12)
+    # Portfolio-level alpha/risk allocation.
+    alpha_risk_aware: bool = True
+    sleeve_lookback_days: int = Field(default=126, ge=20, le=756)
+    sleeve_correlation_threshold: float = Field(default=0.60, ge=0.0, le=1.0)
+    max_sleeve_budget: float = Field(default=0.45, ge=0.0, le=1.0)
+    max_cluster_budget: float = Field(default=0.65, ge=0.0, le=1.0)
+    event_budget_cap: float = Field(default=0.25, ge=0.0, le=1.0)
+    max_name_weight: float = Field(default=0.20, gt=0.0, le=1.0)
+    max_crowded_short_gross: float = Field(default=0.15, ge=0.0, le=1.5)
+    crowded_short_threshold: float = Field(default=0.65, ge=0.0, le=1.0)
+    # Current Yahoo classifications are not historical. Keep this off unless a
+    # caller deliberately accepts the conservative, non-point-in-time cap.
+    apply_group_constraints: bool = False
+    group_net_cap: float = Field(default=0.10, ge=0.0, le=1.0)
+    # Borrow fees are a GC + archived-crowding proxy unless a dated borrow feed
+    # supplies borrow_fee_annual_bps / short_available fields.
+    borrow_aware: bool = True
+    base_borrow_bps: float = Field(default=30.0, ge=0.0, le=10000.0)
+    crowding_surcharge_bps: float = Field(default=900.0, ge=0.0, le=50000.0)
+    hard_to_borrow_short_float: float = Field(default=0.35, ge=0.0, le=1.0)
+    hard_to_borrow_days_to_cover: float = Field(default=15.0, ge=0.0, le=365.0)
 
 
 class ResearchArchiveRequest(BaseModel):
     symbols: list[str] = Field(min_length=1, max_length=100)
     include_estimates: bool = True
     include_options: bool = True
+    include_crowding: bool = True
 
 
 class BacktestSweepRequest(BaseModel):

@@ -35,6 +35,14 @@ from sqlalchemy.orm import Session
 
 from ..reports.generator import compute_metrics
 from .execution_research import ExecutionPanels, build_execution_panels
+from .alpha_risk import (
+    BorrowPanels,
+    build_alpha_sleeve_plan,
+    build_borrow_panels,
+    build_sleeve_target,
+    daily_borrow_costs,
+    project_portfolio_constraints,
+)
 from .multisource_research import (
     FeaturePanels,
     MultisourceLibraryOutput,
@@ -52,12 +60,15 @@ class WalkForwardResearchOutput:
     gross_returns: pd.Series
     net_returns: pd.Series
     daily_costs: pd.Series
+    daily_borrow_costs: pd.Series
     gross_equity: pd.Series
     equity: pd.Series
     research_vintages: list[dict[str, Any]]
     decisions: list[dict[str, Any]]
     selection_summary: list[dict[str, Any]]
+    sleeve_summary: list[dict[str, Any]]
     source_status: dict[str, Any]
+    borrow_status: dict[str, Any]
     config: dict[str, Any]
 
     def to_dict(self, max_points: int = 1500) -> dict[str, Any]:
@@ -91,7 +102,9 @@ class WalkForwardResearchOutput:
             else 0.0
         )
         prior_equity = self.equity.shift(1).fillna(float(self.config["initial_capital"]))
-        total_cost_dollars = float((self.daily_costs * prior_equity).sum())
+        total_execution_cost_dollars = float((self.daily_costs * prior_equity).sum())
+        total_borrow_cost_dollars = float((self.daily_borrow_costs * prior_equity).sum())
+        total_cost_dollars = total_execution_cost_dollars + total_borrow_cost_dollars
 
         return {
             "engine": "walk_forward_multisource",
@@ -99,6 +112,8 @@ class WalkForwardResearchOutput:
             "metrics": compute_metrics(self.equity),
             "gross_metrics": compute_metrics(self.gross_equity),
             "total_costs": round(total_cost_dollars, 2),
+            "execution_costs": round(total_execution_cost_dollars, 2),
+            "borrow_costs": round(total_borrow_cost_dollars, 2),
             "total_turnover": round(float(sum(float(row.get("turnover", 0.0)) for row in self.decisions)), 6),
             "equity_curve": {
                 "dates": [str(dt.date()) for dt in equity.index],
@@ -111,7 +126,9 @@ class WalkForwardResearchOutput:
             "research_vintages": self.research_vintages,
             "decisions": self.decisions,
             "selection_summary": self.selection_summary,
+            "sleeve_summary": self.sleeve_summary,
             "source_status": self.source_status,
+            "borrow_status": self.borrow_status,
             "simulation": {
                 "research_vintages": len(self.research_vintages),
                 "portfolio_decisions": len(self.decisions),
@@ -123,6 +140,9 @@ class WalkForwardResearchOutput:
                 "active_days": int((self.held_weights.abs().sum(axis=1) > 1e-12).sum()),
                 "average_gross_exposure": round(float(self.held_weights.abs().sum(axis=1).mean()), 6),
                 "max_abs_net_exposure": round(float(self.held_weights.sum(axis=1).abs().max()), 10),
+                "average_daily_borrow_bps": round(float(self.daily_borrow_costs.mean() * 10_000.0), 6),
+                "average_active_sleeves": round(float(np.mean([len(v.get("sleeves", [])) for v in self.research_vintages])) if self.research_vintages else 0.0, 4),
+                "average_sleeve_budget_utilization": round(float(np.mean([float(v.get("sleeve_budget_sum", 0.0)) for v in self.research_vintages])) if self.research_vintages else 0.0, 6),
             },
             "config": self.config,
             "methodology": {
@@ -130,7 +150,9 @@ class WalkForwardResearchOutput:
                 "research_history": "prefix_only_no_future_rows",
                 "execution_lag_bars": 1,
                 "portfolio_capacity": "uniform_scale_of_delta_to_target",
-                "archive_rule": "estimates_and_options_exist_only_after_actual_capture",
+                "archive_rule": "estimates_options_and_crowding_exist_only_after_actual_capture",
+                "alpha_allocation": "family_sleeves_with_trailing_risk_budgets_and_correlation_caps",
+                "borrow_cost": "daily_short_notional_times_point_in_time_or_proxy_annual_borrow_rate",
             },
         }
 
@@ -301,6 +323,34 @@ def _selection_summary(vintages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return sorted(rows, key=lambda row: (row["selected_vintages"], row["average_weight_when_selected"]), reverse=True)
 
 
+def _sleeve_summary(vintages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    stats: dict[str, dict[str, float]] = {}
+    for vintage in vintages:
+        for row in vintage.get("sleeves", []):
+            name = str(row.get("name", "other"))
+            item = stats.setdefault(name, {"count": 0.0, "budget": 0.0, "vol": 0.0, "vol_count": 0.0})
+            item["count"] += 1.0
+            item["budget"] += float(row.get("risk_budget", 0.0) or 0.0)
+            vol = row.get("annualized_volatility")
+            if vol is not None:
+                item["vol"] += float(vol)
+                item["vol_count"] += 1.0
+    total = max(1, len(vintages))
+    rows = []
+    for name, item in stats.items():
+        count = int(item["count"])
+        rows.append({
+            "sleeve": name,
+            "active_vintages": count,
+            "activation_rate": round(count / total, 6),
+            "average_risk_budget": round(item["budget"] / max(1, count), 6),
+            "average_annualized_volatility": (
+                None if item["vol_count"] <= 0 else round(item["vol"] / item["vol_count"], 6)
+            ),
+        })
+    return sorted(rows, key=lambda row: (row["active_vintages"], row["average_risk_budget"]), reverse=True)
+
+
 def walk_forward_multisource_portfolio(
     prices: pd.DataFrame,
     *,
@@ -342,6 +392,22 @@ def walk_forward_multisource_portfolio(
     research_refresh_days: int | None = None,
     gross_target: float = 1.0,
     initial_capital: float | None = None,
+    alpha_risk_aware: bool = True,
+    sleeve_lookback_days: int = 126,
+    sleeve_correlation_threshold: float = 0.60,
+    max_sleeve_budget: float = 0.45,
+    max_cluster_budget: float = 0.65,
+    event_budget_cap: float = 0.25,
+    max_name_weight: float = 0.20,
+    max_crowded_short_gross: float = 0.15,
+    crowded_short_threshold: float = 0.65,
+    apply_group_constraints: bool = False,
+    group_net_cap: float = 0.10,
+    borrow_aware: bool = True,
+    base_borrow_bps: float = 30.0,
+    crowding_surcharge_bps: float = 900.0,
+    hard_to_borrow_short_float: float = 0.35,
+    hard_to_borrow_days_to_cover: float = 15.0,
 ) -> WalkForwardResearchOutput:
     """Run the research-selection-execution loop through historical time."""
 
@@ -369,6 +435,12 @@ def walk_forward_multisource_portfolio(
         raise ValueError("capital must be positive")
     if not 0.0 < float(max_adv_participation) <= 1.0:
         raise ValueError("max_adv_participation must be > 0 and <= 1")
+    if not 0.0 < float(max_name_weight) <= 1.0:
+        raise ValueError("max_name_weight must be > 0 and <= 1")
+    if not 0.0 <= float(event_budget_cap) <= 1.0:
+        raise ValueError("event_budget_cap must be between 0 and 1")
+    if not 0.0 <= float(max_crowded_short_gross) <= 1.5:
+        raise ValueError("max_crowded_short_gross must be between 0 and 1.5")
 
     warmup = train_days + purge_days + test_days
     if len(prices) < warmup + 1:
@@ -408,6 +480,18 @@ def walk_forward_multisource_portfolio(
             adv_window=execution_adv_window,
             vol_window=execution_vol_window,
             spread_window=execution_spread_window,
+        )
+
+    borrow_panels: BorrowPanels | None = None
+    if borrow_aware:
+        feature_map = features.panels if features is not None else {}
+        borrow_panels = build_borrow_panels(
+            prices,
+            feature_map,
+            base_borrow_bps=base_borrow_bps,
+            crowding_surcharge_bps=crowding_surcharge_bps,
+            hard_to_borrow_short_float=hard_to_borrow_short_float,
+            hard_to_borrow_days_to_cover=hard_to_borrow_days_to_cover,
         )
 
     # Research refreshes are anchored to the first date on which one complete
@@ -458,6 +542,21 @@ def walk_forward_multisource_portfolio(
         )
         blend = list(report.get("recommended_blend") or [])
         validated = [row for row in report.get("signals", []) if row.get("validated")]
+        sleeve_plan = (
+            build_alpha_sleeve_plan(
+                hist_prices,
+                hist_library,
+                report,
+                built.specs,
+                lookback=sleeve_lookback_days,
+                correlation_threshold=sleeve_correlation_threshold,
+                max_sleeve_budget=max_sleeve_budget,
+                max_cluster_budget=max_cluster_budget,
+                event_budget_cap=event_budget_cap,
+            )
+            if alpha_risk_aware
+            else {"sleeves": [], "budget_sum": 0.0, "correlation_clusters": [], "correlations": []}
+        )
         vintage = {
             "as_of": str(prices.index[pos].date()),
             "bars_seen": pos + 1,
@@ -466,9 +565,12 @@ def walk_forward_multisource_portfolio(
             "validated_signals": len(validated),
             "blend": blend,
             "survivors": [row.get("name") for row in validated],
+            "sleeves": sleeve_plan.get("sleeves", []),
+            "sleeve_budget_sum": sleeve_plan.get("budget_sum", 0.0),
+            "sleeve_correlation_clusters": sleeve_plan.get("correlation_clusters", []),
         }
         research_vintages.append(vintage)
-        vintage_by_pos[pos] = {"report": report, "vintage": vintage}
+        vintage_by_pos[pos] = {"report": report, "vintage": vintage, "sleeve_plan": sleeve_plan}
 
     columns = built.library.beta.columns
     target_weights = pd.DataFrame(np.nan, index=prices.index, columns=columns, dtype=float)
@@ -490,15 +592,52 @@ def walk_forward_multisource_portfolio(
         vintage_payload = vintage_by_pos[latest_vintage_pos]
         report = vintage_payload["report"]
         blend = list(report.get("recommended_blend") or [])
-        target, effective_blend = _blend_target(
-            dt,
-            built.library.components,
-            built.library.beta,
-            blend,
-            min_names=min_names,
-            gross_target=gross_target,
-        )
         beta_row = built.library.beta.reindex(index=[dt], columns=columns).iloc[0]
+        if alpha_risk_aware:
+            target, effective_sleeves = build_sleeve_target(
+                dt,
+                built.library.components,
+                built.library.beta,
+                vintage_payload.get("sleeve_plan", {}),
+                min_names=min_names,
+                gross_target=gross_target,
+            )
+            effective_blend = [
+                member
+                for sleeve in effective_sleeves
+                for member in sleeve.get("members", [])
+            ]
+        else:
+            target, effective_blend = _blend_target(
+                dt,
+                built.library.components,
+                built.library.beta,
+                blend,
+                min_names=min_names,
+                gross_target=gross_target,
+            )
+            effective_sleeves = []
+
+        constraint_info: dict[str, Any] = {"status": "disabled"}
+        if alpha_risk_aware:
+            shortable_row = None
+            crowding_row = None
+            if borrow_panels is not None:
+                shortable_row = borrow_panels.shortable.reindex(index=[dt], columns=columns).iloc[0]
+                crowding_row = borrow_panels.crowding_score.reindex(index=[dt], columns=columns).iloc[0]
+            target, constraint_info = project_portfolio_constraints(
+                target,
+                beta_row,
+                gross_limit=gross_target,
+                max_name_weight=max_name_weight,
+                shortable=shortable_row,
+                crowding_score=crowding_row,
+                crowded_short_threshold=crowded_short_threshold,
+                max_crowded_short_gross=max_crowded_short_gross,
+                groups=groups if apply_group_constraints else None,
+                group_net_cap=group_net_cap if apply_group_constraints else None,
+            )
+
         current, execution = _execute_delta(
             current,
             target,
@@ -522,6 +661,8 @@ def walk_forward_multisource_portfolio(
                 "research_as_of": vintage_payload["vintage"]["as_of"],
                 "validated_signals": vintage_payload["vintage"]["validated_signals"],
                 "blend": effective_blend,
+                "sleeves": effective_sleeves,
+                "risk_constraints": constraint_info,
                 "target_gross_exposure": round(float(target.abs().sum()), 8),
                 "capacity_scale": execution["capacity_scale"],
                 "executable_gross_exposure": execution["gross_exposure"],
@@ -538,7 +679,10 @@ def walk_forward_multisource_portfolio(
     held_weights = target_weights.shift(1).fillna(0.0)
     returns = prices.reindex(columns=columns).pct_change(fill_method=None).fillna(0.0)
     gross_returns = (held_weights * returns).sum(axis=1)
-    net_returns = gross_returns - daily_costs
+    borrow_cost_series = daily_borrow_costs(
+        held_weights, borrow_panels if borrow_aware else None, default_annual_borrow_bps=base_borrow_bps
+    ) if borrow_aware else pd.Series(0.0, index=prices.index, dtype=float)
+    net_returns = gross_returns - daily_costs - borrow_cost_series
     gross_equity = initial_capital * (1.0 + gross_returns).cumprod()
     equity = initial_capital * (1.0 + net_returns).cumprod()
 
@@ -560,6 +704,20 @@ def walk_forward_multisource_portfolio(
         "fdr_alpha": round(float(fdr_alpha), 6),
         "redundancy_threshold": round(float(redundancy_threshold), 6),
         "group_neutralization": group_label if groups is not None else None,
+        "alpha_risk_aware": bool(alpha_risk_aware),
+        "sleeve_lookback_days": int(sleeve_lookback_days),
+        "sleeve_correlation_threshold": round(float(sleeve_correlation_threshold), 6),
+        "max_sleeve_budget": round(float(max_sleeve_budget), 6),
+        "max_cluster_budget": round(float(max_cluster_budget), 6),
+        "event_budget_cap": round(float(event_budget_cap), 6),
+        "max_name_weight": round(float(max_name_weight), 6),
+        "max_crowded_short_gross": round(float(max_crowded_short_gross), 6),
+        "crowded_short_threshold": round(float(crowded_short_threshold), 6),
+        "apply_group_constraints": bool(apply_group_constraints),
+        "group_net_cap": round(float(group_net_cap), 6),
+        "borrow_aware": bool(borrow_aware),
+        "base_borrow_bps": round(float(base_borrow_bps), 6),
+        "crowding_surcharge_bps": round(float(crowding_surcharge_bps), 6),
     }
 
     return WalkForwardResearchOutput(
@@ -568,11 +726,14 @@ def walk_forward_multisource_portfolio(
         gross_returns=gross_returns,
         net_returns=net_returns,
         daily_costs=daily_costs,
+        daily_borrow_costs=borrow_cost_series,
         gross_equity=gross_equity,
         equity=equity,
         research_vintages=research_vintages,
         decisions=decisions,
         selection_summary=_selection_summary(research_vintages),
+        sleeve_summary=_sleeve_summary(research_vintages),
         source_status=dict(built.source_status),
+        borrow_status=(borrow_panels.source_status if borrow_panels is not None else {"mode": "disabled"}),
         config=config,
     )

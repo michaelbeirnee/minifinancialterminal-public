@@ -169,6 +169,7 @@ def archive_signal_inputs(
             db,
             include_estimates=req.include_estimates,
             include_options=req.include_options,
+            include_crowding=req.include_crowding,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
@@ -364,6 +365,22 @@ def walk_forward_signal_portfolio(
             research_refresh_days=req.research_refresh_days,
             gross_target=req.gross_target,
             initial_capital=req.initial_capital,
+            alpha_risk_aware=req.alpha_risk_aware,
+            sleeve_lookback_days=req.sleeve_lookback_days,
+            sleeve_correlation_threshold=req.sleeve_correlation_threshold,
+            max_sleeve_budget=req.max_sleeve_budget,
+            max_cluster_budget=req.max_cluster_budget,
+            event_budget_cap=req.event_budget_cap,
+            max_name_weight=req.max_name_weight,
+            max_crowded_short_gross=req.max_crowded_short_gross,
+            crowded_short_threshold=req.crowded_short_threshold,
+            apply_group_constraints=req.apply_group_constraints,
+            group_net_cap=req.group_net_cap,
+            borrow_aware=req.borrow_aware,
+            base_borrow_bps=req.base_borrow_bps,
+            crowding_surcharge_bps=req.crowding_surcharge_bps,
+            hard_to_borrow_short_float=req.hard_to_borrow_short_float,
+            hard_to_borrow_days_to_cover=req.hard_to_borrow_days_to_cover,
         )
         payload = output.to_dict()
         payload["classification_status"] = classification_status

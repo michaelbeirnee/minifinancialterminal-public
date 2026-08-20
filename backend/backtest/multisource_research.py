@@ -431,13 +431,47 @@ def _option_snapshot(symbol: str) -> dict[str, float]:
     return features
 
 
+def _crowding_snapshot(symbol: str) -> dict[str, float]:
+    """Current short-interest/crowding fields, valid only from capture date.
+
+    Yahoo exposes reported short interest and days-to-cover, but not an actual
+    stock-loan fee or locate availability.  Those fields therefore support
+    portfolio crowding/borrow proxies only; they are never presented as prime
+    broker borrow quotes.
+    """
+
+    info = yahoo.info(symbol)
+    features: dict[str, float] = {}
+    short_float = _safe_numeric(
+        info.get("sharesShortPercentOfFloat", info.get("shortPercentOfFloat"))
+    )
+    shares_short = _safe_numeric(info.get("sharesShort"))
+    float_shares = _safe_numeric(info.get("floatShares"))
+    if short_float is None and shares_short is not None and float_shares not in (None, 0.0):
+        short_float = shares_short / float_shares
+    if short_float is not None:
+        if abs(short_float) > 1.5:
+            short_float /= 100.0
+        features["short_percent_float"] = float(np.clip(short_float, 0.0, 1.0))
+
+    short_ratio = _safe_numeric(info.get("shortRatio"))
+    if short_ratio is not None and short_ratio >= 0.0:
+        features["short_ratio"] = float(short_ratio)
+
+    prior = _safe_numeric(info.get("sharesShortPriorMonth"))
+    if shares_short is not None and prior not in (None, 0.0):
+        features["short_interest_change"] = float(shares_short / prior - 1.0)
+    return features
+
+
 def archive_current_snapshots(
     symbols: Iterable[str],
     db: Session,
     include_estimates: bool = True,
     include_options: bool = True,
+    include_crowding: bool = True,
 ) -> dict[str, Any]:
-    """Capture today's non-backfillable features for future OOS research."""
+    """Capture today's non-backfillable features for future OOS/risk research."""
 
     syms = list(dict.fromkeys(str(s).upper() for s in symbols))
     as_of = date.today().isoformat()
@@ -465,6 +499,15 @@ def archive_current_snapshots(
                     errs.append(f"{sym}: no option features")
             except Exception as exc:  # noqa: BLE001
                 errs.append(f"{sym}: options: {exc}")
+        if include_crowding:
+            try:
+                values = _crowding_snapshot(sym)
+                if values:
+                    payloads["crowding"] = values
+                else:
+                    errs.append(f"{sym}: no short-interest/crowding features")
+            except Exception as exc:  # noqa: BLE001
+                errs.append(f"{sym}: crowding: {exc}")
         return sym, payloads, errs
 
     with ThreadPoolExecutor(max_workers=min(8, max(1, len(syms)))) as pool:
@@ -511,6 +554,8 @@ def _load_archived_panels(
         return panels, {
             "estimates_archive": {"available": False, "reason": "no database session"},
             "options_archive": {"available": False, "reason": "no database session"},
+            "crowding_archive": {"available": False, "reason": "no database session"},
+            "borrow_archive": {"available": False, "reason": "no database session"},
         }
 
     start = prices.index.min().date().isoformat()
@@ -525,7 +570,7 @@ def _load_archived_panels(
         .order_by(ResearchFeatureSnapshot.as_of_date.asc())
         .all()
     )
-    by_family: dict[str, list[ResearchFeatureSnapshot]] = {"estimates": [], "options": []}
+    by_family: dict[str, list[ResearchFeatureSnapshot]] = {"estimates": [], "options": [], "crowding": [], "borrow": []}
     for row in rows:
         if row.family in by_family:
             by_family[row.family].append(row)
@@ -533,6 +578,8 @@ def _load_archived_panels(
     stale_limits = {
         "estimates": max(1, int(params.get("estimate_archive_ffill_days", 30))),
         "options": max(1, int(params.get("options_archive_ffill_days", 5))),
+        "crowding": max(1, int(params.get("crowding_archive_ffill_days", 15))),
+        "borrow": max(1, int(params.get("borrow_archive_ffill_days", 5))),
     }
     for family, items in by_family.items():
         feature_names = sorted({key for item in items for key in (item.features or {})})

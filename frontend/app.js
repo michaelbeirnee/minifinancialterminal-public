@@ -7636,6 +7636,22 @@ $("bt-signal-wf-run").onclick = async () => {
         research_refresh_days: Math.max(1, parseInt($("bt-signal-refresh").value, 10) || (shortRun ? 42 : 63)),
         portfolio_rebalance_days: Math.max(1, parseInt($("bt-signal-rebalance").value, 10) || 5),
         gross_target: Math.max(0.01, Math.min(3, (parseFloat($("bt-signal-gross").value) || 100) / 100)),
+        alpha_risk_aware: true,
+        sleeve_lookback_days: shortRun ? 84 : 126,
+        sleeve_correlation_threshold: Math.max(0, Math.min(1, parseFloat($("bt-sleeve-corr").value) || 0.60)),
+        max_sleeve_budget: Math.max(0, Math.min(1, (parseFloat($("bt-sleeve-cap").value) || 45) / 100)),
+        max_cluster_budget: 0.65,
+        event_budget_cap: Math.max(0, Math.min(1, (parseFloat($("bt-event-cap").value) || 25) / 100)),
+        max_name_weight: Math.max(0.001, Math.min(1, (parseFloat($("bt-name-cap").value) || 20) / 100)),
+        max_crowded_short_gross: Math.max(0, Math.min(1.5, (parseFloat($("bt-crowded-cap").value) || 15) / 100)),
+        crowded_short_threshold: 0.65,
+        apply_group_constraints: false,
+        group_net_cap: 0.10,
+        borrow_aware: true,
+        base_borrow_bps: Math.max(0, parseFloat($("bt-borrow-base").value) || 30),
+        crowding_surcharge_bps: 900,
+        hard_to_borrow_short_float: 0.35,
+        hard_to_borrow_days_to_cover: 15,
       },
     });
 
@@ -7649,12 +7665,19 @@ $("bt-signal-wf-run").onclick = async () => {
       <td>${(Number(row.selection_rate || 0) * 100).toFixed(0)}%</td>
       <td>${(Number(row.average_weight_when_selected || 0) * 100).toFixed(1)}%</td>
     </tr>`).join("");
+    const sleeveRows = (d.sleeve_summary || []).slice(0, 12).map((row) => `<tr>
+      <td><b>${escapeHtml(row.sleeve)}</b></td>
+      <td>${row.active_vintages}</td>
+      <td>${(Number(row.activation_rate || 0) * 100).toFixed(0)}%</td>
+      <td>${(Number(row.average_risk_budget || 0) * 100).toFixed(1)}%</td>
+      <td>${row.average_annualized_volatility == null ? "—" : (Number(row.average_annualized_volatility) * 100).toFixed(1) + "%"}</td>
+    </tr>`).join("");
     const vintageRows = (d.research_vintages || []).slice(-10).reverse().map((row) => `<tr>
       <td>${escapeHtml(row.as_of)}</td>
       <td>${row.folds}</td>
       <td>${row.available_signals}</td>
       <td>${row.validated_signals}</td>
-      <td class="dim">${(row.blend || []).map((x) => `${escapeHtml(x.signal)} ${(Number(x.weight) * 100).toFixed(0)}%`).join(" · ") || "flat"}</td>
+      <td class="dim">${(row.sleeves || []).map((x) => `${escapeHtml(x.name)} ${(Number(x.risk_budget || 0) * 100).toFixed(0)}%`).join(" · ") || ((row.blend || []).map((x) => `${escapeHtml(x.signal)} ${(Number(x.weight) * 100).toFixed(0)}%`).join(" · ") || "flat")}</td>
     </tr>`).join("");
     const decisionRows = (d.decisions || []).slice(-10).reverse().map((row) => `<tr>
       <td>${escapeHtml(row.signal_date)}</td>
@@ -7664,6 +7687,8 @@ $("bt-signal-wf-run").onclick = async () => {
       <td>${(Number(row.turnover || 0) * 100).toFixed(1)}%</td>
       <td>${Number(row.cost_bps_of_capital || 0).toFixed(2)}</td>
       <td>${Number(row.beta_exposure || 0).toFixed(4)}</td>
+      <td>${row.risk_constraints && row.risk_constraints.max_abs_name_weight != null ? (Number(row.risk_constraints.max_abs_name_weight) * 100).toFixed(1) + "%" : "—"}</td>
+      <td>${row.risk_constraints && row.risk_constraints.crowded_short_gross != null ? (Number(row.risk_constraints.crowded_short_gross) * 100).toFixed(1) + "%" : "—"}</td>
     </tr>`).join("");
 
     out.innerHTML = `<div class="panel">
@@ -7674,6 +7699,8 @@ $("bt-signal-wf-run").onclick = async () => {
         <span class="badge">${sim.portfolio_decisions || 0} portfolio decisions</span>
         <span class="badge">${sim.capacity_constrained_decisions || 0} capacity constrained</span>
         <span class="badge">avg gross ${(Number(sim.average_gross_exposure || 0) * 100).toFixed(0)}%</span>
+        <span class="badge">avg sleeves ${Number(sim.average_active_sleeves || 0).toFixed(1)}</span>
+        <span class="badge">borrow ${fmt$(Number(d.borrow_costs || 0))}</span>
         <span class="badge">refresh ${config.research_refresh_days || "—"}d</span>
         <span class="badge">rebalance ${config.portfolio_rebalance_days || "—"}d</span>
       </div>
@@ -7684,9 +7711,11 @@ $("bt-signal-wf-run").onclick = async () => {
         <div><div class="panel-h">SIGNAL SURVIVAL THROUGH TIME</div><div class="tablewrap"><table><tr><th>Signal</th><th>Vintages</th><th>Rate</th><th>Avg weight</th></tr>${selectionRows || `<tr><td colspan="4" class="dim">No signal survived a completed vintage.</td></tr>`}</table></div></div>
         <div><div class="panel-h">LATEST RESEARCH VINTAGES</div><div class="tablewrap"><table><tr><th>As of</th><th>Folds</th><th>Tested</th><th>Passed</th><th>Blend</th></tr>${vintageRows}</table></div></div>
       </div>
+      <div class="panel-h" style="margin-top:14px">ALPHA SLEEVE RISK BUDGETS</div>
+      <div class="tablewrap"><table><tr><th>Sleeve</th><th>Vintages</th><th>Rate</th><th>Avg risk budget</th><th>Trailing vol</th></tr>${sleeveRows || `<tr><td colspan="5" class="dim">No sleeve received risk budget.</td></tr>`}</table></div>
       <div class="panel-h" style="margin-top:14px">LATEST PORTFOLIO DECISIONS</div>
-      <div class="tablewrap"><table><tr><th>Signal date</th><th>Research used</th><th>Gross</th><th>Capacity scale</th><th>Turnover</th><th>Cost bp</th><th>Beta</th></tr>${decisionRows}</table></div>
-      <div class="dim" style="margin-top:8px">Every decision uses only the latest completed research vintage at or before its signal date. The resulting target is applied one bar later.</div>
+      <div class="tablewrap"><table><tr><th>Signal date</th><th>Research used</th><th>Gross</th><th>Capacity scale</th><th>Turnover</th><th>Cost bp</th><th>Beta</th><th>Max stock</th><th>Crowded short</th></tr>${decisionRows}</table></div>
+      <div class="dim" style="margin-top:8px">Each decision uses only the latest completed research vintage, applies family-sleeve risk budgets and point-in-time crowding/borrow controls, then executes one bar later. Historical sector caps stay off unless a dated classification source is supplied.</div>
     </div>`;
     renderMetrics("bt-signal-wf-metrics", d.metrics, d);
     drawLine("bt-signal-wf-chart", d.equity_curve.dates, [
@@ -7708,11 +7737,11 @@ $("bt-signal-archive").onclick = async () => {
   if (!btPicked.size) return;
   btn.disabled = true;
   btn.textContent = "Archiving…";
-  setStatus("CAPTURING POINT-IN-TIME ESTIMATES + OPTIONS…");
+  setStatus("CAPTURING POINT-IN-TIME ESTIMATES + OPTIONS + CROWDING…");
   try {
     const d = await api("/api/backtest/signals/archive", {
       method: "POST",
-      body: { symbols: [...btPicked], include_estimates: true, include_options: true },
+      body: { symbols: [...btPicked], include_estimates: true, include_options: true, include_crowding: true },
     });
     const families = d.captured.reduce((acc, row) => {
       acc[row.family] = (acc[row.family] || 0) + 1;
@@ -7727,7 +7756,7 @@ $("bt-signal-archive").onclick = async () => {
     setStatus("ERR: " + e.message);
   }
   btn.disabled = false;
-  btn.textContent = "Archive today's estimates + options";
+  btn.textContent = "Archive today's estimates + options + crowding";
 };
 
 function renderMetrics(elId, m, d) {

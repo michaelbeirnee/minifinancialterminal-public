@@ -316,9 +316,10 @@ class CalendarEvent(Base):
 class ResearchFeatureSnapshot(Base):
     """Point-in-time research features that cannot be honestly backfilled.
 
-    Analyst-estimate tables and option chains are captured as dated snapshots.
-    Research code may forward-fill them only from ``as_of_date`` onward, never
-    into history before the platform observed them.
+    Analyst-estimate tables, option chains, crowding fields and optional borrow
+    feeds are captured as dated snapshots. Research code may forward-fill them
+    only from ``as_of_date`` onward, never into history before the platform
+    observed them.
     """
 
     __tablename__ = "research_feature_snapshots"

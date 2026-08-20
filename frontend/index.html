@@ -2169,12 +2169,36 @@
               Gross target (%)
               <input id="bt-signal-gross" value="100" class="mono" style="width:90px" />
             </label>
-            <span class="hintline">A signal must pass raw OOS evidence, the selected group-neutral test, multiple-testing control, its redundancy cluster, and execution-aware net-alpha/capacity gates. The walk-forward run freezes each completed research vintage and only lets later portfolio decisions use it. Sector/industry neutralization is strict: it needs several classified names per group, so leave it off for small or ETF-heavy baskets.</span>
+            <label style="display:flex;flex-direction:column;gap:4px;color:var(--muted);font-size:12px">
+              Sleeve corr cutoff
+              <input id="bt-sleeve-corr" value="0.60" class="mono" style="width:90px" />
+            </label>
+            <label style="display:flex;flex-direction:column;gap:4px;color:var(--muted);font-size:12px">
+              Max sleeve (%)
+              <input id="bt-sleeve-cap" value="45" class="mono" style="width:80px" />
+            </label>
+            <label style="display:flex;flex-direction:column;gap:4px;color:var(--muted);font-size:12px">
+              Event sleeve cap (%)
+              <input id="bt-event-cap" value="25" class="mono" style="width:80px" />
+            </label>
+            <label style="display:flex;flex-direction:column;gap:4px;color:var(--muted);font-size:12px">
+              Max stock weight (%)
+              <input id="bt-name-cap" value="20" class="mono" style="width:80px" />
+            </label>
+            <label style="display:flex;flex-direction:column;gap:4px;color:var(--muted);font-size:12px">
+              Crowded-short cap (%)
+              <input id="bt-crowded-cap" value="15" class="mono" style="width:80px" />
+            </label>
+            <label style="display:flex;flex-direction:column;gap:4px;color:var(--muted);font-size:12px">
+              Base borrow (bp/yr)
+              <input id="bt-borrow-base" value="30" class="mono" style="width:80px" />
+            </label>
+            <span class="hintline">Signals must clear OOS evidence, group-neutral, FDR, redundancy and execution gates. The historical fund run then assigns family sleeves, caps correlated/event risk, applies stock/crowded-short constraints and charges daily borrow. Current sector labels are not used as historical portfolio caps by default. Sector/industry neutralization is strict: it needs several classified names per group, so leave it off for small or ETF-heavy baskets.</span>
           </div>
           <div class="row wrap">
             <button id="bt-signal-run" class="ghost">Test the full signal library</button>
             <button id="bt-signal-wf-run" class="ghost">Run walk-forward fund simulation</button>
-            <button id="bt-signal-archive" class="ghost">Archive today's estimates + options</button>
+            <button id="bt-signal-archive" class="ghost">Archive today's estimates + options + crowding</button>
           </div>
           <div id="bt-signal-out" style="margin-top:14px"></div>
           <div id="bt-signal-wf-out" style="margin-top:14px"></div>
