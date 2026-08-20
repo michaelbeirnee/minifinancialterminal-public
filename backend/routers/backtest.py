@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from ..auth import get_current_user
 from ..backtest import analysis
 from ..backtest.engine import run_backtest
+from ..backtest.execution_research import build_execution_panels, current_execution_book
 from ..backtest.strategies import REGISTRY
 from ..backtest.stat_arb import stat_arb_snapshot
 from ..backtest.signal_research import (
@@ -194,6 +195,15 @@ def multisource_signal_research(
                 req.symbols, req.neutralize_by
             )
         features = build_feature_panels(prices, params=req.params, db=db)
+        execution_panels = None
+        if req.execution_aware:
+            execution_panels = build_execution_panels(
+                prices,
+                features.panels,
+                adv_window=req.execution_adv_window,
+                vol_window=req.execution_vol_window,
+                spread_window=req.execution_spread_window,
+            )
         built = build_multisource_signal_library(
             prices,
             params=req.params,
@@ -226,6 +236,15 @@ def multisource_signal_research(
             fdr_alpha=req.fdr_alpha,
             redundancy_threshold=req.redundancy_threshold,
             redundancy_min_overlap=req.redundancy_min_overlap,
+            execution_panels=execution_panels,
+            research_capital_dollars=req.research_capital_dollars,
+            max_adv_participation=req.max_adv_participation,
+            execution_commission_bps=req.execution_commission_bps,
+            execution_slippage_bps=req.execution_slippage_bps,
+            impact_coefficient=req.impact_coefficient,
+            execution_quantile=req.execution_quantile,
+            min_capacity_fill=req.min_capacity_fill,
+            min_net_alpha_bps=req.min_net_alpha_bps,
         )
         requested = (
             list(dict.fromkeys(req.signals))
@@ -235,6 +254,21 @@ def multisource_signal_research(
         available = set(built.library.components)
         report["source_status"] = built.source_status
         report["classification_status"] = classification_status
+        if req.execution_aware and execution_panels is not None:
+            report["current_execution_book"] = current_execution_book(
+                prices,
+                built.library.components,
+                built.library.beta,
+                report,
+                execution_panels,
+                capital_dollars=req.research_capital_dollars,
+                max_adv_participation=req.max_adv_participation,
+                commission_bps=req.execution_commission_bps,
+                slippage_bps=req.execution_slippage_bps,
+                impact_coefficient=req.impact_coefficient,
+            )
+        else:
+            report["current_execution_book"] = None
         report["available_signal_count"] = len(available)
         report["catalog_signal_count"] = len(MULTISOURCE_SPEC_BY_NAME)
         report["unavailable_signals"] = [name for name in requested if name not in available]
@@ -263,6 +297,25 @@ def signal_research(
             groups, classification_status = current_symbol_classifications(
                 req.symbols, req.neutralize_by
             )
+        execution_panels = None
+        if req.execution_aware:
+            light_features = build_feature_panels(
+                prices,
+                params={
+                    "include_volume": True,
+                    "include_fundamentals": False,
+                    "include_events": False,
+                    "include_archived_snapshots": False,
+                },
+                db=None,
+            )
+            execution_panels = build_execution_panels(
+                prices,
+                light_features.panels,
+                adv_window=req.execution_adv_window,
+                vol_window=req.execution_vol_window,
+                spread_window=req.execution_spread_window,
+            )
         report = research_signal_suite(
             prices,
             params=req.params,
@@ -284,6 +337,15 @@ def signal_research(
             fdr_alpha=req.fdr_alpha,
             redundancy_threshold=req.redundancy_threshold,
             redundancy_min_overlap=req.redundancy_min_overlap,
+            execution_panels=execution_panels,
+            research_capital_dollars=req.research_capital_dollars,
+            max_adv_participation=req.max_adv_participation,
+            execution_commission_bps=req.execution_commission_bps,
+            execution_slippage_bps=req.execution_slippage_bps,
+            impact_coefficient=req.impact_coefficient,
+            execution_quantile=req.execution_quantile,
+            min_capacity_fill=req.min_capacity_fill,
+            min_net_alpha_bps=req.min_net_alpha_bps,
         )
         report["classification_status"] = classification_status
         return report

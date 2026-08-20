@@ -11,8 +11,9 @@ Both feed the same out-of-sample evaluator. A richer data source does not get ea
 
 The evaluator also has a second-stage research-control layer. Once many ideas
 are tested, a standalone IC/t-stat is no longer sufficient evidence. A signal
-now has to survive group-neutral diagnostics, multiple-testing control, and a
-redundancy cluster before it appears in `recommended_blend`.
+now has to survive group-neutral diagnostics, multiple-testing control, a
+redundancy cluster, and execution-aware net-alpha/capacity gates before it
+appears in `recommended_blend`.
 
 ## Point-in-time rule
 
@@ -242,6 +243,55 @@ reason such as `redundant_with:residual_momentum`.
 This prevents five variations of the same momentum feature from being counted
 as five independent sources of alpha.
 
+### 4. Execution-aware net alpha and capacity
+
+When `execution_aware=true`, the evaluator builds a simple unit-gross
+long/short target for every signal and judges implementation using only dated
+inputs available at that decision date:
+
+- 20-day rolling median dollar ADV from historical price x volume,
+- a Corwin-Schultz effective-spread proxy from daily high/low bars,
+- trailing daily volatility,
+- requested commission/slippage assumptions,
+- square-root impact: `impact_coefficient * daily_vol * sqrt(participation)`,
+- a hard ADV participation ceiling at the requested research capital.
+
+Each disconnected OOS fold starts from cash for cost purposes, so a stable
+ranking cannot get a free entry merely because its target existed in the prior
+training block. The response adds, per signal:
+
+- gross alpha in basis points for a unit-gross top/bottom portfolio,
+- estimated implementation cost in basis points,
+- net alpha and net t-stat,
+- one-way target turnover,
+- average and 95th-percentile ADV participation,
+- achievable capacity fill at the requested capital base,
+- lower-tail and median implied capacity dollars.
+
+The execution gate is also one-way: statistical evidence must already pass.
+A signal is rejected when expected net alpha falls below `min_net_alpha_bps` or
+when achievable fill is below `min_capacity_fill`. Among correlated statistical
+survivors, the cluster representative is chosen using the execution-adjusted
+selection score, so a cheaper near-duplicate can correctly beat a costly one.
+
+Daily high/low data is not a historical quote feed. The spread field is
+therefore explicitly labeled as a Corwin-Schultz proxy, not an observed NBBO.
+
+### Current cost-aware target
+
+Multi-source research also returns `current_execution_book`. It uses only
+signals that survived every research gate, blends their current scores, and
+projects the result to a dollar/beta-neutral target. Under a flat-start
+assumption, if entering that target would breach the ADV ceiling, the engine
+scales the *entire* book by one common factor. This preserves both neutrality
+constraints; independently clipping illiquid names would not.
+
+The current book reports target versus executable gross exposure, capacity
+scale, estimated entry cost, per-name ADV participation/cost, and a
+blend-weighted historical net-alpha diagnostic. This is a present-day target,
+not a historical strategy: the full-sample research selection is never replayed
+backward through its own evaluation window.
+
 ### Final survival rule
 
 A signal is `validated` only when all applicable conditions hold:
@@ -249,11 +299,12 @@ A signal is `validated` only when all applicable conditions hold:
 1. raw OOS IC / t-stat / fold consistency / coverage gates pass,
 2. the sector/industry-neutral version also passes when enabled,
 3. Benjamini-Hochberg q-value passes the requested FDR cutoff,
-4. the signal is the selected representative of its correlation cluster.
+4. net alpha and ADV capacity clear the execution gates when enabled,
+5. the signal is the selected representative of its correlation cluster.
 
 The API exposes the exact failures in `exclusion_reasons`, so a `watch` signal
 can be distinguished from a statistically weak signal, a sector-contaminated
-signal, and a duplicate of a stronger predictor.
+signal, a cost/capacity failure, and a duplicate of a stronger predictor.
 
 ## Existing adaptive price strategy
 
@@ -279,7 +330,15 @@ The multi-source layer deliberately keeps data acquisition/research separate fro
   "min_group_names": 2,
   "fdr_alpha": 0.10,
   "redundancy_threshold": 0.80,
-  "redundancy_min_overlap": 100
+  "redundancy_min_overlap": 100,
+  "execution_aware": true,
+  "research_capital_dollars": 10000000,
+  "max_adv_participation": 0.05,
+  "execution_commission_bps": 1.0,
+  "execution_slippage_bps": 0.5,
+  "impact_coefficient": 0.10,
+  "min_capacity_fill": 0.90,
+  "min_net_alpha_bps": 0.0
 }
 ```
 
@@ -312,10 +371,10 @@ Each source family can also be disabled with `include_volume`, `include_fundamen
 The next additions should keep improving research quality rather than simply
 multiply feature count:
 
-1. capacity/liquidity filters tied to ADV, spread proxies and expected turnover,
-2. archived daily estimates/options jobs so those families collect data automatically,
-3. a walk-forward multi-source portfolio whose blend is fit only on each prior training window,
-4. transaction-cost-aware signal scoring so high-IC/high-turnover predictors are judged on net alpha,
-5. HAC (Newey-West style) significance estimates, which would recover the
+1. archived daily estimates/options jobs so those families collect data automatically,
+2. a walk-forward multi-source portfolio whose blend is fit only on each prior training window,
+3. observed quote/spread history where a licensed data source is available,
+4. HAC (Newey-West style) significance estimates, which would recover the
    efficiency the current non-overlapping subsampling gives up while staying
-   honest about overlapping forward-return horizons.
+   honest about overlapping forward-return horizons,
+5. borrow availability/fees and short-sale constraints.

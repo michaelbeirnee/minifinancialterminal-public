@@ -7473,6 +7473,14 @@ $("bt-signal-run").onclick = async () => {
         neutralize_by: $("bt-signal-neutral").value,
         fdr_alpha: Math.max(0.001, Math.min(1, parseFloat($("bt-signal-fdr").value) || 0.10)),
         redundancy_threshold: Math.max(0, Math.min(1, parseFloat($("bt-signal-corr").value) || 0.80)),
+        execution_aware: true,
+        research_capital_dollars: Math.max(1, parseFloat($("bt-signal-capital").value) || 10000000),
+        max_adv_participation: Math.max(0.0001, Math.min(1, (parseFloat($("bt-signal-adv").value) || 5) / 100)),
+        execution_commission_bps: Math.max(0, parseFloat($("bt-comm").value) || 0),
+        execution_slippage_bps: Math.max(0, parseFloat($("bt-slip").value) || 0),
+        impact_coefficient: Math.max(0, parseFloat($("bt-signal-impact").value) || 0.10),
+        min_capacity_fill: Math.max(0, Math.min(1, (parseFloat($("bt-signal-fill").value) || 90) / 100)),
+        min_net_alpha_bps: 0,
       },
     });
     const passed = d.signals.filter((x) => x.validated).length;
@@ -7480,6 +7488,7 @@ $("bt-signal-run").onclick = async () => {
     const neutral = controls.group_neutralization || {};
     const fdr = controls.false_discovery || {};
     const redundancy = controls.redundancy || {};
+    const execution = controls.execution || {};
     const cls = d.classification_status || {};
     const sourceRows = Object.entries(d.source_status || {}).map(([source, meta]) => {
       const ok = meta && meta.available;
@@ -7504,6 +7513,11 @@ $("bt-signal-run").onclick = async () => {
       const cluster = x.redundancy && x.redundancy.cluster_id != null
         ? `#${x.redundancy.cluster_id}${x.redundancy.representative && x.redundancy.representative !== x.name
           ? ` → ${escapeHtml(x.redundancy.representative)}` : ""}` : "—";
+      const ex = x.execution || {};
+      const netBps = ex.net_alpha_bps == null ? "—" : Number(ex.net_alpha_bps).toFixed(2);
+      const costBps = ex.cost_bps == null ? "—" : Number(ex.cost_bps).toFixed(2);
+      const fillPct = ex.capacity_fill == null ? "—" : (Number(ex.capacity_fill) * 100).toFixed(0) + "%";
+      const capP10 = ex.capacity_dollars_p10 == null ? "—" : fmt$(Number(ex.capacity_dollars_p10));
       return `<tr>
         <td><b>${escapeHtml(x.name)}</b><div class="dim">${escapeHtml(x.family)}</div>${exclusions}</td>
         <td class="${stateCls}">${escapeHtml(x.status)}</td>
@@ -7514,6 +7528,10 @@ $("bt-signal-run").onclick = async () => {
         <td>${p.ic_hit_rate == null ? "—" : (Number(p.ic_hit_rate) * 100).toFixed(0) + "%"}</td>
         <td>${p.positive_fold_rate == null ? "—" : (Number(p.positive_fold_rate) * 100).toFixed(0) + "%"}</td>
         <td>${p.mean_spread == null ? "—" : (Number(p.mean_spread) * 100).toFixed(3) + "%"}</td>
+        <td>${netBps}</td>
+        <td>${costBps}</td>
+        <td>${fillPct}</td>
+        <td>${capP10}</td>
         <td class="dim">${cluster}</td>
         <td>${(Number(x.score_turnover) * 100).toFixed(1)}%</td>
         <td>${(Number(x.coverage) * 100).toFixed(0)}%</td>
@@ -7523,17 +7541,44 @@ $("bt-signal-run").onclick = async () => {
     const unavailable = (d.unavailable_signals || []).length
       ? `<div class="dim" style="margin:6px 0 10px">Not testable in this window: ${(d.unavailable_signals || []).map(escapeHtml).join(", ")}</div>`
       : "";
+    const book = d.current_execution_book || null;
+    let bookHtml = "";
+    if (book) {
+      if (book.status === "ready") {
+        const top = (book.positions || []).filter((p) => Math.abs(Number(p.executable_weight || 0)) > 1e-8).slice(0, 10);
+        const posRows = top.map((p) => `<tr>
+          <td><b>${escapeHtml(p.symbol)}</b></td><td>${escapeHtml(p.side)}</td>
+          <td>${(Number(p.executable_weight) * 100).toFixed(2)}%</td>
+          <td>${p.entry_participation == null ? "—" : (Number(p.entry_participation) * 100).toFixed(2) + "%"}</td>
+          <td>${p.estimated_one_way_cost_bps == null ? "—" : Number(p.estimated_one_way_cost_bps).toFixed(2)}</td>
+          <td>${p.adv_dollars == null ? "—" : fmt$(Number(p.adv_dollars))}</td>
+        </tr>`).join("");
+        bookHtml = `<div class="panel" style="margin:12px 0">
+          <div class="panel-h">CURRENT COST-AWARE TARGET <span class="panel-note">flat-start assumption</span></div>
+          <div class="row wrap" style="margin-bottom:8px">
+            <span class="badge">gross ${(Number(book.executable_gross_exposure || 0) * 100).toFixed(0)}%</span>
+            <span class="badge">capacity scale ${(Number(book.capacity_scale || 0) * 100).toFixed(0)}%</span>
+            <span class="badge">entry cost ${Number(book.estimated_entry_cost_bps_of_capital || 0).toFixed(2)} bp</span>
+            <span class="badge">blend net ${book.blend_net_alpha_bps == null ? "—" : Number(book.blend_net_alpha_bps).toFixed(2) + " bp"}</span>
+          </div>
+          <div class="tablewrap"><table><tr><th>Symbol</th><th>Side</th><th>Weight</th><th>ADV participation</th><th>One-way cost (bp)</th><th>ADV</th></tr>${posRows}</table></div>
+        </div>`;
+      } else {
+        bookHtml = `<div class="dim" style="margin:8px 0">Current cost-aware target: ${escapeHtml(book.status || "unavailable")}.</div>`;
+      }
+    }
     const controlLine = `${neutral.enabled ? `${escapeHtml(neutral.label || "group")}-neutral required · ${(Number(neutral.classification_coverage || 0) * 100).toFixed(0)}% classified` : "group-neutral off"}` +
       ` · BH FDR ${(Number(fdr.alpha || 0) * 100).toFixed(0)}% (${fdr.passed || 0}/${fdr.hypotheses || 0} hypotheses)` +
-      ` · duplicate |corr| ≥ ${Number(redundancy.absolute_correlation_threshold || 0).toFixed(2)}`;
+      ` · duplicate |corr| ≥ ${Number(redundancy.absolute_correlation_threshold || 0).toFixed(2)}` +
+      `${execution.enabled ? ` · net of costs @ ${fmt$(Number(execution.capital_dollars || 0))} · ADV cap ${(Number(execution.max_adv_participation || 0) * 100).toFixed(1)}% · min fill ${(Number(execution.min_capacity_fill || 0) * 100).toFixed(0)}%` : " · execution gate off"}`;
     const classificationNote = cls.mode && cls.mode !== "disabled"
       ? `<div class="dim" style="margin:4px 0 10px">Classification: ${escapeHtml(cls.mode)}. ${escapeHtml(cls.note || "")}</div>` : "";
     out.innerHTML = `<div class="headline">${passed} of ${d.signals.length} available signals survived every research control.</div>
       <div class="dim" style="margin:6px 0 4px">Primary horizon: ${d.primary_horizon} days · ${d.fold_config.folds} rolling test blocks · ${d.bars} daily bars · ${d.available_signal_count || d.signals.length}/${d.catalog_signal_count || d.signals.length} catalog signals had point-in-time data.</div>
       <div class="dim" style="margin-bottom:8px">${controlLine}</div>${classificationNote}
       <div class="row wrap" style="margin-bottom:10px">${sourceRows}</div>${unavailable}
-      <div class="row wrap" style="margin-bottom:12px"><span class="dim">Suggested blend</span>${blend}</div>
-      <div class="tablewrap"><table><tr><th>Signal</th><th>Status</th><th>Raw IC</th><th>Neutral IC</th><th>IC t</th><th>FDR q</th><th>IC hit</th><th>Positive folds</th><th>Long-short spread</th><th>Cluster</th><th>Rank turnover</th><th>Coverage</th><th>IC decay</th></tr>${rows}</table></div>`;
+      <div class="row wrap" style="margin-bottom:12px"><span class="dim">Suggested blend</span>${blend}</div>${bookHtml}
+      <div class="tablewrap"><table><tr><th>Signal</th><th>Status</th><th>Raw IC</th><th>Neutral IC</th><th>IC t</th><th>FDR q</th><th>IC hit</th><th>Positive folds</th><th>Long-short spread</th><th>Net alpha (bp)</th><th>Cost (bp)</th><th>Fill</th><th>Capacity p10</th><th>Cluster</th><th>Rank turnover</th><th>Coverage</th><th>IC decay</th></tr>${rows}</table></div>`;
     setStatus(`SIGNAL RESEARCH DONE · ${passed}/${d.signals.length} SURVIVED`);
   } catch (e) {
     out.innerHTML = `<div class="empty">${escapeHtml(e.message)}</div>`;

@@ -28,6 +28,7 @@ from typing import Any, Iterable, Mapping
 import numpy as np
 import pandas as pd
 
+from .execution_research import ExecutionPanels, signal_execution_diagnostics
 from .research_controls import (
     benjamini_hochberg,
     choose_cluster_representatives,
@@ -396,6 +397,15 @@ def research_signal_suite(
     fdr_alpha: float = 0.10,
     redundancy_threshold: float = 0.80,
     redundancy_min_overlap: int = 100,
+    execution_panels: ExecutionPanels | None = None,
+    research_capital_dollars: float = 10_000_000.0,
+    max_adv_participation: float = 0.05,
+    execution_commission_bps: float = 1.0,
+    execution_slippage_bps: float = 0.5,
+    impact_coefficient: float = 0.10,
+    execution_quantile: float = 0.20,
+    min_capacity_fill: float = 0.90,
+    min_net_alpha_bps: float = 0.0,
 ) -> dict[str, Any]:
     """Evaluate every requested signal independently, with rolling OOS blocks.
 
@@ -435,6 +445,24 @@ def research_signal_suite(
         raise ValueError("fdr_alpha must be > 0 and <= 1")
     if not 0.0 <= redundancy_threshold <= 1.0:
         raise ValueError("redundancy_threshold must be between 0 and 1")
+    research_capital_dollars = float(research_capital_dollars)
+    max_adv_participation = float(max_adv_participation)
+    execution_commission_bps = float(execution_commission_bps)
+    execution_slippage_bps = float(execution_slippage_bps)
+    impact_coefficient = float(impact_coefficient)
+    execution_quantile = float(execution_quantile)
+    min_capacity_fill = float(min_capacity_fill)
+    min_net_alpha_bps = float(min_net_alpha_bps)
+    if research_capital_dollars <= 0.0:
+        raise ValueError("research_capital_dollars must be positive")
+    if not 0.0 < max_adv_participation <= 1.0:
+        raise ValueError("max_adv_participation must be > 0 and <= 1")
+    if execution_commission_bps < 0.0 or execution_slippage_bps < 0.0 or impact_coefficient < 0.0:
+        raise ValueError("execution cost assumptions cannot be negative")
+    if not 0.0 < execution_quantile < 0.5:
+        raise ValueError("execution_quantile must be between 0 and 0.5")
+    if not 0.0 <= min_capacity_fill <= 1.0:
+        raise ValueError("min_capacity_fill must be between 0 and 1")
 
     if library is None:
         library = build_signal_library(prices, params=params, signals=signals)
@@ -466,6 +494,7 @@ def research_signal_suite(
     # instead of silently reverting to raw IC.
     group_enabled = groups is not None
     group_name = str(group_label or "group") if group_enabled else None
+    execution_enabled = execution_panels is not None
 
     reports: list[dict[str, Any]] = []
     for name, component in library.components.items():
@@ -473,6 +502,7 @@ def research_signal_suite(
         neutral_by_horizon: dict[str, Any] = {}
         primary_fold_rows: list[dict[str, Any]] = []
         primary_neutral_fold_rows: list[dict[str, Any]] = []
+        primary_oos_mask = pd.Series(False, index=prices.index)
         for horizon in horizons:
             future = future_by_h[horizon]
             ic = cross_sectional_ic(component, future, min_names=min_names)
@@ -532,6 +562,8 @@ def research_signal_suite(
 
             oos_ic = ic.reindex(prices.index).where(oos_mask)
             oos_spread = spread.reindex(prices.index).where(oos_mask)
+            if horizon == primary_horizon:
+                primary_oos_mask = oos_mask.copy()
             metrics = _metric_block(oos_ic, oos_spread, horizon=horizon)
             positive_folds = [
                 row["mean_ic"] > 0
@@ -600,7 +632,32 @@ def research_signal_suite(
                 and n_fold is not None
                 and n_fold >= float(min_positive_folds)
             )
-        base_validated = bool(raw_validated and neutral_validated)
+        statistical_validated = bool(raw_validated and neutral_validated)
+
+        execution = None
+        execution_validated = True
+        if execution_enabled and execution_panels is not None:
+            execution = signal_execution_diagnostics(
+                component,
+                future_by_h[primary_horizon],
+                primary_oos_mask,
+                execution_panels,
+                capital_dollars=research_capital_dollars,
+                max_adv_participation=max_adv_participation,
+                commission_bps=execution_commission_bps,
+                slippage_bps=execution_slippage_bps,
+                impact_coefficient=impact_coefficient,
+                quantile=execution_quantile,
+                min_names=max(3, min_names),
+            )
+            net_alpha_bps = execution.get("net_alpha_bps")
+            capacity_fill = execution.get("capacity_fill")
+            execution_validated = bool(
+                net_alpha_bps is not None
+                and float(net_alpha_bps) >= min_net_alpha_bps
+                and capacity_fill is not None
+                and float(capacity_fill) >= min_capacity_fill
+            )
 
         effective_mean = float(mean_ic or 0.0)
         effective_t = float(t_stat or 0.0)
@@ -619,6 +676,16 @@ def research_signal_suite(
         research_score = ic_strength * (0.5 + 0.5 * evidence) * (
             0.5 + 0.5 * stability
         ) * turnover_penalty
+        selection_score = research_score
+        if execution_enabled and execution is not None:
+            gross_bps = float(execution.get("gross_alpha_bps") or 0.0)
+            net_bps = float(execution.get("net_alpha_bps") or 0.0)
+            fill = float(execution.get("capacity_fill") or 0.0)
+            if execution_validated and gross_bps > 1e-9 and net_bps > 0.0:
+                survival = min(1.5, max(0.0, net_bps / gross_bps))
+            else:
+                survival = 0.0
+            selection_score = research_score * survival * min(max(fill, 0.0), 1.0)
 
         spec = spec_map[name]
         reports.append(
@@ -629,10 +696,14 @@ def research_signal_suite(
                 "description": spec.description,
                 "status": "pending_controls",
                 "validated": False,
-                "base_validated": base_validated,
+                "base_validated": statistical_validated,
+                "statistical_validated": statistical_validated,
                 "raw_validated": raw_validated,
                 "group_neutral_validated": neutral_validated if group_enabled else None,
+                "execution_validated": execution_validated if execution_enabled else None,
                 "research_score": round(float(research_score), 8),
+                "selection_score": round(float(selection_score), 8),
+                "execution": execution,
                 "coverage": round(float(coverage), 6),
                 "score_turnover": round(float(turnover), 6),
                 "primary_horizon": primary_horizon,
@@ -667,7 +738,8 @@ def research_signal_suite(
     clusters = correlation_clusters(correlation, threshold=redundancy_threshold)
     fdr_eligible = {
         row["name"]: bool(
-            row["base_validated"]
+            row["statistical_validated"]
+            and row.get("execution_validated") is not False
             and q_values.get(row["name"]) is not None
             and float(q_values[row["name"]]) <= fdr_alpha
         )
@@ -675,7 +747,7 @@ def research_signal_suite(
     }
     representatives = choose_cluster_representatives(
         clusters,
-        score_by_signal={row["name"]: row["research_score"] for row in reports},
+        score_by_signal={row["name"]: row["selection_score"] for row in reports},
         q_by_signal=q_values,
         eligible_by_signal=fdr_eligible,
     )
@@ -690,15 +762,26 @@ def research_signal_suite(
         fdr_pass = bool(q_value is not None and float(q_value) <= fdr_alpha)
         representative = representatives.get(name, name)
         redundancy_pass = bool(name == representative or not fdr_eligible.get(name, False))
-        final_validated = bool(row["base_validated"] and fdr_pass and redundancy_pass)
+        final_validated = bool(
+            row["statistical_validated"]
+            and row.get("execution_validated") is not False
+            and fdr_pass
+            and redundancy_pass
+        )
         reasons: list[str] = []
         if not row["raw_validated"]:
             reasons.append("raw_oos_gate")
         if group_enabled and not row["group_neutral_validated"]:
             reasons.append(f"{group_name}_neutral_gate")
-        if row["base_validated"] and not fdr_pass:
+        if execution_enabled and row.get("execution_validated") is False:
+            execution_row = row.get("execution") or {}
+            if execution_row.get("net_alpha_bps") is None or float(execution_row.get("net_alpha_bps") or 0.0) < min_net_alpha_bps:
+                reasons.append("net_alpha_after_cost")
+            if execution_row.get("capacity_fill") is None or float(execution_row.get("capacity_fill") or 0.0) < min_capacity_fill:
+                reasons.append("adv_capacity")
+        if row["statistical_validated"] and not fdr_pass:
             reasons.append("false_discovery_rate")
-        if row["base_validated"] and fdr_pass and name != representative:
+        if row["statistical_validated"] and fdr_pass and name != representative:
             reasons.append(f"redundant_with:{representative}")
 
         row["validated"] = final_validated
@@ -732,13 +815,13 @@ def research_signal_suite(
         row.pop("_effective_p_value", None)
         row.pop("_enough_evidence", None)
 
-    reports.sort(key=lambda row: row["research_score"], reverse=True)
-    valid_rows = [row for row in reports if row["validated"] and row["research_score"] > 0]
-    total_score = sum(row["research_score"] for row in valid_rows)
+    reports.sort(key=lambda row: row["selection_score"], reverse=True)
+    valid_rows = [row for row in reports if row["validated"] and row["selection_score"] > 0]
+    total_score = sum(row["selection_score"] for row in valid_rows)
     blend = [
         {
             "signal": row["name"],
-            "weight": round(row["research_score"] / total_score, 6),
+            "weight": round(row["selection_score"] / total_score, 6),
         }
         for row in valid_rows
     ] if total_score > 0 else []
@@ -795,6 +878,20 @@ def research_signal_suite(
                 "min_overlap": redundancy_min_overlap,
                 "clusters": cluster_rows,
                 "surviving_representatives": [row["name"] for row in valid_rows],
+                "representative_score": "execution_adjusted_selection_score" if execution_enabled else "research_score",
+            },
+            "execution": {
+                "enabled": execution_enabled,
+                "capital_dollars": round(research_capital_dollars, 2),
+                "max_adv_participation": round(max_adv_participation, 6),
+                "commission_bps": round(execution_commission_bps, 6),
+                "slippage_bps": round(execution_slippage_bps, 6),
+                "impact_coefficient": round(impact_coefficient, 6),
+                "quantile": round(execution_quantile, 6),
+                "min_capacity_fill": round(min_capacity_fill, 6),
+                "min_net_alpha_bps": round(min_net_alpha_bps, 6),
+                "source_status": None if execution_panels is None else execution_panels.source_status,
+                "rule": "positive_net_alpha_and_capacity_fill_required" if execution_enabled else "disabled",
             },
         },
         "signals": reports,

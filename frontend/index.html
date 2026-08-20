@@ -2141,7 +2141,23 @@
               Duplicate correlation
               <input id="bt-signal-corr" value="0.80" class="mono" style="width:90px" />
             </label>
-            <span class="hintline">A signal must pass raw OOS evidence, the selected group-neutral test, multiple-testing control, and its redundancy cluster. Sector/industry neutralization is strict: it needs several classified names per group, so leave it off for small or ETF-heavy baskets.</span>
+            <label style="display:flex;flex-direction:column;gap:4px;color:var(--muted);font-size:12px">
+              Research capital ($)
+              <input id="bt-signal-capital" value="10000000" class="mono" style="width:130px" />
+            </label>
+            <label style="display:flex;flex-direction:column;gap:4px;color:var(--muted);font-size:12px">
+              ADV cap (%)
+              <input id="bt-signal-adv" value="5" class="mono" style="width:80px" />
+            </label>
+            <label style="display:flex;flex-direction:column;gap:4px;color:var(--muted);font-size:12px">
+              Impact coefficient
+              <input id="bt-signal-impact" value="0.10" class="mono" style="width:90px" />
+            </label>
+            <label style="display:flex;flex-direction:column;gap:4px;color:var(--muted);font-size:12px">
+              Min fill (%)
+              <input id="bt-signal-fill" value="90" class="mono" style="width:80px" />
+            </label>
+            <span class="hintline">A signal must pass raw OOS evidence, the selected group-neutral test, multiple-testing control, its redundancy cluster, and execution-aware net-alpha/capacity gates. Sector/industry neutralization is strict: it needs several classified names per group, so leave it off for small or ETF-heavy baskets.</span>
           </div>
           <div class="row wrap">
             <button id="bt-signal-run" class="ghost">Test the full signal library</button>

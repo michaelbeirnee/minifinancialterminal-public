@@ -428,6 +428,19 @@ class SignalResearchRequest(BaseModel):
     fdr_alpha: float = Field(default=0.10, gt=0.0, le=1.0)
     redundancy_threshold: float = Field(default=0.80, ge=0.0, le=1.0)
     redundancy_min_overlap: int = Field(default=100, ge=10, le=1000000)
+    # Execution-aware research.  These are diagnostics/gates, not broker quotes.
+    execution_aware: bool = True
+    research_capital_dollars: float = Field(default=10_000_000.0, gt=0.0, le=1e12)
+    max_adv_participation: float = Field(default=0.05, gt=0.0, le=1.0)
+    execution_commission_bps: float = Field(default=1.0, ge=0.0, le=100.0)
+    execution_slippage_bps: float = Field(default=0.5, ge=0.0, le=100.0)
+    impact_coefficient: float = Field(default=0.10, ge=0.0, le=10.0)
+    execution_quantile: float = Field(default=0.20, gt=0.0, lt=0.5)
+    min_capacity_fill: float = Field(default=0.90, ge=0.0, le=1.0)
+    min_net_alpha_bps: float = Field(default=0.0, ge=-10000.0, le=10000.0)
+    execution_adv_window: int = Field(default=20, ge=5, le=252)
+    execution_vol_window: int = Field(default=20, ge=5, le=252)
+    execution_spread_window: int = Field(default=5, ge=1, le=63)
 
 
 class ResearchArchiveRequest(BaseModel):
