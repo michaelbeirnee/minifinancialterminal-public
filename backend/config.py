@@ -96,6 +96,13 @@ class Settings(BaseSettings):
     # error, not a feature.
     alpaca_paper_base: str = "https://paper-api.alpaca.markets"
 
+    # --- Daily production trading -------------------------------------------
+    # Global kill switch for the daily production cycle. False means every run
+    # records its hypothetical orders but submits nothing, no matter what the
+    # request asked for. Deliberately opt-in per environment: set
+    # MFT_TRADING_ENABLED=true only where submission is actually intended.
+    trading_enabled: bool = False
+
     # --- Playground ---------------------------------------------------------
     # The Python playground executes arbitrary code as the server's own user —
     # that is the feature, and also why it follows the registration switch's

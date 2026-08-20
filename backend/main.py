@@ -25,6 +25,7 @@ from .routers import (
     modeling,
     playground,
     portfolio,
+    production,
     reports,
     stream,
     system,
@@ -106,7 +107,7 @@ if settings.cors_origin_list:
     )
 
 for r in (auth, user, portfolio, hedge, data, factors, backtest, reports, system, thesis,
-          modeling, assistant, stream, playground, trading):
+          modeling, assistant, stream, playground, trading, production):
     app.include_router(r.router)
 # The single-name hedge simulator is not book-scoped, so it carries its own prefix.
 app.include_router(hedge.simulate_router)

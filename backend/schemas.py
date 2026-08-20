@@ -500,6 +500,34 @@ class ResearchArchiveRequest(BaseModel):
     include_crowding: bool = True
 
 
+class VintagePromoteRequest(BaseModel):
+    """Run the full multisource research pass and freeze the result."""
+
+    symbols: list[str] = Field(min_length=3, max_length=500)
+    start: str = "2022-01-01"
+    end: Optional[str] = None
+    params: dict = Field(default_factory=dict)
+    # Overrides forwarded verbatim to research_signal_suite / sleeve planning.
+    research: dict = Field(default_factory=dict)
+    sleeves: dict = Field(default_factory=dict)
+    notes: str = ""
+
+
+class ProductionRunRequest(BaseModel):
+    """One daily production cycle. Submission needs BOTH this flag and the
+    MFT_TRADING_ENABLED kill switch; everything else is record-only."""
+
+    orders_enabled: bool = False
+    broker: str = Field(default="ledger", pattern="^(ledger|alpaca)$")
+    capture_snapshots: bool = False
+    as_of: Optional[str] = None
+    config: dict = Field(default_factory=dict)
+
+
+class ReconcileRequest(BaseModel):
+    broker: str = Field(default="ledger", pattern="^(ledger|alpaca)$")
+
+
 class BacktestSweepRequest(BaseModel):
     strategy: str = "sma_crossover"
     symbols: list[str] = Field(min_length=1, max_length=25)

@@ -340,6 +340,102 @@ class ResearchFeatureSnapshot(Base):
     captured_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, nullable=False)
 
 
+class ProductionSignalVintage(Base):
+    """A frozen, approved research vintage the daily trading job may consume.
+
+    Research promotes into this registry; the live scorer reads only from it.
+    The blend/sleeve plan and every gate that produced them are stored verbatim
+    so a vintage can be audited later — a new experiment never touches capital
+    just because yesterday's backtest looked good.
+    """
+
+    __tablename__ = "production_signal_vintages"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    status: Mapped[str] = mapped_column(String(16), default="approved", index=True, nullable=False)
+    as_of: Mapped[str] = mapped_column(String(10), nullable=False)  # research decision date
+    symbols: Mapped[str] = mapped_column(Text, nullable=False)      # comma-joined universe
+    params: Mapped[Any] = mapped_column(JSON, nullable=False, default=dict)
+    blend: Mapped[Any] = mapped_column(JSON, nullable=False, default=list)
+    sleeves: Mapped[Any] = mapped_column(JSON, nullable=False, default=list)
+    evidence: Mapped[Any] = mapped_column(JSON, nullable=False, default=list)
+    config: Mapped[Any] = mapped_column(JSON, nullable=False, default=dict)
+    notes: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, nullable=False)
+    retired_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+
+class ProductionRun(Base):
+    """One deterministic daily production cycle: cutoff today, execute tomorrow."""
+
+    __tablename__ = "production_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    as_of: Mapped[str] = mapped_column(String(10), index=True, nullable=False)  # decision bar date
+    status: Mapped[str] = mapped_column(String(16), default="recorded", index=True, nullable=False)
+    vintage_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("production_signal_vintages.id"), nullable=True
+    )
+    broker: Mapped[str] = mapped_column(String(16), default="ledger", nullable=False)
+    orders_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    nav: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    risk_model_as_of: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
+    target: Mapped[Any] = mapped_column(JSON, nullable=False, default=dict)
+    risk: Mapped[Any] = mapped_column(JSON, nullable=False, default=dict)
+    gateway: Mapped[Any] = mapped_column(JSON, nullable=False, default=list)
+    stages: Mapped[Any] = mapped_column(JSON, nullable=False, default=list)
+    config: Mapped[Any] = mapped_column(JSON, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, nullable=False)
+
+
+class ProductionOrder(Base):
+    """The order ledger: planned → submitted → filled, with decision context.
+
+    ``decision_price`` is the close the target was formed on; fills arrive via
+    reconciliation. The row keeps enough to later build an empirical cost model
+    (decision vs fill price, fees, unfilled quantity).
+    """
+
+    __tablename__ = "production_orders"
+    __table_args__ = (Index("ix_production_orders_run_symbol", "run_id", "symbol"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    run_id: Mapped[int] = mapped_column(ForeignKey("production_runs.id"), index=True, nullable=False)
+    symbol: Mapped[str] = mapped_column(String(32), index=True, nullable=False)
+    side: Mapped[str] = mapped_column(String(4), nullable=False)  # buy | sell
+    qty: Mapped[float] = mapped_column(Float, nullable=False)     # unsigned shares
+    limit_price: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    decision_price: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    status: Mapped[str] = mapped_column(String(16), default="planned", index=True, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    broker_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    fill_qty: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    fill_price: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    fees: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    filled_at: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, nullable=False)
+
+
+class ProductionPositionSnapshot(Base):
+    """Dated position records from both books, so reconciliation has history.
+
+    ``source`` is ``ledger`` (positions rebuilt from recorded fills) or
+    ``broker`` (what the venue reports). Broker rows are the source of truth
+    for actual holdings; a ledger/broker disagreement blocks the next cycle.
+    """
+
+    __tablename__ = "production_position_snapshots"
+    __table_args__ = (Index("ix_production_positions_asof_source", "as_of", "source"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    as_of: Mapped[str] = mapped_column(String(10), index=True, nullable=False)
+    source: Mapped[str] = mapped_column(String(8), nullable=False)
+    symbol: Mapped[str] = mapped_column(String(32), nullable=False)
+    qty: Mapped[float] = mapped_column(Float, nullable=False)
+    price: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, nullable=False)
+
+
 class BacktestRun(Base):
     """Persisted record of a backtest so users can review past runs / reports."""
 
