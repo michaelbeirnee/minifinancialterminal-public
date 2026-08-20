@@ -7307,6 +7307,8 @@ const STRAT_META = {
     params: [["threshold", "Bullish threshold", "0.05", "Weekly mood needed to stay invested (−1 to +1)"], ["smooth", "Smoothing (weeks)", "2", "Average of the last N weekly scores"]] },
   stat_arb: { name: "Stat arb", desc: "Blend several small relative-value signals, then keep the long/short book dollar- and beta-neutral. Pick 8+ single stocks and leave index ETFs like SPY out — the index is what gets hedged away. Needs about a year of history before it starts trading.",
     params: [["reversal_lookback", "Reversal window (days)", "5", "Fade short-lived residual moves"], ["momentum_lookback", "Trend window (days)", "126", "Reward persistent residual strength"], ["beta_window", "Beta window (days)", "63", "History used to strip broad index exposure"], ["rebalance_days", "Rebalance every (days)", "5", "Holding targets longer cuts turnover"]] },
+  stat_arb_research: { name: "Research-gated stat arb", desc: "Score a larger signal library on trailing realized IC and trade only the signals whose recent evidence stays positive.",
+    params: [["quality_horizon", "Signal test horizon (days)", "5", "How far forward each historical signal is judged"], ["quality_window", "Evidence window (days)", "126", "Trailing history used to judge each signal"], ["quality_min_periods", "Minimum observations", "40", "Evidence required before a signal can trade"], ["max_active_signals", "Max active signals", "4", "Avoid diluting the book across weak signals"], ["rebalance_days", "Rebalance every (days)", "5", "Hold targets between scheduled decisions"]] },
 };
 let btStrategy = "momentum";
 let btPicked = new Set(["AAPL", "MSFT", "NVDA", "SPY"]);
@@ -7433,6 +7435,76 @@ $("bt-run").onclick = async () => {
     setStatus(`DONE · #${d.run_id} · ${d.engine.toUpperCase()} · ${d.num_trades} TRADES`);
   } catch (e) { setStatus("ERR: " + e.message); }
   $("bt-run").textContent = "Run the test";
+};
+
+
+$("bt-signal-run").onclick = async () => {
+  const btn = $("bt-signal-run");
+  const out = $("bt-signal-out");
+  if (btPicked.size < 3) {
+    out.innerHTML = `<div class="empty">Pick at least three stocks so the cross-section can be ranked.</div>`;
+    return;
+  }
+  btn.disabled = true;
+  btn.textContent = "Testing signals…";
+  setStatus("TESTING SIGNALS OUT OF SAMPLE…");
+  try {
+    const params = {};
+    document.querySelectorAll("#bt-params [data-param]").forEach((i) => {
+      params[i.dataset.param] = parseFloat(i.value);
+    });
+    const extraRaw = $("bt-extra").value.trim();
+    if (extraRaw) Object.assign(params, JSON.parse(extraRaw));
+    const years = { "1y": 366, "3y": 1096, "5y": 1827 }[btPeriod];
+    const shortRun = btPeriod === "1y";
+    const d = await api("/api/backtest/signals/research", {
+      method: "POST",
+      body: {
+        symbols: [...btPicked],
+        start: isoAgo(years),
+        end: $("bt-end").value.trim() || null,
+        params,
+        horizons: [1, 5, 10, 21],
+        primary_horizon: 5,
+        train_days: shortRun ? 126 : 252,
+        test_days: shortRun ? 42 : 63,
+        purge_days: 5,
+        min_names: Math.min(5, btPicked.size),
+      },
+    });
+    const passed = d.signals.filter((x) => x.validated).length;
+    const blend = d.recommended_blend.length
+      ? d.recommended_blend.map((x) => `<span class="badge">${escapeHtml(x.signal)} ${(x.weight * 100).toFixed(0)}%</span>`).join(" ")
+      : `<span class="dim">No signal cleared every gate in this sample.</span>`;
+    const rows = d.signals.map((x) => {
+      const p = x.primary || {};
+      const stateCls = x.status === "validated" ? "pos" : x.status === "reject" ? "neg" : "";
+      const decay = Object.entries(x.decay || {}).map(([h, v]) =>
+        `${h}d ${v.mean_ic == null ? "—" : Number(v.mean_ic).toFixed(3)}`).join(" · ");
+      return `<tr>
+        <td><b>${escapeHtml(x.name)}</b><div class="dim">${escapeHtml(x.family)}</div></td>
+        <td class="${stateCls}">${escapeHtml(x.status)}</td>
+        <td>${p.mean_ic == null ? "—" : Number(p.mean_ic).toFixed(3)}</td>
+        <td>${p.ic_t_stat == null ? "—" : Number(p.ic_t_stat).toFixed(2)}</td>
+        <td>${p.ic_hit_rate == null ? "—" : (Number(p.ic_hit_rate) * 100).toFixed(0) + "%"}</td>
+        <td>${p.positive_fold_rate == null ? "—" : (Number(p.positive_fold_rate) * 100).toFixed(0) + "%"}</td>
+        <td>${p.mean_spread == null ? "—" : (Number(p.mean_spread) * 100).toFixed(3) + "%"}</td>
+        <td>${(Number(x.score_turnover) * 100).toFixed(1)}%</td>
+        <td>${(Number(x.coverage) * 100).toFixed(0)}%</td>
+        <td class="dim">${decay}</td>
+      </tr>`;
+    }).join("");
+    out.innerHTML = `<div class="headline">${passed} of ${d.signals.length} signals cleared the current evidence gates.</div>
+      <div class="dim" style="margin:6px 0 10px">Primary horizon: ${d.primary_horizon} days · ${d.fold_config.folds} rolling test blocks · ${d.bars} daily bars.</div>
+      <div class="row wrap" style="margin-bottom:12px"><span class="dim">Suggested blend</span>${blend}</div>
+      <div class="tablewrap"><table><tr><th>Signal</th><th>Status</th><th>OOS IC</th><th>IC t</th><th>IC hit</th><th>Positive folds</th><th>Long-short spread</th><th>Rank turnover</th><th>Coverage</th><th>IC decay</th></tr>${rows}</table></div>`;
+    setStatus(`SIGNAL RESEARCH DONE · ${passed}/${d.signals.length} VALIDATED`);
+  } catch (e) {
+    out.innerHTML = `<div class="empty">${escapeHtml(e.message)}</div>`;
+    setStatus("ERR: " + e.message);
+  }
+  btn.disabled = false;
+  btn.textContent = "Test the signal library";
 };
 
 function renderMetrics(elId, m, d) {

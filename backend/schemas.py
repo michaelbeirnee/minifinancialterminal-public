@@ -404,6 +404,25 @@ class StatArbSnapshotRequest(BaseModel):
     params: dict = Field(default_factory=dict)
 
 
+class SignalResearchRequest(BaseModel):
+    symbols: list[str] = Field(min_length=3, max_length=100)
+    start: str = "2019-01-01"
+    end: Optional[str] = None
+    params: dict = Field(default_factory=dict)
+    signals: Optional[list[str]] = None
+    horizons: list[int] = Field(default=[1, 5, 10, 21], min_length=1, max_length=8)
+    primary_horizon: int = Field(default=5, ge=1, le=63)
+    train_days: int = Field(default=252, ge=60, le=1260)
+    test_days: int = Field(default=63, ge=10, le=252)
+    purge_days: int = Field(default=5, ge=0, le=63)
+    min_names: int = Field(default=3, ge=3, le=100)
+    min_oos_ic: float = Field(default=0.01, ge=-1.0, le=1.0)
+    min_oos_t_stat: float = Field(default=0.5, ge=-20.0, le=20.0)
+    min_positive_folds: float = Field(default=0.5, ge=0.0, le=1.0)
+    min_coverage: float = Field(default=0.5, ge=0.0, le=1.0)
+    min_oos_observations: int = Field(default=30, ge=5, le=5000)
+
+
 class BacktestSweepRequest(BaseModel):
     strategy: str = "sma_crossover"
     symbols: list[str] = Field(min_length=1, max_length=25)

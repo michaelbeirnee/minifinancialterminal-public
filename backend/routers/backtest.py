@@ -14,6 +14,11 @@ from ..backtest import analysis
 from ..backtest.engine import run_backtest
 from ..backtest.strategies import REGISTRY
 from ..backtest.stat_arb import stat_arb_snapshot
+from ..backtest.signal_research import (
+    adaptive_stat_arb_snapshot,
+    research_signal_suite,
+    signal_catalog,
+)
 from ..data.provider import get_history, get_price_panel
 from ..database import get_db
 from ..models import BacktestRun, User
@@ -22,6 +27,7 @@ from ..schemas import (
     BacktestRequest,
     BacktestSweepRequest,
     CostSensitivityRequest,
+    SignalResearchRequest,
     StatArbSnapshotRequest,
     WalkForwardRequest,
 )
@@ -123,6 +129,55 @@ def stat_arb_signal(
             raise ValueError("No price data for requested symbols/period")
         return stat_arb_snapshot(prices, req.params)
     except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.get("/signals/catalog")
+def signals_catalog(_: User = Depends(get_current_user)) -> dict:
+    """Registered signal formulas and their research families/data sources."""
+    return {"signals": signal_catalog()}
+
+
+@router.post("/signals/research")
+def signal_research(
+    req: SignalResearchRequest, _: User = Depends(get_current_user)
+) -> dict:
+    """Score each signal independently across rolling out-of-sample test blocks."""
+    try:
+        prices = get_price_panel(req.symbols, req.start, req.end)
+        if prices.empty:
+            raise ValueError("No price data for requested symbols/period")
+        return research_signal_suite(
+            prices,
+            params=req.params,
+            signals=req.signals,
+            horizons=req.horizons,
+            primary_horizon=req.primary_horizon,
+            train_days=req.train_days,
+            test_days=req.test_days,
+            purge_days=req.purge_days,
+            min_names=req.min_names,
+            min_oos_ic=req.min_oos_ic,
+            min_oos_t_stat=req.min_oos_t_stat,
+            min_positive_folds=req.min_positive_folds,
+            min_coverage=req.min_coverage,
+            min_oos_observations=req.min_oos_observations,
+        )
+    except (ValueError, KeyError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/signals/adaptive_snapshot")
+def adaptive_signal_snapshot(
+    req: StatArbSnapshotRequest, _: User = Depends(get_current_user)
+) -> dict:
+    """Latest research-gated stat-arb target and trailing signal-quality weights."""
+    try:
+        prices = get_price_panel(req.symbols, req.start, req.end)
+        if prices.empty:
+            raise ValueError("No price data for requested symbols/period")
+        return adaptive_stat_arb_snapshot(prices, req.params)
+    except (ValueError, KeyError) as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
 
