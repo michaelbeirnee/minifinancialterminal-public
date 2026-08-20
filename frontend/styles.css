@@ -1285,3 +1285,62 @@ dialog.sim-dialog{width:min(1180px,calc(100vw - 32px))}
   .cal-ev .ev-type{display:none}
   .cal-agenda-day{grid-template-columns:64px minmax(0,1fr);gap:8px}
 }
+
+/* ---- python playground ---- */
+.pg-layout{display:grid;grid-template-columns:minmax(380px,46%) 1fr;gap:14px;align-items:start}
+@media (max-width:1100px){.pg-layout{grid-template-columns:1fr}}
+.pg-actions{margin-left:auto;display:flex;gap:8px;align-items:center}
+.pg-actions select{font-size:11px;padding:4px 6px;max-width:170px}
+.pg-code{width:100%;min-height:420px;resize:vertical;border:0;border-top:1px solid var(--line);
+  background:var(--deep);color:var(--text);padding:14px;border-radius:0 0 8px 8px;
+  font-family:'IBM Plex Mono',monospace;font-size:12.5px;line-height:1.55;tab-size:4;white-space:pre;overflow-x:auto}
+.pg-code:focus{outline:none;border-top-color:var(--amber)}
+.pg-hint{color:var(--faint);font-size:11px;padding:8px 14px 12px;line-height:1.6}
+.pg-hint code{color:var(--muted)}
+.pg-output{padding:12px 14px;max-height:72vh;overflow:auto;display:flex;flex-direction:column;gap:10px}
+.pg-stdout{font-family:'IBM Plex Mono',monospace;font-size:12px;line-height:1.5;white-space:pre-wrap;
+  word-break:break-word;background:var(--deep);border:1px solid var(--line);border-radius:6px;padding:10px 12px;margin:0}
+.pg-error{color:var(--red);border-color:rgba(255,80,0,.35)}
+.pg-repr{color:var(--soft)}
+.pg-tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:6px}
+.pg-table{width:100%;font-size:11px;border-collapse:collapse;font-family:'IBM Plex Mono',monospace}
+.pg-table th{position:sticky;top:0;background:var(--deep);color:var(--muted);text-align:left;
+  padding:7px 9px;border-bottom:1px solid var(--line);white-space:nowrap}
+.pg-table td{padding:5px 9px;border-bottom:1px solid #151718;white-space:nowrap}
+.pg-chartbox{border:1px solid var(--line);border-radius:6px;padding:10px;height:260px;position:relative}
+.pg-chartbox canvas{max-height:225px}
+.pg-note{color:var(--muted);font-size:11px;margin:2px 0 6px}
+.pg-vars{padding:0 14px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.pg-vars:empty{display:none}
+.pg-vars-label{color:var(--faint);font-size:10px;letter-spacing:1px;text-transform:uppercase}
+.pg-var{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--soft);
+  background:var(--deep);border:1px solid var(--line);border-radius:4px;padding:2px 7px}
+
+/* ---- paper trading ---- */
+.tr-layout{display:grid;grid-template-columns:330px 1fr;gap:14px;align-items:start}
+@media (max-width:1100px){.tr-layout{grid-template-columns:1fr}}
+.tr-rail{display:flex;flex-direction:column;gap:14px}
+.tr-main{display:flex;flex-direction:column;gap:14px}
+.tr-form{padding:12px 14px;display:flex;flex-direction:column;gap:10px}
+.tr-form label{display:flex;flex-direction:column;gap:4px;font-size:11px;color:var(--muted)}
+.tr-form input,.tr-form select{width:100%}
+.tr-row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.tr-params{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.tr-params:empty{display:none}
+.tr-code{min-height:180px;border:1px solid var(--line);border-radius:6px}
+.tr-note{font-size:11px;line-height:1.5;margin:0}
+.tr-killbtn{background:rgba(255,80,0,.14);color:var(--red);border:1px solid rgba(255,80,0,.5);
+  font-weight:700;letter-spacing:1px;border-radius:6px;padding:4px 10px}
+.tr-killbtn:hover{background:var(--red);color:#000}
+.tr-session{padding:12px 14px;display:flex;flex-direction:column;gap:12px}
+.tr-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px}
+.tr-cols{display:grid;grid-template-columns:1fr 1.4fr;gap:14px;align-items:start}
+@media (max-width:1250px){.tr-cols{grid-template-columns:1fr}}
+.tr-subhead{color:var(--faint);font-size:10px;letter-spacing:1.5px;margin:10px 0 6px}
+.tr-chart{height:200px}
+.tr-chart canvas{max-height:170px}
+.tr-log{max-height:170px;overflow:auto;font-size:11px}
+.tr-state{font-size:10px;letter-spacing:.5px}
+.tr-state-filled{color:var(--green)}
+.tr-state-rejected,.tr-state-cancelled{color:var(--red)}
+.tr-state-acknowledged,.tr-state-submitted{color:var(--soft)}

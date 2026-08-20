@@ -28,7 +28,8 @@ from ..auth import get_current_user
 from ..core.errors import MFTError
 from ..models import User
 from ..stream import available_providers, get_hub
-from ..stream.hub import _HUBS, default_provider
+from ..stream import recorder as rec
+from ..stream.hub import _HUBS, default_provider, normalise_symbols
 
 router = APIRouter(prefix="/api/stream", tags=["stream"])
 
@@ -74,8 +75,6 @@ async def stream_snapshot(
         hub = get_hub(provider)
     except MFTError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc))
-    from ..stream.hub import normalise_symbols
-
     try:
         syms = normalise_symbols([symbols])
     except ValueError as exc:
@@ -126,3 +125,38 @@ async def stream_quotes(
             await sub.close()
 
     return StreamingResponse(events(), media_type="text/event-stream", headers=_SSE_HEADERS)
+
+
+# --------------------------------------------------------------------------- #
+# The tick recorder
+# --------------------------------------------------------------------------- #
+@router.get("/recorder")
+def recorder_state(_: User = Depends(get_current_user)) -> Dict[str, Any]:
+    """The recorder's state plus what the Parquet store holds on disk."""
+    return {"recorder": rec.recorder_status(), "store": rec.store_overview()}
+
+
+@router.post("/recorder/start")
+async def recorder_start(
+    symbols: str = Query(..., description="Comma-separated tickers to record"),
+    provider: Optional[str] = Query(None, description="yahoo (default) or alpaca"),
+    _: User = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """Start recording ``symbols`` (replacing any running recorder)."""
+    try:
+        syms = normalise_symbols([symbols])
+        recorder = await rec.start_recording(syms, provider)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except MFTError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc))
+    return recorder.status()
+
+
+@router.post("/recorder/stop")
+async def recorder_stop(_: User = Depends(get_current_user)) -> Dict[str, Any]:
+    """Stop recording and flush the buffer; reports the final state."""
+    final = await rec.stop_recording()
+    if final is None:
+        return {"running": False, "note": "The recorder was not running."}
+    return final

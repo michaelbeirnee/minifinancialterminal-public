@@ -3,7 +3,7 @@
 **[michaelbeirnee.github.io/minifinancialterminal-public](https://michaelbeirnee.github.io/minifinancialterminal-public/)** — project site
 
 An **open-source financial research terminal** — an OpenBB-style data platform with
-**316 commands** across equities, ETFs, crypto, FX, derivatives, macro, fixed income
+**319 commands** across equities, ETFs, crypto, FX, derivatives, macro, fixed income
 and regulatory filings, plus a factor-model engine, a backtester and HTML tearsheets.
 
 Every data source is **free or public-domain**. There is no paid vendor anywhere in
@@ -32,7 +32,7 @@ mft.quantitative.performance(symbol="AAPL,MSFT,SPY")
 | **REST API** | `GET /api/v1/equity/price/historical?symbol=AAPL` — one route per command, documented at `/docs` |
 | **Python** | `from backend.core.interface import mft` then `mft.equity.price.historical(...)` |
 | **CLI** | `python -m cli.terminal` — menu navigation, tab completion, CSV export |
-| **Web UI** | `http://localhost:8000` → **RESEARCH WORKBENCH** keeps top-down and bottom-up evidence separate, makes the exposure bridge explicit, and freezes the joined packet into a tracked thesis; **DATA** browses every command; **PORTFOLIO** tracks what you own; **SAVED** holds watchlists, alerts, saved commands and history; any stock page has **FINANCIALS**, **EXPOSURE** and **COMPARE** tabs; **MODELING** builds savable DCFs; **CALENDAR** maps dated events; **FLAGGED** diffs a company's newest filing against its previous one and screens the whole market for accrual changes; **VOLATILITY** reads the fear gauges and sets a name's realised vol against what its options imply; **ASSISTANT** answers questions and runs commands for you; the ticker tape, the Markets board and a **QUOTE MONITOR** workspace box stream live prices |
+| **Web UI** | `http://localhost:8000` → **RESEARCH WORKBENCH** keeps top-down and bottom-up evidence separate, makes the exposure bridge explicit, and freezes the joined packet into a tracked thesis; **DATA** browses every command; **PORTFOLIO** tracks what you own; **SAVED** holds watchlists, alerts, saved commands and history; any stock page has **FINANCIALS**, **EXPOSURE** and **COMPARE** tabs; **MODELING** builds savable DCFs; **CALENDAR** maps dated events; **FLAGGED** diffs a company's newest filing against its previous one and screens the whole market for accrual changes; **VOLATILITY** reads the fear gauges and sets a name's realised vol against what its options imply; **ASSISTANT** answers questions and runs commands for you; the ticker tape, the Markets board and a **QUOTE MONITOR** workspace box stream live prices; **PLAYGROUND** is a persistent Python kernel in the browser — `mft` preloaded, `live_ticks()` for the real-time tape, sklearn/statsmodels ready — for quick quant research, ML and NLP; **PAPER TRADING** runs one strategy interface against history or the live stream through the same risk gate, paper OMS and kill switch, and a **TICK RECORDER** writes the live tape to Parquet so history accumulates from the day it is switched on |
 
 All four read the same registry, so a command added under `backend/extensions/`
 appears in every one of them with no extra wiring.
@@ -43,7 +43,7 @@ appears in every one of them with no extra wiring.
 
 | Menu | Cmds | What's in it |
 |---|---:|---|
-| **equity** | 71 | prices, quotes, a live-streamed quote, performance, profile, search, screener, 10 discovery screens, 5 calendars, 20 fundamental commands (including the three statements as one ordered document and revenue split by segment, geography and product line), 5 estimates, 7 ownership, shorts, dark pool, 3 supply-chain relationship commands mined from filings, and a peer group blended from classification, SIC registration and the filings that name the company as competition — with the side-by-side comparison built on it |
+| **equity** | 74 | prices, quotes, a live-streamed quote, recorded ticks read back from the local Parquet store (plus DuckDB-built OHLC bars and per-day stats over that tape), performance, profile, search, screener, 10 discovery screens, 5 calendars, 20 fundamental commands (including the three statements as one ordered document and revenue split by segment, geography and product line), 5 estimates, 7 ownership, shorts, dark pool, 3 supply-chain relationship commands mined from filings, and a peer group blended from classification, SIC registration and the filings that name the company as competition — with the side-by-side comparison built on it |
 | **technical** | 40 | 35+ indicators: MAs (SMA/EMA/WMA/HMA/ZLMA/DEMA/TEMA), RSI, MACD, stochastic, CCI, ADX, Aroon, Ichimoku, Supertrend, PSAR, Bollinger, Keltner, Donchian, OBV, A/D, CMF, MFI, VWAP, Fisher, TSI, PPO, DeMark, vol cones, Hurst, Clenow momentum |
 | **economy** | 47 | CPI, PCE, GDP, unemployment, payrolls, claims, money supply, SLOOS, financial conditions, house prices, trade, debt, country profiles, calendars, surveys — plus `fed/*`, the whole Fed surface read from the Fed's own publications: every hike and cut since 1982 and the cycles they group into, what each cycle did to stocks, bonds and gold, the SEP and the dot plot with the revision against the last one, the statement with its vote, dissents and a sentence diff of what changed in the wording, speeches and congressional testimony, the balance sheet and its runoff pace, the emergency lending facilities, and the days the expected path repriced |
 | **quantitative** | 18 | normality battery, unit root, CAPM, rolling stats, Sharpe/Sortino/Calmar/Omega/Ulcer, VaR & CVaR, drawdown |
@@ -223,6 +223,9 @@ docker exec -it 5milliondollars python -m cli.terminal
 | **Auth** | JWT bearer auth with bcrypt hashing and **revocable sessions** — logout and password changes kill the token server-side. Platform routes require a token unless `MFT_PLATFORM_REQUIRE_AUTH=false`. |
 | **Caching** | Graded-TTL cache (memory + disk) in front of every outbound call — 2 min for quotes, a week for reference data. Stats at `/api/system/cache`. |
 | **Live prices** | One upstream socket per provider fanned out to any number of Server-Sent-Events readers at `/api/stream/quotes`. Yahoo's public streamer by default (key-free, last price for stocks, ETFs, indices, futures, FX, crypto); Alpaca's free IEX feed when keys are set (licensed trades and bid/ask). The tape, the Markets board and the workspace boxes move on their own; `/equity/price/live` is the same feed as a command. See [docs/live-streaming.md](docs/live-streaming.md). |
+| **Playground** | A persistent per-user Python kernel behind the UI: `mft` preloaded with every command, `live_ticks()` collecting the real-time tape, numpy/pandas/scipy/statsmodels/scikit-learn importable, `show()`/`chart()` rendering tables and charts, variables surviving between runs. Runs code as the server user, so it follows `MFT_DEBUG`: on locally, off on a deployment unless `MFT_PLAYGROUND_ENABLED=true`. See [docs/playground.md](docs/playground.md). |
+| **Paper trading** | One `Strategy` interface (`on_tick`/`on_bar`/`on_fill`), two feeds: `POST /api/trading/replay` runs it over history — or over bars built from your own recorded ticks — and a live session runs the identical code against the stream, through the same risk gate (notional/gross/loss caps, stale-data refusal, kill switch) and the same paper OMS (explicit order states, next-event fills, spread-aware). Execution is internal by default, or routed to **Alpaca's paper-trading account** when its keys are set — a real venue's fills, reconciled against the local book, hard-limited in code to `paper-api.alpaca.markets`. The parity is tested, not asserted. See [docs/paper-trading.md](docs/paper-trading.md). |
+| **Tick recorder** | A stream-hub subscriber that writes every live tick to date-partitioned Parquet under `tick_store/`, flushed on a rows/seconds cadence and swept clean on stop. `MFT_RECORD_SYMBOLS` records from boot; `/equity/price/ticks` reads it back, and DuckDB scans it at scale — `/equity/price/bars_from_ticks` (OHLC bars of any width from your own tape), `/equity/price/tick_stats`, and `tick_db()` in the Playground for free-form SQL. Free real-time data is ephemeral — this is how it becomes owned history. |
 
 ---
 
@@ -743,6 +746,10 @@ Environment variables, prefixed `MFT_` (see `backend/config.py`):
 | `MFT_ASSISTANT_EFFORT` | `medium` | `low`…`max` — how hard it thinks per reply. |
 | `MFT_ASSISTANT_MAX_TOOL_ROUNDS` | `6` | Command calls allowed before it must answer. |
 | `MFT_GRADING_INTERVAL_HOURS` | `12` | Hours between signal-grading sweeps. `0` disables the clock. |
+| `MFT_PLAYGROUND_ENABLED` | unset | The Python playground. Unset follows `MFT_DEBUG` (on locally, off deployed). It executes code as the server user — enable on a public host only deliberately. |
+| `MFT_PLAYGROUND_TIMEOUT_SECONDS` | `120` | Wall-clock ceiling per playground run; exceeding it kills the kernel. |
+| `MFT_RECORD_SYMBOLS` | unset | Comma-separated tickers the tick recorder starts writing at boot. Empty = recorder idles until started from the API/UI. |
+| `MFT_TICK_STORE_DIR` | `tick_store/` | Where recorded ticks live (date-partitioned Parquet). Deliberately not under the clearable cache. |
 | `MFT_GRADING_BATCH_SIZE` | `500` | Events examined per sweep; grading is incremental. |
 
 ---

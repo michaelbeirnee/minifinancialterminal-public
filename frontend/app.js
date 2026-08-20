@@ -305,6 +305,8 @@ document.querySelectorAll(".navbtn").forEach((b) => {
     if (b.dataset.view === "portfolio") loadPortfolioView();
     if (b.dataset.view === "assistant") loadAssistantView();
     if (b.dataset.view === "research") loadResearchWorkbench();
+    if (b.dataset.view === "playground") loadPlayground();
+    if (b.dataset.view === "trading") loadTradingView();
   };
 });
 
@@ -894,6 +896,437 @@ async function loadDetail() {
     setStatus(`LOADED ${sym} · ${d.source.toUpperCase()}`);
   } catch (e) { setStatus("ERR: " + e.message); }
 }
+
+
+// ---------- python playground ----------
+// A persistent per-user kernel on the server; this side is an editor, a run
+// button and a renderer for the structured outputs the kernel returns.
+const PG_EXAMPLES = {
+  "Quote & history basics": `# Every terminal command is on mft.<menu>.<command>(...)
+q = mft.equity.price.quote(symbol="AAPL").results[0]
+print(q["symbol"], q["last_price"], q["pe_ratio"])
+
+hist = mft.equity.price.historical(symbol="AAPL,MSFT", start_date="2025-01-01").to_df()
+hist.tail()`,
+  "Live tape stats (real-time)": `# Collect every print from the live stream for 15 seconds.
+# FX and crypto tick around the clock; stocks only during market hours.
+ticks = live_ticks("BTC-USD,EURUSD=X,SPY", seconds=15)
+print(len(ticks), "prints")
+show(ticks.groupby("symbol")["price"].agg(["count", "first", "last", "min", "max"]))
+chart(ticks[ticks.symbol == "BTC-USD"].set_index("time")["price"], title="BTC live")`,
+  "Momentum backtest (vectorised)": `# 12-1 momentum, monthly rebalance, long the top tercile of a small universe.
+syms = "AAPL,MSFT,NVDA,AMZN,GOOGL,META,TSLA,JPM,XOM,JNJ"
+px = mft.equity.price.historical(symbol=syms, start_date="2022-01-01").to_df()
+px = px.reset_index().pivot_table(index="date", columns="symbol", values="close")
+mom = px.pct_change(252).shift(21)          # 12m return, skipping the last month
+fwd = px.pct_change().shift(-1)             # next-day return
+top = mom.rank(axis=1, pct=True) >= 2 / 3
+strat = (fwd * top.div(top.sum(axis=1), axis=0)).sum(axis=1).dropna()
+bench = fwd.mean(axis=1).dropna()
+curve = (1 + pd.concat({"momentum": strat, "equal weight": bench}, axis=1).dropna()).cumprod()
+chart(curve, title="Growth of $1")
+print("ann. return {:.1%} vs {:.1%}".format(strat.mean() * 252, bench.mean() * 252))`,
+  "sklearn: predict tomorrow's direction": `# Logistic regression on lagged returns — a baseline, not an edge.
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import TimeSeriesSplit
+from sklearn.metrics import accuracy_score
+
+px = mft.equity.price.historical(symbol="SPY", start_date="2018-01-01").to_df()["close"]
+r = px.pct_change().dropna()
+X = pd.concat({f"lag{k}": r.shift(k) for k in range(1, 6)}, axis=1).dropna()
+y = (r.reindex(X.index).shift(-1) > 0).astype(int)[:-1]; X = X[:-1]
+scores = []
+for tr, te in TimeSeriesSplit(5).split(X):
+    m = LogisticRegression(max_iter=1000).fit(X.iloc[tr], y.iloc[tr])
+    scores.append(accuracy_score(y.iloc[te], m.predict(X.iloc[te])))
+print("out-of-sample accuracy per fold:", [round(s, 3) for s in scores])
+print("mean {:.1%} — coin-flip territory is the honest baseline".format(np.mean(scores)))`,
+  "NLP: TF-IDF over live headlines": `# Cluster the last ~80 wire headlines into 5 topics.
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.cluster import KMeans
+
+news = mft.news.world(limit=80).results
+titles = [n["title"] for n in news if n.get("title")]
+Xt = TfidfVectorizer(stop_words="english", max_features=2000).fit_transform(titles)
+km = KMeans(n_clusters=5, n_init=10, random_state=0).fit(Xt)
+df = pd.DataFrame({"cluster": km.labels_, "headline": titles})
+for c, grp in df.groupby("cluster"):
+    print(f"--- cluster {c} ({len(grp)}) ---")
+    for h in grp.headline.head(4): print("  ", h[:90])`,
+  "statsmodels: is the spread stationary?": `# ADF test on a pair spread — the statistic behind the pairs funnel.
+import statsmodels.api as sm
+from statsmodels.tsa.stattools import adfuller
+
+px = mft.equity.price.historical(symbol="XOM,CVX", start_date="2023-01-01").to_df()
+px = px.reset_index().pivot_table(index="date", columns="symbol", values="close").dropna()
+hedge = sm.OLS(px["XOM"], sm.add_constant(px["CVX"])).fit()
+spread = hedge.resid
+stat, p, *_ = adfuller(spread)
+print(f"hedge ratio {hedge.params['CVX']:.3f} | ADF {stat:.2f}, p={p:.4f}")
+chart(spread, title="XOM vs CVX spread")`,
+};
+
+let pgBusy = false;
+let pgStatusLoaded = false;
+
+function pgDraft(v) {
+  if (v === undefined) return localStorage.getItem("mft_playground_draft") || "";
+  try { localStorage.setItem("mft_playground_draft", v); } catch { /* fine */ }
+}
+
+async function loadPlayground() {
+  const code = $("pg-code");
+  if (!code.value) code.value = pgDraft();
+  if (pgStatusLoaded) return;
+  pgStatusLoaded = true;
+  const examples = $("pg-examples");
+  Object.keys(PG_EXAMPLES).forEach((name) => {
+    const o = document.createElement("option");
+    o.value = name; o.textContent = name;
+    examples.appendChild(o);
+  });
+  try {
+    const st = await api("/api/playground/status");
+    if (!st.enabled) {
+      $("pg-main").style.display = "none";
+      $("pg-disabled").style.display = "";
+      $("pg-disabled-why").textContent =
+        "This deployment has the playground switched off (it executes Python as the server user). " +
+        "Set MFT_PLAYGROUND_ENABLED=true to switch it on deliberately.";
+      return;
+    }
+    const pk = Object.entries(st.packages).filter(([, v]) => v).map(([k]) => k).join(" · ");
+    $("pg-kernel").textContent = (st.kernel?.alive ? "kernel alive · " : "") + pk;
+  } catch (e) { $("pg-kernel").textContent = e.message; }
+}
+
+function pgRenderOutputs(res) {
+  const out = $("pg-output");
+  out.innerHTML = "";
+  Object.keys(charts).filter((id) => id.startsWith("pg-chart-")).forEach((id) => {
+    charts[id].destroy(); delete charts[id];
+  });
+  if (res.fresh) out.insertAdjacentHTML("beforeend",
+    `<div class="pg-note">Fresh kernel started.</div>`);
+  (res.outputs || []).forEach((o, i) => {
+    if (o.type === "stdout") {
+      out.insertAdjacentHTML("beforeend", `<pre class="pg-stdout">${escapeHtml(o.text)}</pre>`);
+    } else if (o.type === "error") {
+      out.insertAdjacentHTML("beforeend", `<pre class="pg-stdout pg-error">${escapeHtml(o.text)}</pre>`);
+    } else if (o.type === "repr") {
+      out.insertAdjacentHTML("beforeend", `<pre class="pg-stdout pg-repr">${escapeHtml(o.text)}</pre>`);
+    } else if (o.type === "table") {
+      const head = o.columns.map((c) => `<th>${escapeHtml(c)}</th>`).join("");
+      const body = o.rows.map((r) =>
+        `<tr>${r.map((v) => `<td>${v == null ? "-" : escapeHtml(typeof v === "number" ? (Number.isInteger(v) ? String(v) : v.toFixed(4)) : String(v)).slice(0, 80)}</td>`).join("")}</tr>`).join("");
+      out.insertAdjacentHTML("beforeend",
+        `<div class="pg-tablewrap"><table class="pg-table"><tr>${head}</tr>${body}</table>${o.note ? `<div class="pg-note">${escapeHtml(o.note)}</div>` : ""}</div>`);
+    } else if (o.type === "chart") {
+      const id = `pg-chart-${Date.now()}-${i}`;
+      out.insertAdjacentHTML("beforeend",
+        `<div class="pg-chartbox">${o.title ? `<div class="pg-note">${escapeHtml(o.title)}</div>` : ""}<canvas id="${id}"></canvas></div>`);
+      drawLine(id, o.x.map(String), o.series.map((s, j) => ({
+        label: s.label, data: s.data, color: PALETTE[j % PALETTE.length],
+      })), { fitBox: true });
+    }
+  });
+  if (!out.childNodes.length) out.innerHTML = `<div class="empty">Ran clean — nothing printed or displayed.</div>`;
+  $("pg-vars").innerHTML = (res.variables || []).length
+    ? `<span class="pg-vars-label">namespace</span>` +
+      res.variables.slice(0, 30).map((v) => `<span class="pg-var">${escapeHtml(v)}</span>`).join("")
+    : "";
+}
+
+async function pgRun() {
+  if (pgBusy) return;
+  const codeText = $("pg-code").value;
+  if (!codeText.trim()) { setStatus("NOTHING TO RUN"); return; }
+  pgBusy = true;
+  pgDraft(codeText);
+  const btn = $("pg-run");
+  btn.textContent = "Running…"; btn.disabled = true;
+  setStatus("PLAYGROUND RUNNING…");
+  const startedAt = Date.now();
+  try {
+    const res = await api("/api/playground/run", { method: "POST", body: { code: codeText } });
+    pgRenderOutputs(res);
+    $("pg-elapsed").textContent = `${res.ok ? "ok" : "error"} · ${res.elapsed}s`;
+    $("pg-kernel").textContent = "kernel alive";
+    setStatus(res.ok ? "PLAYGROUND OK" : "PLAYGROUND ERROR");
+  } catch (e) {
+    $("pg-output").innerHTML = `<div class="errbox">${escapeHtml(e.message)}</div>`;
+    $("pg-elapsed").textContent = `failed after ${((Date.now() - startedAt) / 1000).toFixed(1)}s`;
+    setStatus("PLAYGROUND ERROR");
+  } finally {
+    pgBusy = false;
+    btn.textContent = "Run ⌘⏎"; btn.disabled = false;
+  }
+}
+
+$("pg-run").onclick = pgRun;
+$("pg-clear").onclick = () => {
+  $("pg-output").innerHTML = `<div class="empty">Cleared.</div>`;
+  $("pg-elapsed").textContent = "";
+};
+$("pg-reset").onclick = async () => {
+  try {
+    await api("/api/playground/reset", { method: "POST" });
+    $("pg-kernel").textContent = "kernel reset — variables gone";
+    $("pg-vars").innerHTML = "";
+    setStatus("KERNEL RESET");
+  } catch (e) { setStatus("ERR: " + e.message); }
+};
+$("pg-examples").onchange = () => {
+  const name = $("pg-examples").value;
+  if (!name) return;
+  const editor = $("pg-code");
+  editor.value = PG_EXAMPLES[name];
+  pgDraft(editor.value);
+  $("pg-examples").value = "";
+};
+$("pg-code").addEventListener("keydown", (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); pgRun(); return; }
+  if (e.key === "Tab") {
+    e.preventDefault();
+    const el = e.target, start = el.selectionStart, end = el.selectionEnd;
+    el.value = el.value.slice(0, start) + "    " + el.value.slice(end);
+    el.selectionStart = el.selectionEnd = start + 4;
+  }
+});
+$("pg-code").addEventListener("input", (e) => pgDraft(e.target.value));
+
+
+// ---------- paper trading ----------
+// One strategy, two feeds: the setup form starts either a live paper session
+// (polled every 2.5s while this view is open) or a historical replay through
+// the identical engine. The kill switch is deliberately loud.
+let trStrategies = null;
+let trPollTimer = null;
+
+async function loadTradingView() {
+  isoDateInput("tr-from", 365);
+  if (!trStrategies) {
+    try {
+      const d = await api("/api/trading/strategies");
+      trStrategies = d;
+      const sel = $("tr-strategy");
+      sel.innerHTML = d.strategies.map((s) =>
+        `<option value="${escapeHtml(s.name)}">${escapeHtml(s.name)} — ${escapeHtml(s.driven_by)}</option>`).join("") +
+        (d.custom_allowed ? `<option value="__custom__">custom code…</option>` : "");
+      sel.onchange = trRenderParams;
+      trRenderParams();
+      if (d.alpaca_execution_available) {
+        $("tr-exec").insertAdjacentHTML("beforeend",
+          `<option value="alpaca">Alpaca paper account — real venue simulation (stocks/ETFs)</option>`);
+      }
+      $("tr-source").onchange = () => {
+        const ticks = $("tr-source").value === "ticks";
+        $("tr-interval-wrap").style.display = ticks ? "none" : "";
+        $("tr-tickbar-wrap").style.display = ticks ? "" : "none";
+      };
+    } catch (e) { $("tr-msg").textContent = e.message; }
+  }
+  trRefreshSession();
+  trRecorderRefresh();
+  clearInterval(trPollTimer);
+  trPollTimer = setInterval(() => {
+    const active = document.querySelector('.navbtn[data-view="trading"]')?.classList.contains("active");
+    if (!active) { clearInterval(trPollTimer); trPollTimer = null; return; }
+    trRefreshSession(true);
+  }, 2500);
+}
+
+function isoDateInput(id, daysAgo) {
+  const el = $(id);
+  if (el && !el.value) el.value = isoAgo(daysAgo);
+}
+
+function trRenderParams() {
+  const name = $("tr-strategy").value;
+  const custom = name === "__custom__";
+  $("tr-custom-wrap").style.display = custom ? "" : "none";
+  const meta = (trStrategies?.strategies || []).find((s) => s.name === name);
+  $("tr-desc").textContent = custom
+    ? "Your own Strategy subclass — executes as the server user (playground switch)."
+    : meta?.description || "";
+  $("tr-params").innerHTML = !custom && meta ? Object.entries(meta.params).map(([k, v]) =>
+    `<label><span>${escapeHtml(k)}</span><input data-tr-param="${escapeHtml(k)}" value="${escapeHtml(String(v))}" /></label>`).join("") : "";
+}
+
+function trPayload() {
+  const name = $("tr-strategy").value;
+  const params = {};
+  document.querySelectorAll("[data-tr-param]").forEach((el) => {
+    const raw = el.value.trim();
+    params[el.dataset.trParam] = raw === "" ? undefined : (isNaN(Number(raw)) ? raw : Number(raw));
+  });
+  return {
+    strategy: name === "__custom__" ? null : name,
+    code: name === "__custom__" ? $("tr-code").value : null,
+    params,
+    symbols: $("tr-symbols").value.trim(),
+    cash: Number($("tr-cash").value) || 100000,
+  };
+}
+
+$("tr-start").onclick = async () => {
+  $("tr-msg").textContent = "";
+  try {
+    const body = { ...trPayload(), bar_seconds: Number($("tr-barsec").value) || 60,
+                   execution: $("tr-exec").value };
+    await api("/api/trading/paper/start", { method: "POST", body });
+    setStatus("PAPER SESSION RUNNING");
+    trRefreshSession();
+  } catch (e) { $("tr-msg").textContent = e.message; }
+};
+$("tr-stop").onclick = async () => {
+  try { await api("/api/trading/paper/stop", { method: "POST" }); setStatus("PAPER SESSION STOPPED"); trRefreshSession(); }
+  catch (e) { setStatus("ERR: " + e.message); }
+};
+$("tr-kill").onclick = async () => {
+  if (!confirm("Kill switch: block all new orders, cancel open ones, and FLATTEN the book at the last price?")) return;
+  try {
+    const r = await api("/api/trading/paper/kill", { method: "POST", body: { flatten: true } });
+    setStatus(`KILLED · ${r.cancelled} cancelled · ${(r.flattened || []).length} flattening fills`);
+    trRefreshSession();
+  } catch (e) { setStatus("ERR: " + e.message); }
+};
+
+async function trRefreshSession(quiet) {
+  try {
+    const d = await api("/api/trading/paper");
+    trRenderSession(d.session);
+  } catch (e) { if (!quiet) $("tr-session").innerHTML = `<div class="errbox">${escapeHtml(e.message)}</div>`; }
+}
+
+function trFmt(x, dp = 2) { return x == null ? "-" : Number(x).toLocaleString(undefined, { minimumFractionDigits: dp, maximumFractionDigits: dp }); }
+
+function trOrdersTable(orders) {
+  if (!orders?.length) return `<div class="empty">No orders yet.</div>`;
+  return `<div class="pg-tablewrap"><table class="pg-table">
+    <tr><th>#</th><th>Symbol</th><th>Side</th><th class="num">Qty</th><th>State</th><th class="num">Fill</th><th>Note / reason</th></tr>
+    ${orders.slice(-14).reverse().map((o) => `<tr>
+      <td>${o.id}</td><td>${escapeHtml(o.symbol)}</td>
+      <td class="${o.side === "buy" ? "pos" : "neg"}">${o.side}</td>
+      <td class="num">${Math.abs(o.qty)}</td>
+      <td class="tr-state tr-state-${escapeHtml(String(o.state).toLowerCase())}">${escapeHtml(o.state)}</td>
+      <td class="num">${o.fill_price == null ? "-" : trFmt(o.fill_price)}</td>
+      <td class="ws-name">${escapeHtml(o.reason || o.note || "")}</td>
+    </tr>`).join("")}</table></div>`;
+}
+
+function trRenderSession(s) {
+  const box = $("tr-session");
+  const running = s && s.state === "running";
+  $("tr-stop").style.display = running ? "" : "none";
+  $("tr-kill").style.display = running ? "" : "none";
+  $("tr-state").textContent = s ? `${s.state}${s.provider ? " · " + s.provider : ""}${s.execution && s.execution.execution !== "internal" ? " · " + s.execution.execution : ""} · ${s.ticks_seen} ticks · ${s.bars_seen} bars` : "";
+  if (!s) { box.innerHTML = `<div class="empty">No session running. Configure a strategy and start one.</div>`; return; }
+  const b = s.book, r = s.risk;
+  const killedNote = r.killed ? `<div class="errbox">KILLED: ${escapeHtml(r.kill_reason || "")}</div>` : "";
+  const rejections = Object.entries(r.rejections || {});
+  box.innerHTML = `${killedNote}
+    <div class="tr-stats">
+      <div class="metric"><div class="k">Equity</div><div class="v">$${trFmt(b.equity)}</div></div>
+      <div class="metric"><div class="k">P&amp;L</div><div class="v ${cls(b.pnl)}">${b.pnl >= 0 ? "+" : ""}$${trFmt(b.pnl)}</div></div>
+      <div class="metric"><div class="k">Cash</div><div class="v">$${trFmt(b.cash)}</div></div>
+      <div class="metric"><div class="k">Realised</div><div class="v ${cls(b.realized)}">$${trFmt(b.realized)}</div></div>
+      <div class="metric"><div class="k">Open orders</div><div class="v">${b.open_orders}</div></div>
+      <div class="metric"><div class="k">Fills</div><div class="v">${b.fills_total}</div></div>
+    </div>
+    ${s.execution && s.execution.account ? `<div class="dim tr-note">Broker (Alpaca paper): equity $${trFmt(s.execution.account.equity)} · cash $${trFmt(s.execution.account.cash)} · ${(s.execution.broker_positions || []).length} position(s)${s.execution.last_error ? ` · <span class="neg">${escapeHtml(s.execution.last_error)}</span>` : ""}</div>` : ""}
+    ${s.equity_curve?.length > 1 ? `<div class="pg-chartbox tr-chart"><canvas id="tr-eq-live"></canvas></div>` : ""}
+    <div class="tr-cols">
+      <div><div class="tr-subhead">POSITIONS</div>
+      ${b.positions.length ? `<div class="pg-tablewrap"><table class="pg-table">
+        <tr><th>Symbol</th><th class="num">Qty</th><th class="num">Avg</th><th class="num">Last</th><th class="num">Unrl</th></tr>
+        ${b.positions.map((p) => `<tr><td>${escapeHtml(p.symbol)}</td><td class="num">${p.qty}</td>
+          <td class="num">${trFmt(p.avg_cost)}</td><td class="num">${p.last == null ? "-" : trFmt(p.last)}</td>
+          <td class="num ${cls(p.unrealized)}">${trFmt(p.unrealized)}</td></tr>`).join("")}</table></div>`
+        : `<div class="empty">Flat.</div>`}
+      <div class="tr-subhead">RISK</div>
+      <div class="dim tr-note">approved ${r.approved} · rejected ${rejections.reduce((a, [, n]) => a + n, 0)}</div>
+      ${rejections.slice(0, 4).map(([why, n]) => `<div class="dim tr-note">× ${n} — ${escapeHtml(why)}</div>`).join("")}
+      </div>
+      <div><div class="tr-subhead">ORDERS</div>${trOrdersTable(s.orders)}
+      <div class="tr-subhead">LOG</div>
+      <pre class="pg-stdout tr-log">${escapeHtml((s.log || []).slice(-12).join("\n") || "—")}</pre></div>
+    </div>`;
+  if (s.equity_curve?.length > 1) {
+    drawLine("tr-eq-live", s.equity_curve.map((p) => String(p[0])),
+      [{ label: "equity", data: s.equity_curve.map((p) => p[1]),
+         color: b.pnl >= 0 ? "#00c805" : "#ff5000", fill: true }], { fitBox: true });
+  }
+}
+
+$("tr-replay").onclick = async () => {
+  $("tr-msg").textContent = "";
+  $("tr-replay-panel").style.display = "";
+  $("tr-replay-out").innerHTML = `<div class="workspace-loading">Replaying on history</div>`;
+  setStatus("REPLAYING…");
+  try {
+    const ticksSrc = $("tr-source").value === "ticks";
+    const body = { ...trPayload(), start_date: $("tr-from").value,
+                   end_date: $("tr-to").value || null,
+                   interval: $("tr-interval").value, source: $("tr-source").value,
+                   bar_seconds: Number($("tr-tickbar").value) || 30 };
+    const r = await api("/api/trading/replay", { method: "POST", body });
+    const m = r.metrics;
+    $("tr-replay-note").textContent = `${r.symbols.join(", ")} · ${r.interval} · ${m.bars} bars · via ${r.provider}`;
+    $("tr-replay-out").innerHTML = `
+      <div class="tr-stats">
+        <div class="metric"><div class="k">Return</div><div class="v ${cls(m.total_return)}">${fmtPct(m.total_return, true)}</div></div>
+        <div class="metric"><div class="k">Final equity</div><div class="v">$${trFmt(m.final_equity)}</div></div>
+        <div class="metric"><div class="k">Max drawdown</div><div class="v neg">${fmtPct(m.max_drawdown)}</div></div>
+        <div class="metric"><div class="k">Fills</div><div class="v">${m.fills}${m.rejected ? ` <small>(${m.rejected} rejected)</small>` : ""}</div></div>
+        <div class="metric"><div class="k">Round trips</div><div class="v">${m.round_trips}</div></div>
+        <div class="metric"><div class="k">Win rate</div><div class="v">${m.win_rate == null ? "-" : fmtPct(m.win_rate)}</div></div>
+      </div>
+      <div class="pg-chartbox tr-chart"><canvas id="tr-eq-replay"></canvas></div>
+      <div class="tr-subhead">LAST FILLS</div>
+      ${(r.fills || []).length ? `<div class="pg-tablewrap"><table class="pg-table">
+        <tr><th>Time</th><th>Symbol</th><th class="num">Qty</th><th class="num">Price</th><th class="num">Realised</th><th>Note</th></tr>
+        ${r.fills.slice(-12).reverse().map((f) => `<tr><td>${escapeHtml(String(f.time))}</td><td>${escapeHtml(f.symbol)}</td>
+          <td class="num ${f.qty > 0 ? "pos" : "neg"}">${f.qty}</td><td class="num">${trFmt(f.price)}</td>
+          <td class="num ${cls(f.realized)}">${f.realized ? trFmt(f.realized) : "-"}</td>
+          <td class="ws-name">${escapeHtml(f.note || "")}</td></tr>`).join("")}</table></div>` : `<div class="empty">No fills.</div>`}`;
+    drawLine("tr-eq-replay", r.equity_curve.map((p) => String(p[0])),
+      [{ label: "equity", data: r.equity_curve.map((p) => p[1]),
+         color: m.total_return >= 0 ? "#00c805" : "#ff5000", fill: true }], { fitBox: true });
+    setStatus("REPLAY DONE");
+  } catch (e) {
+    $("tr-replay-out").innerHTML = `<div class="errbox">${escapeHtml(e.message)}</div>`;
+    setStatus("REPLAY FAILED");
+  }
+};
+
+// ---- tick recorder controls ----
+async function trRecorderRefresh() {
+  try {
+    const d = await api("/api/stream/recorder");
+    const r = d.recorder, st = d.store;
+    $("rec-state").textContent = r?.running ? `recording ${r.symbols.length} symbols` : "idle";
+    const mb = (st.total_bytes / 1048576).toFixed(2);
+    $("rec-info").textContent = (r?.running
+      ? `${r.rows_written.toLocaleString()} rows written this run · ${r.buffered} buffered · `
+      : "") + `store: ${st.total_files} files · ${mb} MB · ${st.dates.length} day(s)`;
+    if (r?.running) $("rec-symbols").value = r.symbols.join(",");
+  } catch (e) { $("rec-info").textContent = e.message; }
+}
+$("rec-start").onclick = async () => {
+  try {
+    await api(`/api/stream/recorder/start?symbols=${encodeURIComponent($("rec-symbols").value.trim())}`, { method: "POST" });
+    setStatus("RECORDING TICKS");
+    trRecorderRefresh();
+  } catch (e) { $("rec-info").textContent = e.message; }
+};
+$("rec-stop").onclick = async () => {
+  try {
+    const r = await api("/api/stream/recorder/stop", { method: "POST" });
+    setStatus(r.rows_written != null ? `RECORDER STOPPED · ${r.rows_written} ROWS ON DISK` : "RECORDER WAS IDLE");
+    trRecorderRefresh();
+  } catch (e) { $("rec-info").textContent = e.message; }
+};
 
 // ---------- custom workspace ----------
 // A workspace is intentionally browser-local: it is a personal arrangement

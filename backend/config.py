@@ -90,6 +90,36 @@ class Settings(BaseSettings):
     # yahoo | alpaca — which source a stream request uses when it names none.
     # "alpaca" is only honoured once its keys are set; otherwise Yahoo serves.
     stream_default_provider: str = "yahoo"
+    # The paper-trading endpoint the Alpaca execution adapter talks to. This
+    # project places NO real-money orders: the adapter refuses any host other
+    # than paper-api.alpaca.markets, so pointing this at the live API is an
+    # error, not a feature.
+    alpaca_paper_base: str = "https://paper-api.alpaca.markets"
+
+    # --- Playground ---------------------------------------------------------
+    # The Python playground executes arbitrary code as the server's own user —
+    # that is the feature, and also why it follows the registration switch's
+    # shape: on for local work, off on an internet-reachable deployment unless
+    # switched on deliberately. Unset means "on exactly when MFT_DEBUG is".
+    playground_enabled: Optional[bool] = None
+    # Wall-clock ceiling per run; a kernel that exceeds it is killed (and its
+    # variables lost), which is the honest cost of an infinite loop.
+    playground_timeout_seconds: float = 120.0
+
+    @property
+    def playground_on(self) -> bool:
+        if self.playground_enabled is not None:
+            return self.playground_enabled
+        return self.debug
+
+    # --- Tick recorder -------------------------------------------------------
+    # Where recorded live ticks live, as date-partitioned Parquet. Deliberately
+    # NOT under cache_dir: the cache is clearable, recorded history is not
+    # rebuildable — a tick nobody wrote down is gone.
+    tick_store_dir: str = str(BASE_DIR / "tick_store")
+    # Symbols to start recording at boot, comma-separated (e.g. "SPY,QQQ,BTC-USD").
+    # Empty means the recorder starts idle and is driven from the API instead.
+    record_symbols: str = ""
 
     # --- Assistant (the only paid dependency in the stack) -----------------
     # The one feature that is NOT free. Leave the key unset and every other

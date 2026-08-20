@@ -23,13 +23,17 @@ from .routers import (
     factors,
     hedge,
     modeling,
+    playground,
     portfolio,
     reports,
     stream,
     system,
     thesis,
+    trading,
     user,
 )
+from .playground import manager as playground_manager
+from .trading import manager as paper_manager
 from .stream import shutdown_all as shutdown_streams
 from .thesis import scheduler
 
@@ -49,12 +53,30 @@ async def lifespan(app: FastAPI):
         )
     init_db()
     grader = scheduler.start()
+    # Recording from boot: free real-time data is ephemeral, so an operator
+    # who names symbols here starts owning their history at startup.
+    if settings.record_symbols.strip():
+        from .stream import recorder as tick_recorder
+        from .stream.hub import normalise_symbols
+
+        try:
+            await tick_recorder.start_recording(normalise_symbols([settings.record_symbols]))
+        except Exception as exc:  # noqa: BLE001 - boot must not die on a bad ticker list
+            import logging
+
+            logging.getLogger("mft.stream").warning("tick recorder autostart failed: %s", exc)
     try:
         yield
     finally:
         await scheduler.stop(grader)
         # Close any upstream quote sockets so the process exits cleanly.
         await shutdown_streams()
+        # And kill any playground kernels — they are child processes.
+        playground_manager.shutdown()
+        from .stream import recorder as tick_recorder
+
+        await tick_recorder.stop_recording()
+        await paper_manager.shutdown()
 
 
 app = FastAPI(
@@ -84,7 +106,7 @@ if settings.cors_origin_list:
     )
 
 for r in (auth, user, portfolio, hedge, data, factors, backtest, reports, system, thesis,
-          modeling, assistant, stream):
+          modeling, assistant, stream, playground, trading):
     app.include_router(r.router)
 # The single-name hedge simulator is not book-scoped, so it carries its own prefix.
 app.include_router(hedge.simulate_router)

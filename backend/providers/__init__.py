@@ -79,6 +79,8 @@ PROVIDERS: Dict[str, Dict[str, object]] = {
     # entry above; Alpaca is the one source that wants a key.
     "alpaca": {"module": "stream", "requires_key": True,
                "description": "Alpaca Markets — licensed live trades and bid/ask on the free IEX feed"},
+    "local": {"module": "stream", "requires_key": False,
+              "description": "The local Parquet tick store — history the recorder wrote down"},
 }
 
 

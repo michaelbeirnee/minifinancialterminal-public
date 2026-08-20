@@ -67,7 +67,7 @@ def test_menu_tree_navigation():
     submenus, cmds = children("")
     assert "equity" in submenus
     submenus, cmds = children("equity/price")
-    assert {c.name for c in cmds} == {"historical", "quote", "performance", "live"}
+    assert {c.name for c in cmds} == {"historical", "quote", "performance", "live", "ticks", "bars_from_ticks", "tick_stats"}
 
 
 def test_coverage_report_adds_up():

@@ -161,3 +161,66 @@ def price_live(symbol: str, wait: float = 3.0, provider: Optional[str] = None) -
     df = df[_LIVE_COLUMNS]
     return Result(df, provider=src, warnings=warnings,
                   extra={"sampled_seconds": wait if src == "yahoo" else None})
+
+
+@command("/equity/price/ticks", providers=("local",),
+         summary="Recorded live ticks read back from the local Parquet store",
+         examples=("start_date=2026-08-19", "symbol=SPY&start_date=2026-08-01&end_date=2026-08-19"))
+def price_ticks(start_date: str, end_date: Optional[str] = None, symbol: Optional[str] = None,
+                limit: int = 100000, provider: Optional[str] = None) -> Result:
+    """Everything the tick recorder wrote for a date range, oldest first.
+
+    The store only holds what a running recorder saw — see
+    ``/api/stream/recorder`` for switching it on, and ``MFT_RECORD_SYMBOLS``
+    for recording from boot. An empty answer means nothing was recorded then,
+    not that the market did not trade.
+    """
+    from ..core.registry import resolve_provider as _rp
+    from ..stream import recorder as rec
+
+    _rp(provider, ("local",))
+    symbols = norm_symbols(symbol) if symbol else None
+    df = rec.read_ticks(start_date, end_date, symbols, limit=max(1, min(int(limit), 1_000_000)))
+    if df.empty:
+        raise EmptyDataError(
+            "No recorded ticks for that window. The recorder writes only while running — "
+            "check GET /api/stream/recorder, or set MFT_RECORD_SYMBOLS to record from boot.")
+    return Result(df, provider="local", extra={"rows": len(df), "store": rec.store_dir().as_posix()})
+
+
+@command("/equity/price/bars_from_ticks", providers=("local",),
+         summary="OHLC bars of any width resampled from the recorded tick tape",
+         examples=("start_date=2026-08-19&bar_seconds=60", "symbol=BTC-USD&start_date=2026-08-19&bar_seconds=5"))
+def price_bars_from_ticks(start_date: str, end_date: Optional[str] = None,
+                          symbol: Optional[str] = None, bar_seconds: int = 60,
+                          provider: Optional[str] = None) -> Result:
+    """Your own intraday bars, built from your own tape via DuckDB.
+
+    Where free vendors cap intraday history at days or weeks, bars built from
+    the tick store reach back exactly as far as the recorder has been running
+    — and down to one-second resolution. ``volume`` is the delta of the
+    source's day-cumulative counter within the bar, where it carries one.
+    """
+    from ..core.registry import resolve_provider as _rp
+    from ..stream import tickdb
+
+    _rp(provider, ("local",))
+    symbols = norm_symbols(symbol) if symbol else None
+    df = tickdb.bars(start_date, end_date, symbols, bar_seconds=bar_seconds)
+    return Result(df, provider="local",
+                  extra={"bar_seconds": int(bar_seconds), "rows": len(df)})
+
+
+@command("/equity/price/tick_stats", providers=("local",),
+         summary="Per-symbol, per-day statistics over the recorded tick store",
+         examples=("start_date=2026-08-01&end_date=2026-08-19",))
+def price_tick_stats(start_date: str, end_date: Optional[str] = None,
+                     symbol: Optional[str] = None, provider: Optional[str] = None) -> Result:
+    """What the tape holds: prints, span, first/last/high/low, tick-return vol."""
+    from ..core.registry import resolve_provider as _rp
+    from ..stream import tickdb
+
+    _rp(provider, ("local",))
+    symbols = norm_symbols(symbol) if symbol else None
+    df = tickdb.day_stats(start_date, end_date, symbols)
+    return Result(df, provider="local", extra={"rows": len(df)})

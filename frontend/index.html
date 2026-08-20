@@ -76,6 +76,7 @@
           <button class="navbtn" data-view="research">Workbench</button>
           <button class="navbtn" data-view="modeling">Modeling</button>
           <button class="navbtn" data-view="backtest">Test a strategy</button>
+          <button class="navbtn" data-view="playground">Playground</button>
           <button class="navbtn" data-view="history">Past tests</button>
           <button class="navbtn" data-view="data">Data</button>
         </div>
@@ -84,6 +85,7 @@
         <div class="nav-group-label">YOUR BOOK</div>
         <div class="nav-items">
           <button class="navbtn" data-view="portfolio">Portfolio</button>
+          <button class="navbtn" data-view="trading">Paper trading</button>
           <button class="navbtn" data-view="saved">Saved</button>
           <button class="navbtn" data-view="workspace">Workspace</button>
         </div>
@@ -247,6 +249,137 @@
             <div class="panel-h">CURVE &amp; CREDIT SPREADS <span class="panel-note">FRED, 2 years</span></div>
             <canvas id="mk-spreads" height="120"></canvas>
             <div id="mk-credit" class="metrics"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Python playground -->
+      <section id="view-playground" class="view">
+        <h1>Playground</h1>
+        <p class="lede">
+          Real Python against the terminal's own data layer. <code>mft</code> is preloaded
+          with every command, <code>live_ticks()</code> collects the real-time tape,
+          and numpy / pandas / scipy / statsmodels / scikit-learn are ready to import.
+          Variables persist between runs until you reset the kernel.
+        </p>
+
+        <div id="pg-disabled" class="panel" style="display:none">
+          <div class="panel-h">SWITCHED OFF</div>
+          <p class="dim" id="pg-disabled-why" style="padding:12px 14px"></p>
+        </div>
+
+        <div id="pg-main" class="pg-layout">
+          <div class="panel pg-editor-panel">
+            <div class="panel-h">CODE
+              <span id="pg-kernel" class="panel-note"></span>
+              <span class="pg-actions">
+                <select id="pg-examples" aria-label="Insert an example">
+                  <option value="">Examples…</option>
+                </select>
+                <button id="pg-reset" class="ghost panel-btn" title="Kill the kernel and its variables">Reset kernel</button>
+                <button id="pg-run" class="primary panel-btn">Run ⌘⏎</button>
+              </span>
+            </div>
+            <textarea id="pg-code" class="pg-code" spellcheck="false"
+              placeholder="q = mft.equity.price.quote(symbol='AAPL').results[0]&#10;print(q['symbol'], q['last_price'])"></textarea>
+            <div class="pg-hint">⌘/Ctrl+Enter runs · Tab indents · <code>show(df)</code> renders a table ·
+              <code>chart(df)</code> draws · <code>live_ticks("BTC-USD", 10)</code> collects the live tape ·
+              drafts stay saved on this device</div>
+          </div>
+          <div class="panel pg-output-panel">
+            <div class="panel-h">OUTPUT
+              <span id="pg-elapsed" class="panel-note"></span>
+              <span class="pg-actions"><button id="pg-clear" class="ghost panel-btn">Clear</button></span>
+            </div>
+            <div id="pg-vars" class="pg-vars"></div>
+            <div id="pg-output" class="pg-output"><div class="empty">Run something to see its output here.</div></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Paper trading -->
+      <section id="view-trading" class="view">
+        <h1>Paper trading</h1>
+        <p class="lede">
+          The same strategy code runs two ways: replayed over history, or live against the
+          real-time stream — through the same risk gate and the same paper order book.
+          No broker, no real money; the discipline without the damage.
+        </p>
+
+        <div class="tr-layout">
+          <aside class="tr-rail">
+            <div class="panel">
+              <div class="panel-h">STRATEGY</div>
+              <div class="tr-form">
+                <label><span>Strategy</span><select id="tr-strategy"></select></label>
+                <div id="tr-desc" class="dim"></div>
+                <div id="tr-params" class="tr-params"></div>
+                <div id="tr-custom-wrap" style="display:none">
+                  <textarea id="tr-code" class="pg-code tr-code" spellcheck="false"
+                    placeholder="class Mine(Strategy):&#10;    params = {'qty': 10}&#10;    def on_bar(self, ctx, bar):&#10;        ..."></textarea>
+                  <div class="pg-hint" id="tr-custom-hint">Subclass Strategy; hooks: on_start, on_tick, on_bar, on_fill, on_timer, on_stop. Orders via ctx.buy / ctx.sell / ctx.order.</div>
+                </div>
+                <label><span>Symbols</span><input id="tr-symbols" value="SPY,QQQ,BTC-USD" /></label>
+                <div class="tr-row2">
+                  <label><span>Cash</span><input id="tr-cash" type="number" value="100000" min="1000" step="1000" /></label>
+                  <label><span>Bar seconds (live)</span><input id="tr-barsec" type="number" value="60" min="5" max="3600" /></label>
+                </div>
+                <label><span>Execution</span><select id="tr-exec">
+                  <option value="internal">Internal — fills against the next local tick</option>
+                </select></label>
+                <button id="tr-start" class="primary">▶ Start live paper session</button>
+                <div class="tr-row2">
+                  <label><span>Replay source</span><select id="tr-source">
+                    <option value="history">Vendor history</option>
+                    <option value="ticks">My recorded ticks</option>
+                  </select></label>
+                  <label id="tr-interval-wrap"><span>Interval</span><select id="tr-interval">
+                    <option value="1d">1d</option><option value="1h">1h</option>
+                    <option value="30m">30m</option><option value="5m">5m</option>
+                  </select></label>
+                  <label id="tr-tickbar-wrap" style="display:none"><span>Bar seconds</span><input id="tr-tickbar" type="number" value="30" min="1" max="86400" /></label>
+                </div>
+                <div class="tr-row2">
+                  <label><span>Replay from</span><input id="tr-from" type="date" /></label>
+                  <label><span>to (optional)</span><input id="tr-to" type="date" /></label>
+                </div>
+                <button id="tr-replay" class="ghost">⟲ Replay the same strategy on history</button>
+                <div id="tr-msg" class="msg"></div>
+              </div>
+            </div>
+
+            <div class="panel">
+              <div class="panel-h">TICK RECORDER <span id="rec-state" class="panel-note"></span></div>
+              <div class="tr-form">
+                <p class="dim tr-note">Free real-time data is ephemeral — record it and own your history.
+                  Ticks land in Parquet under <code>tick_store/</code>; read them back with
+                  <code>/equity/price/ticks</code> or <code>live_ticks</code> research.</p>
+                <label><span>Symbols</span><input id="rec-symbols" value="SPY,QQQ,BTC-USD,EURUSD=X" /></label>
+                <div class="tr-row2">
+                  <button id="rec-start" class="ghost">● Record</button>
+                  <button id="rec-stop" class="ghost">■ Stop &amp; flush</button>
+                </div>
+                <div id="rec-info" class="dim tr-note"></div>
+              </div>
+            </div>
+          </aside>
+
+          <div class="tr-main">
+            <div class="panel" id="tr-session-panel">
+              <div class="panel-h">LIVE SESSION
+                <span id="tr-state" class="panel-note"></span>
+                <span class="pg-actions">
+                  <button id="tr-stop" class="ghost panel-btn" style="display:none">Stop</button>
+                  <button id="tr-kill" class="tr-killbtn panel-btn" style="display:none">KILL SWITCH</button>
+                </span>
+              </div>
+              <div id="tr-session" class="tr-session"><div class="empty">No session running. Configure a strategy and start one.</div></div>
+            </div>
+
+            <div class="panel" id="tr-replay-panel" style="display:none">
+              <div class="panel-h">REPLAY RESULT <span id="tr-replay-note" class="panel-note"></span></div>
+              <div id="tr-replay-out" class="tr-session"></div>
+            </div>
           </div>
         </div>
       </section>
