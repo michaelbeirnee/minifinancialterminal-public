@@ -7305,6 +7305,8 @@ const STRAT_META = {
     params: [["window", "Window (days)", "20", "Period that defines “normal”"], ["z", "Drop size (z-score)", "2.0", "How unusual a dip must be to buy"]] },
   news_sentiment: { name: "News sentiment", desc: "Own a stock — or a sector ETF like XLE — only in weeks when its news reads positive. First run is slow — it rebuilds months of headlines from the archive.",
     params: [["threshold", "Bullish threshold", "0.05", "Weekly mood needed to stay invested (−1 to +1)"], ["smooth", "Smoothing (weeks)", "2", "Average of the last N weekly scores"]] },
+  stat_arb: { name: "Stat arb", desc: "Blend several small relative-value signals, then keep the long/short book dollar- and beta-neutral. Pick 8+ single stocks and leave index ETFs like SPY out — the index is what gets hedged away. Needs about a year of history before it starts trading.",
+    params: [["reversal_lookback", "Reversal window (days)", "5", "Fade short-lived residual moves"], ["momentum_lookback", "Trend window (days)", "126", "Reward persistent residual strength"], ["beta_window", "Beta window (days)", "63", "History used to strip broad index exposure"], ["rebalance_days", "Rebalance every (days)", "5", "Holding targets longer cuts turnover"]] },
 };
 let btStrategy = "momentum";
 let btPicked = new Set(["AAPL", "MSFT", "NVDA", "SPY"]);

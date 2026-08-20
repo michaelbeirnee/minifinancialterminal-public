@@ -14,6 +14,8 @@ from typing import Callable
 import numpy as np
 import pandas as pd
 
+from .stat_arb import build_stat_arb
+
 StrategyFn = Callable[[pd.DataFrame, dict], pd.DataFrame]
 
 
@@ -102,12 +104,18 @@ def news_sentiment(prices: pd.DataFrame, params: dict) -> pd.DataFrame:
     return _normalize(weights)
 
 
+def statistical_arbitrage(prices: pd.DataFrame, params: dict) -> pd.DataFrame:
+    """Multi-signal dollar/beta-neutral cross-sectional portfolio."""
+    return build_stat_arb(prices, params).weights
+
+
 REGISTRY: dict[str, StrategyFn] = {
     "buy_and_hold": buy_and_hold,
     "sma_crossover": sma_crossover,
     "momentum": cross_sectional_momentum,
     "mean_reversion": mean_reversion,
     "news_sentiment": news_sentiment,
+    "stat_arb": statistical_arbitrage,
 }
 
 

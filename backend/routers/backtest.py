@@ -13,6 +13,7 @@ from ..auth import get_current_user
 from ..backtest import analysis
 from ..backtest.engine import run_backtest
 from ..backtest.strategies import REGISTRY
+from ..backtest.stat_arb import stat_arb_snapshot
 from ..data.provider import get_history, get_price_panel
 from ..database import get_db
 from ..models import BacktestRun, User
@@ -21,6 +22,7 @@ from ..schemas import (
     BacktestRequest,
     BacktestSweepRequest,
     CostSensitivityRequest,
+    StatArbSnapshotRequest,
     WalkForwardRequest,
 )
 
@@ -108,6 +110,20 @@ def run(
 
     payload["run_id"] = run_row.id
     return payload
+
+
+@router.post("/stat_arb/snapshot")
+def stat_arb_signal(
+    req: StatArbSnapshotRequest, _: User = Depends(get_current_user)
+) -> dict:
+    """Latest multi-signal stat-arb target with component attribution."""
+    try:
+        prices = get_price_panel(req.symbols, req.start, req.end)
+        if prices.empty:
+            raise ValueError("No price data for requested symbols/period")
+        return stat_arb_snapshot(prices, req.params)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @router.post("/sweep")

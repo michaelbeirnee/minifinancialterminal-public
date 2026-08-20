@@ -397,6 +397,13 @@ class BacktestRequest(BaseModel):
     monte_carlo: bool = False
 
 
+class StatArbSnapshotRequest(BaseModel):
+    symbols: list[str] = Field(min_length=3, max_length=100)
+    start: str = "2023-01-01"
+    end: Optional[str] = None
+    params: dict = Field(default_factory=dict)
+
+
 class BacktestSweepRequest(BaseModel):
     strategy: str = "sma_crossover"
     symbols: list[str] = Field(min_length=1, max_length=25)
