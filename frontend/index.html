@@ -2124,6 +2124,25 @@
         <div class="panel" style="margin-top:18px">
           <div class="panel-h">SIGNAL RESEARCH <span class="panel-note">point-in-time evidence before a signal gets capital</span></div>
           <p class="dim">Test price, volume, filing-lagged fundamentals, earnings/analyst events and trailing peer relationships together. Estimates and option-chain features are never backfilled: archive them as they are observed, then they become eligible for later out-of-sample tests.</p>
+          <div class="row wrap" style="margin-bottom:10px">
+            <label style="display:flex;flex-direction:column;gap:4px;color:var(--muted);font-size:12px">
+              Neutralize within
+              <select id="bt-signal-neutral">
+                <option value="none" selected>None</option>
+                <option value="sector">Sector</option>
+                <option value="industry">Industry</option>
+              </select>
+            </label>
+            <label style="display:flex;flex-direction:column;gap:4px;color:var(--muted);font-size:12px">
+              FDR cutoff
+              <input id="bt-signal-fdr" value="0.10" class="mono" style="width:90px" />
+            </label>
+            <label style="display:flex;flex-direction:column;gap:4px;color:var(--muted);font-size:12px">
+              Duplicate correlation
+              <input id="bt-signal-corr" value="0.80" class="mono" style="width:90px" />
+            </label>
+            <span class="hintline">A signal must pass raw OOS evidence, the selected group-neutral test, multiple-testing control, and its redundancy cluster. Sector/industry neutralization is strict: it needs several classified names per group, so leave it off for small or ETF-heavy baskets.</span>
+          </div>
           <div class="row wrap">
             <button id="bt-signal-run" class="ghost">Test the full signal library</button>
             <button id="bt-signal-archive" class="ghost">Archive today's estimates + options</button>

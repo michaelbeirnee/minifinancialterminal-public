@@ -9,6 +9,11 @@ The research stack now has two libraries:
 
 Both feed the same out-of-sample evaluator. A richer data source does not get easier validation gates.
 
+The evaluator also has a second-stage research-control layer. Once many ideas
+are tested, a standalone IC/t-stat is no longer sufficient evidence. A signal
+now has to survive group-neutral diagnostics, multiple-testing control, and a
+redundancy cluster before it appears in `recommended_blend`.
+
 ## Point-in-time rule
 
 The central rule is **do not backfill information the platform did not know yet**.
@@ -150,6 +155,106 @@ Default validation gates at the 5-day horizon are:
 
 Signals are tagged `validated`, `watch`, or `reject`. `recommended_blend` is research output only. It must not be replayed backwards through the same history as if its full-sample weights had been known at the time.
 
+## Research controls after the raw OOS gates
+
+### 1. Sector / industry neutral evidence
+
+When `neutralize_by` is `sector` or `industry`, the engine ranks the signal and
+forward returns *inside each group* before computing the daily IC. Long-short
+spreads are also formed inside each group and then averaged across groups.
+
+The rule is deliberately conservative:
+
+`raw OOS gates pass AND group-neutral OOS gates pass`
+
+The group test never replaces a failed raw test. This matters because the
+current Yahoo company profile contains today's sector/industry classification,
+not a complete historical GICS classification timeline. The API reports this
+as `current_snapshot_conservative_filter`. Present-day classification metadata
+can therefore reject an apparent sector bet, but it cannot promote an idea
+that failed the point-in-time raw test.
+
+Per signal the response includes:
+
+- `raw_validated`,
+- `group_neutral_validated`,
+- `group_neutral_primary`,
+- `group_neutral_decay`,
+- `group_neutral_folds`.
+
+Top-level `classification_status` describes coverage and explicitly says
+whether the classification itself is point in time.
+
+### 2. False-discovery-rate control
+
+Testing 20-100 signals guarantees that some apparently good t-stats happen by
+chance. The engine computes a one-sided p-value for positive OOS IC, then runs
+the Benjamini-Hochberg procedure across every tested signal.
+
+At a forward horizon of `h` days, daily ICs overlap their neighbours for `h-1`
+bars and are therefore strongly autocorrelated — a t-test over the full daily
+series counts the same information many times and overstates significance
+severely (on pure noise, roughly 3x too many signals clear p < 0.05 at the
+5-day horizon). The p-value feeding the FDR step is therefore computed on
+every `h`-th IC observation only, where a plain t-test is honest; the reported
+`ic_t_stat` still describes the full series, and `ic_p_value_observations`
+shows how many non-overlapping observations backed the p-value.
+
+The default is:
+
+- `fdr_alpha = 0.10`.
+
+If group-neutral testing is enabled, the worse of the raw and group-neutral
+p-values is used. A signal must have `q_value <= fdr_alpha` to survive.
+
+Each signal includes:
+
+```json
+{
+  "fdr": {
+    "method": "benjamini_hochberg",
+    "alpha": 0.1,
+    "p_value": 0.012,
+    "q_value": 0.071,
+    "passed": true
+  }
+}
+```
+
+This controls the expected share of false discoveries among the signals that
+survive the multiple-testing step; it does not prove that any individual
+signal is economically real.
+
+### 3. Correlation-aware redundancy clusters
+
+The engine flattens each cross-sectional signal score over date x symbol,
+centers each date, and measures pairwise signal correlation. Signals connected
+at or above the absolute-correlation threshold are put into the same cluster.
+
+Default:
+
+- `redundancy_threshold = 0.80`.
+
+Only the strongest evidence-qualified member of a cluster can enter the
+recommended blend. A duplicate remains visible in the report with an exclusion
+reason such as `redundant_with:residual_momentum`.
+
+This prevents five variations of the same momentum feature from being counted
+as five independent sources of alpha.
+
+### Final survival rule
+
+A signal is `validated` only when all applicable conditions hold:
+
+1. raw OOS IC / t-stat / fold consistency / coverage gates pass,
+2. the sector/industry-neutral version also passes when enabled,
+3. Benjamini-Hochberg q-value passes the requested FDR cutoff,
+4. the signal is the selected representative of its correlation cluster.
+
+The API exposes the exact failures in `exclusion_reasons`, so a `watch` signal
+can be distinguished from a statistically weak signal, a sector-contaminated
+signal, and a duplicate of a stronger predictor.
+
 ## Existing adaptive price strategy
 
 `stat_arb_research` remains the live-safe adaptive price strategy. It uses only already-realized trailing IC and delays an `h`-day label by `h` bars before that label can affect signal weights.
@@ -165,6 +270,21 @@ The multi-source layer deliberately keeps data acquisition/research separate fro
 - `POST /api/backtest/signals/archive` — capture today's estimates/options for future research.
 - `POST /api/backtest/signals/adaptive_snapshot` — current price-only adaptive target.
 - `POST /api/backtest/run` with `strategy="stat_arb_research"` — current adaptive price-only simulation.
+
+`SignalResearchRequest` also accepts:
+
+```json
+{
+  "neutralize_by": "sector",
+  "min_group_names": 2,
+  "fdr_alpha": 0.10,
+  "redundancy_threshold": 0.80,
+  "redundancy_min_overlap": 100
+}
+```
+
+Set `neutralize_by` to `none` to disable only the group-neutral hurdle. FDR and
+redundancy controls still run.
 
 ## Useful parameters
 
@@ -189,11 +309,13 @@ Each source family can also be disabled with `include_volume`, `include_fundamen
 
 ## Next research upgrades
 
-The next additions should improve research quality rather than simply multiply feature count:
+The next additions should keep improving research quality rather than simply
+multiply feature count:
 
-1. sector/industry neutralization before IC measurement,
-2. correlation-aware signal clustering so near-duplicate predictors do not all pass independently,
-3. multiple-testing controls and false-discovery-rate reporting,
-4. capacity/liquidity filters tied to ADV and expected turnover,
-5. archived daily estimates/options jobs so those families collect data automatically,
-6. a walk-forward multi-source portfolio whose blend is fit only on each prior training window.
+1. capacity/liquidity filters tied to ADV, spread proxies and expected turnover,
+2. archived daily estimates/options jobs so those families collect data automatically,
+3. a walk-forward multi-source portfolio whose blend is fit only on each prior training window,
+4. transaction-cost-aware signal scoring so high-IC/high-turnover predictors are judged on net alpha,
+5. HAC (Newey-West style) significance estimates, which would recover the
+   efficiency the current non-overlapping subsampling gives up while staying
+   honest about overlapping forward-return horizons.

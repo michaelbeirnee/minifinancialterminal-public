@@ -148,6 +148,62 @@ MULTISOURCE_SPEC_BY_NAME = {
 }
 
 
+def current_symbol_classifications(
+    symbols: Iterable[str],
+    level: str = "sector",
+) -> tuple[dict[str, str], dict[str, Any]]:
+    """Best-effort current sector/industry labels for research diagnostics.
+
+    Yahoo exposes the present company classification rather than a historical
+    GICS timeline.  The research engine therefore treats this mapping as a
+    *conservative filter only*: raw OOS evidence must already pass before the
+    within-group result can matter.  A current classification can demote a
+    signal that is really sector beta, but it cannot promote a failed signal.
+    """
+
+    level = str(level).strip().lower()
+    if level not in {"sector", "industry"}:
+        raise ValueError("classification level must be sector or industry")
+    names = list(dict.fromkeys(str(s).strip().upper() for s in symbols if str(s).strip()))
+    groups: dict[str, str] = {}
+    warnings: list[str] = []
+
+    def fetch(symbol: str) -> tuple[str, str | None, str | None]:
+        try:
+            info = yahoo.info(symbol)
+            value = str(info.get(level) or "").strip() or None
+            return symbol, value, None
+        except Exception as exc:  # noqa: BLE001 - one missing profile must not kill research
+            return symbol, None, str(exc)
+
+    workers = min(8, max(1, len(names)))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = [pool.submit(fetch, symbol) for symbol in names]
+        for future in as_completed(futures):
+            symbol, value, error = future.result()
+            if value:
+                groups[symbol] = value
+            elif error:
+                warnings.append(f"{symbol}: {error}")
+
+    coverage = (len(groups) / len(names)) if names else 0.0
+    distinct = len(set(groups.values()))
+    return groups, {
+        "requested_level": level,
+        "mode": "current_snapshot_conservative_filter",
+        "symbols": len(names),
+        "classified_symbols": len(groups),
+        "coverage": round(float(coverage), 6),
+        "distinct_groups": distinct,
+        "warnings": warnings[:12],
+        "point_in_time": False,
+        "note": (
+            "Yahoo provides current sector/industry labels, not a historical classification timeline. "
+            "The engine therefore requires raw OOS evidence to pass as well; this mapping can only filter, never promote."
+        ),
+    }
+
+
 @dataclass(frozen=True)
 class FeaturePanels:
     """Raw point-in-time panels aligned to the price calendar."""

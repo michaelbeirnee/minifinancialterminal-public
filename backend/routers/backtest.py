@@ -24,6 +24,7 @@ from ..backtest.multisource_research import (
     archive_current_snapshots,
     build_feature_panels,
     build_multisource_signal_library,
+    current_symbol_classifications,
     multisource_signal_catalog,
 )
 from ..data.provider import get_history, get_price_panel
@@ -181,6 +182,17 @@ def multisource_signal_research(
         prices = get_price_panel(req.symbols, req.start, req.end)
         if prices.empty:
             raise ValueError("No price data for requested symbols/period")
+        groups = None
+        classification_status = {
+            "requested_level": req.neutralize_by,
+            "mode": "disabled",
+            "coverage": 0.0,
+            "point_in_time": None,
+        }
+        if req.neutralize_by != "none":
+            groups, classification_status = current_symbol_classifications(
+                req.symbols, req.neutralize_by
+            )
         features = build_feature_panels(prices, params=req.params, db=db)
         built = build_multisource_signal_library(
             prices,
@@ -208,6 +220,12 @@ def multisource_signal_research(
             min_oos_observations=req.min_oos_observations,
             library=built.library,
             signal_specs=built.specs,
+            groups=groups,
+            group_label=None if req.neutralize_by == "none" else req.neutralize_by,
+            min_group_names=req.min_group_names,
+            fdr_alpha=req.fdr_alpha,
+            redundancy_threshold=req.redundancy_threshold,
+            redundancy_min_overlap=req.redundancy_min_overlap,
         )
         requested = (
             list(dict.fromkeys(req.signals))
@@ -216,6 +234,7 @@ def multisource_signal_research(
         )
         available = set(built.library.components)
         report["source_status"] = built.source_status
+        report["classification_status"] = classification_status
         report["available_signal_count"] = len(available)
         report["catalog_signal_count"] = len(MULTISOURCE_SPEC_BY_NAME)
         report["unavailable_signals"] = [name for name in requested if name not in available]
@@ -233,7 +252,18 @@ def signal_research(
         prices = get_price_panel(req.symbols, req.start, req.end)
         if prices.empty:
             raise ValueError("No price data for requested symbols/period")
-        return research_signal_suite(
+        groups = None
+        classification_status = {
+            "requested_level": req.neutralize_by,
+            "mode": "disabled",
+            "coverage": 0.0,
+            "point_in_time": None,
+        }
+        if req.neutralize_by != "none":
+            groups, classification_status = current_symbol_classifications(
+                req.symbols, req.neutralize_by
+            )
+        report = research_signal_suite(
             prices,
             params=req.params,
             signals=req.signals,
@@ -248,7 +278,15 @@ def signal_research(
             min_positive_folds=req.min_positive_folds,
             min_coverage=req.min_coverage,
             min_oos_observations=req.min_oos_observations,
+            groups=groups,
+            group_label=None if req.neutralize_by == "none" else req.neutralize_by,
+            min_group_names=req.min_group_names,
+            fdr_alpha=req.fdr_alpha,
+            redundancy_threshold=req.redundancy_threshold,
+            redundancy_min_overlap=req.redundancy_min_overlap,
         )
+        report["classification_status"] = classification_status
+        return report
     except (ValueError, KeyError) as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 

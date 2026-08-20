@@ -7470,9 +7470,17 @@ $("bt-signal-run").onclick = async () => {
         test_days: shortRun ? 42 : 63,
         purge_days: 5,
         min_names: Math.min(5, btPicked.size),
+        neutralize_by: $("bt-signal-neutral").value,
+        fdr_alpha: Math.max(0.001, Math.min(1, parseFloat($("bt-signal-fdr").value) || 0.10)),
+        redundancy_threshold: Math.max(0, Math.min(1, parseFloat($("bt-signal-corr").value) || 0.80)),
       },
     });
     const passed = d.signals.filter((x) => x.validated).length;
+    const controls = d.research_controls || {};
+    const neutral = controls.group_neutralization || {};
+    const fdr = controls.false_discovery || {};
+    const redundancy = controls.redundancy || {};
+    const cls = d.classification_status || {};
     const sourceRows = Object.entries(d.source_status || {}).map(([source, meta]) => {
       const ok = meta && meta.available;
       const detail = meta && meta.reason ? meta.reason
@@ -7486,17 +7494,27 @@ $("bt-signal-run").onclick = async () => {
       : `<span class="dim">No signal cleared every gate in this sample.</span>`;
     const rows = d.signals.map((x) => {
       const p = x.primary || {};
+      const np = x.group_neutral_primary || {};
       const stateCls = x.status === "validated" ? "pos" : x.status === "reject" ? "neg" : "";
       const decay = Object.entries(x.decay || {}).map(([h, v]) =>
         `${h}d ${v.mean_ic == null ? "—" : Number(v.mean_ic).toFixed(3)}`).join(" · ");
+      const exclusions = (x.exclusion_reasons || []).length
+        ? `<div class="dim">${(x.exclusion_reasons || []).map(escapeHtml).join(" · ")}</div>` : "";
+      const q = x.fdr && x.fdr.q_value != null ? Number(x.fdr.q_value).toFixed(3) : "—";
+      const cluster = x.redundancy && x.redundancy.cluster_id != null
+        ? `#${x.redundancy.cluster_id}${x.redundancy.representative && x.redundancy.representative !== x.name
+          ? ` → ${escapeHtml(x.redundancy.representative)}` : ""}` : "—";
       return `<tr>
-        <td><b>${escapeHtml(x.name)}</b><div class="dim">${escapeHtml(x.family)}</div></td>
+        <td><b>${escapeHtml(x.name)}</b><div class="dim">${escapeHtml(x.family)}</div>${exclusions}</td>
         <td class="${stateCls}">${escapeHtml(x.status)}</td>
         <td>${p.mean_ic == null ? "—" : Number(p.mean_ic).toFixed(3)}</td>
+        <td>${np.mean_ic == null ? "—" : Number(np.mean_ic).toFixed(3)}</td>
         <td>${p.ic_t_stat == null ? "—" : Number(p.ic_t_stat).toFixed(2)}</td>
+        <td>${q}</td>
         <td>${p.ic_hit_rate == null ? "—" : (Number(p.ic_hit_rate) * 100).toFixed(0) + "%"}</td>
         <td>${p.positive_fold_rate == null ? "—" : (Number(p.positive_fold_rate) * 100).toFixed(0) + "%"}</td>
         <td>${p.mean_spread == null ? "—" : (Number(p.mean_spread) * 100).toFixed(3) + "%"}</td>
+        <td class="dim">${cluster}</td>
         <td>${(Number(x.score_turnover) * 100).toFixed(1)}%</td>
         <td>${(Number(x.coverage) * 100).toFixed(0)}%</td>
         <td class="dim">${decay}</td>
@@ -7505,12 +7523,18 @@ $("bt-signal-run").onclick = async () => {
     const unavailable = (d.unavailable_signals || []).length
       ? `<div class="dim" style="margin:6px 0 10px">Not testable in this window: ${(d.unavailable_signals || []).map(escapeHtml).join(", ")}</div>`
       : "";
-    out.innerHTML = `<div class="headline">${passed} of ${d.signals.length} available signals cleared the current evidence gates.</div>
-      <div class="dim" style="margin:6px 0 10px">Primary horizon: ${d.primary_horizon} days · ${d.fold_config.folds} rolling test blocks · ${d.bars} daily bars · ${d.available_signal_count || d.signals.length}/${d.catalog_signal_count || d.signals.length} catalog signals had point-in-time data.</div>
+    const controlLine = `${neutral.enabled ? `${escapeHtml(neutral.label || "group")}-neutral required · ${(Number(neutral.classification_coverage || 0) * 100).toFixed(0)}% classified` : "group-neutral off"}` +
+      ` · BH FDR ${(Number(fdr.alpha || 0) * 100).toFixed(0)}% (${fdr.passed || 0}/${fdr.hypotheses || 0} hypotheses)` +
+      ` · duplicate |corr| ≥ ${Number(redundancy.absolute_correlation_threshold || 0).toFixed(2)}`;
+    const classificationNote = cls.mode && cls.mode !== "disabled"
+      ? `<div class="dim" style="margin:4px 0 10px">Classification: ${escapeHtml(cls.mode)}. ${escapeHtml(cls.note || "")}</div>` : "";
+    out.innerHTML = `<div class="headline">${passed} of ${d.signals.length} available signals survived every research control.</div>
+      <div class="dim" style="margin:6px 0 4px">Primary horizon: ${d.primary_horizon} days · ${d.fold_config.folds} rolling test blocks · ${d.bars} daily bars · ${d.available_signal_count || d.signals.length}/${d.catalog_signal_count || d.signals.length} catalog signals had point-in-time data.</div>
+      <div class="dim" style="margin-bottom:8px">${controlLine}</div>${classificationNote}
       <div class="row wrap" style="margin-bottom:10px">${sourceRows}</div>${unavailable}
       <div class="row wrap" style="margin-bottom:12px"><span class="dim">Suggested blend</span>${blend}</div>
-      <div class="tablewrap"><table><tr><th>Signal</th><th>Status</th><th>OOS IC</th><th>IC t</th><th>IC hit</th><th>Positive folds</th><th>Long-short spread</th><th>Rank turnover</th><th>Coverage</th><th>IC decay</th></tr>${rows}</table></div>`;
-    setStatus(`SIGNAL RESEARCH DONE · ${passed}/${d.signals.length} VALIDATED`);
+      <div class="tablewrap"><table><tr><th>Signal</th><th>Status</th><th>Raw IC</th><th>Neutral IC</th><th>IC t</th><th>FDR q</th><th>IC hit</th><th>Positive folds</th><th>Long-short spread</th><th>Cluster</th><th>Rank turnover</th><th>Coverage</th><th>IC decay</th></tr>${rows}</table></div>`;
+    setStatus(`SIGNAL RESEARCH DONE · ${passed}/${d.signals.length} SURVIVED`);
   } catch (e) {
     out.innerHTML = `<div class="empty">${escapeHtml(e.message)}</div>`;
     setStatus("ERR: " + e.message);

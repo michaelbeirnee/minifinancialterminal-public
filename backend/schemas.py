@@ -421,6 +421,13 @@ class SignalResearchRequest(BaseModel):
     min_positive_folds: float = Field(default=0.5, ge=0.0, le=1.0)
     min_coverage: float = Field(default=0.5, ge=0.0, le=1.0)
     min_oos_observations: int = Field(default=30, ge=5, le=5000)
+    # Keep programmatic callers backwards-compatible; the research UI opts in
+    # to sector neutralization explicitly.
+    neutralize_by: str = Field(default="none", pattern="^(none|sector|industry)$")
+    min_group_names: int = Field(default=2, ge=2, le=100)
+    fdr_alpha: float = Field(default=0.10, gt=0.0, le=1.0)
+    redundancy_threshold: float = Field(default=0.80, ge=0.0, le=1.0)
+    redundancy_min_overlap: int = Field(default=100, ge=10, le=1000000)
 
 
 class ResearchArchiveRequest(BaseModel):

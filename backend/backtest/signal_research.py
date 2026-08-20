@@ -23,11 +23,21 @@ Research discipline
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
 import numpy as np
 import pandas as pd
 
+from .research_controls import (
+    benjamini_hochberg,
+    choose_cluster_representatives,
+    correlation_clusters,
+    group_coverage,
+    group_neutral_ic,
+    group_neutral_spread,
+    one_sided_positive_p_value,
+    signal_correlation_matrix,
+)
 from .stat_arb import (
     _neutral_weights,
     _positive_int,
@@ -335,13 +345,25 @@ def _fold_windows(
     return windows
 
 
-def _metric_block(ic: pd.Series, spread: pd.Series) -> dict[str, Any]:
+def _metric_block(ic: pd.Series, spread: pd.Series, horizon: int = 1) -> dict[str, Any]:
     clean_ic = ic.dropna()
     clean_spread = spread.reindex(clean_ic.index).dropna()
+    t_stat = _t_stat(clean_ic)
+    # An h-day forward return overlaps its neighbours for h-1 bars, so daily
+    # ICs at horizon h are strongly autocorrelated and the full-series t-stat
+    # overstates significance.  The p-value that feeds false-discovery control
+    # is therefore computed on every h-th IC observation only — a plain t-test
+    # is honest on that non-overlapping subsample.  The descriptive t-stat
+    # above keeps the full series.
+    step = max(1, int(horizon))
+    non_overlapping = clean_ic.iloc[::step]
+    p_value = one_sided_positive_p_value(_t_stat(non_overlapping), len(non_overlapping))
     return {
         "observations": int(len(clean_ic)),
         "mean_ic": None if clean_ic.empty else round(float(clean_ic.mean()), 6),
-        "ic_t_stat": None if (t := _t_stat(clean_ic)) is None else round(t, 4),
+        "ic_t_stat": None if t_stat is None else round(t_stat, 4),
+        "ic_p_value": None if p_value is None else round(float(p_value), 8),
+        "ic_p_value_observations": int(len(non_overlapping)),
         "ic_hit_rate": None
         if clean_ic.empty
         else round(float((clean_ic > 0).mean()), 6),
@@ -368,8 +390,25 @@ def research_signal_suite(
     min_oos_observations: int = 30,
     library: SignalLibraryOutput | None = None,
     signal_specs: dict[str, SignalSpec] | None = None,
+    groups: Mapping[str, Any] | pd.Series | None = None,
+    group_label: str | None = None,
+    min_group_names: int = 2,
+    fdr_alpha: float = 0.10,
+    redundancy_threshold: float = 0.80,
+    redundancy_min_overlap: int = 100,
 ) -> dict[str, Any]:
-    """Evaluate every requested signal independently, with rolling OOS blocks."""
+    """Evaluate every requested signal independently, with rolling OOS blocks.
+
+    Once a library contains many related ideas, raw IC significance is not
+    enough.  The optional research controls are deliberately one-way hurdles:
+
+    * group-neutral evidence must pass *in addition to* the raw evidence,
+    * Benjamini-Hochberg controls the false-discovery rate across all signals,
+    * highly correlated survivors compete for one representative per cluster.
+
+    None of these controls can promote a signal that failed the original OOS
+    gates.
+    """
 
     prices = _validate_prices(prices)
     horizons = tuple(dict.fromkeys(int(h) for h in horizons))
@@ -388,6 +427,14 @@ def research_signal_suite(
             "Not enough history for one signal-research fold: need at least "
             f"{train_days + purge_days + test_days} bars, got {len(prices)}"
         )
+    min_group_names = max(2, int(min_group_names))
+    fdr_alpha = float(fdr_alpha)
+    redundancy_threshold = float(redundancy_threshold)
+    redundancy_min_overlap = max(2, int(redundancy_min_overlap))
+    if not 0.0 < fdr_alpha <= 1.0:
+        raise ValueError("fdr_alpha must be > 0 and <= 1")
+    if not 0.0 <= redundancy_threshold <= 1.0:
+        raise ValueError("redundancy_threshold must be between 0 and 1")
 
     if library is None:
         library = build_signal_library(prices, params=params, signals=signals)
@@ -413,26 +460,53 @@ def research_signal_suite(
     windows_by_h = {
         h: _fold_windows(prices.index, train_days, test_days, purge_days, h) for h in horizons
     }
+    classification_coverage = group_coverage(prices.columns, groups)
+    # A supplied-but-empty mapping means neutralization was requested but the
+    # classifier failed.  Keep the hurdle enabled so research fails closed
+    # instead of silently reverting to raw IC.
+    group_enabled = groups is not None
+    group_name = str(group_label or "group") if group_enabled else None
 
     reports: list[dict[str, Any]] = []
     for name, component in library.components.items():
         by_horizon: dict[str, Any] = {}
+        neutral_by_horizon: dict[str, Any] = {}
         primary_fold_rows: list[dict[str, Any]] = []
+        primary_neutral_fold_rows: list[dict[str, Any]] = []
         for horizon in horizons:
             future = future_by_h[horizon]
             ic = cross_sectional_ic(component, future, min_names=min_names)
             spread = cross_sectional_spread(
                 component, future, min_names=max(3, min_names), quantile=0.2
             )
+            neutral_ic = None
+            neutral_spread = None
+            if group_enabled:
+                neutral_ic = group_neutral_ic(
+                    component,
+                    future,
+                    groups,
+                    min_names=min_names,
+                    min_group_names=min_group_names,
+                )
+                neutral_spread = group_neutral_spread(
+                    component,
+                    future,
+                    groups,
+                    min_names=max(3, min_names),
+                    min_group_names=min_group_names,
+                    quantile=0.2,
+                )
             windows = windows_by_h[horizon]
             oos_mask = pd.Series(False, index=prices.index)
             fold_rows = []
+            neutral_fold_rows = []
             for fold_no, window in enumerate(windows, start=1):
                 eval_index = window["eval_index"]
                 oos_mask.loc[eval_index] = True
                 fold_ic = ic.reindex(eval_index)
                 fold_spread = spread.reindex(eval_index)
-                block = _metric_block(fold_ic, fold_spread)
+                block = _metric_block(fold_ic, fold_spread, horizon=horizon)
                 block.update(
                     {
                         "fold": fold_no,
@@ -441,10 +515,24 @@ def research_signal_suite(
                     }
                 )
                 fold_rows.append(block)
+                if group_enabled and neutral_ic is not None and neutral_spread is not None:
+                    neutral_block = _metric_block(
+                        neutral_ic.reindex(eval_index),
+                        neutral_spread.reindex(eval_index),
+                        horizon=horizon,
+                    )
+                    neutral_block.update(
+                        {
+                            "fold": fold_no,
+                            "test_start": str(prices.index[window["test_start"]].date()),
+                            "test_end": str(prices.index[window["test_end"] - 1].date()),
+                        }
+                    )
+                    neutral_fold_rows.append(neutral_block)
 
             oos_ic = ic.reindex(prices.index).where(oos_mask)
             oos_spread = spread.reindex(prices.index).where(oos_mask)
-            metrics = _metric_block(oos_ic, oos_spread)
+            metrics = _metric_block(oos_ic, oos_spread, horizon=horizon)
             positive_folds = [
                 row["mean_ic"] > 0
                 for row in fold_rows
@@ -455,8 +543,27 @@ def research_signal_suite(
             )
             metrics["folds"] = len(fold_rows)
             by_horizon[str(horizon)] = metrics
+            if group_enabled and neutral_ic is not None and neutral_spread is not None:
+                neutral_oos_ic = neutral_ic.reindex(prices.index).where(oos_mask)
+                neutral_oos_spread = neutral_spread.reindex(prices.index).where(oos_mask)
+                neutral_metrics = _metric_block(
+                    neutral_oos_ic, neutral_oos_spread, horizon=horizon
+                )
+                neutral_positive_folds = [
+                    row["mean_ic"] > 0
+                    for row in neutral_fold_rows
+                    if row["mean_ic"] is not None and row["observations"] > 0
+                ]
+                neutral_metrics["positive_fold_rate"] = (
+                    None
+                    if not neutral_positive_folds
+                    else round(float(np.mean(neutral_positive_folds)), 6)
+                )
+                neutral_metrics["folds"] = len(neutral_fold_rows)
+                neutral_by_horizon[str(horizon)] = neutral_metrics
             if horizon == primary_horizon:
                 primary_fold_rows = fold_rows
+                primary_neutral_fold_rows = neutral_fold_rows
 
         primary = by_horizon[str(primary_horizon)]
         coverage = _coverage(component, future_by_h[primary_horizon])
@@ -465,7 +572,7 @@ def research_signal_suite(
         t_stat = primary["ic_t_stat"]
         positive_fold_rate = primary["positive_fold_rate"]
         enough_evidence = primary["observations"] >= int(min_oos_observations)
-        validated = bool(
+        raw_validated = bool(
             enough_evidence
             and mean_ic is not None
             and mean_ic >= float(min_oos_ic)
@@ -475,16 +582,39 @@ def research_signal_suite(
             and positive_fold_rate >= float(min_positive_folds)
             and coverage >= float(min_coverage)
         )
-        if validated:
-            status = "validated"
-        elif enough_evidence and mean_ic is not None and mean_ic > 0:
-            status = "watch"
-        else:
-            status = "reject"
 
-        ic_strength = max(float(mean_ic or 0.0), 0.0)
-        evidence = max(min(float(t_stat or 0.0), 3.0), 0.0) / 3.0
-        stability = max(float(positive_fold_rate or 0.0), 0.0)
+        neutral_primary = neutral_by_horizon.get(str(primary_horizon)) if group_enabled else None
+        neutral_validated = True
+        if group_enabled:
+            n_mean = None if neutral_primary is None else neutral_primary["mean_ic"]
+            n_t = None if neutral_primary is None else neutral_primary["ic_t_stat"]
+            n_fold = None if neutral_primary is None else neutral_primary["positive_fold_rate"]
+            n_obs = 0 if neutral_primary is None else neutral_primary["observations"]
+            neutral_validated = bool(
+                classification_coverage >= float(min_coverage)
+                and n_obs >= int(min_oos_observations)
+                and n_mean is not None
+                and n_mean >= float(min_oos_ic)
+                and n_t is not None
+                and n_t >= float(min_oos_t_stat)
+                and n_fold is not None
+                and n_fold >= float(min_positive_folds)
+            )
+        base_validated = bool(raw_validated and neutral_validated)
+
+        effective_mean = float(mean_ic or 0.0)
+        effective_t = float(t_stat or 0.0)
+        effective_stability = float(positive_fold_rate or 0.0)
+        if group_enabled:
+            effective_mean = min(effective_mean, float((neutral_primary or {}).get("mean_ic") or 0.0))
+            effective_t = min(effective_t, float((neutral_primary or {}).get("ic_t_stat") or 0.0))
+            effective_stability = min(
+                effective_stability,
+                float((neutral_primary or {}).get("positive_fold_rate") or 0.0),
+            )
+        ic_strength = max(effective_mean, 0.0)
+        evidence = max(min(effective_t, 3.0), 0.0) / 3.0
+        stability = max(effective_stability, 0.0)
         turnover_penalty = 1.0 / (1.0 + 2.0 * max(turnover, 0.0))
         research_score = ic_strength * (0.5 + 0.5 * evidence) * (
             0.5 + 0.5 * stability
@@ -497,8 +627,11 @@ def research_signal_suite(
                 "family": spec.family,
                 "source": spec.source,
                 "description": spec.description,
-                "status": status,
-                "validated": validated,
+                "status": "pending_controls",
+                "validated": False,
+                "base_validated": base_validated,
+                "raw_validated": raw_validated,
+                "group_neutral_validated": neutral_validated if group_enabled else None,
                 "research_score": round(float(research_score), 8),
                 "coverage": round(float(coverage), 6),
                 "score_turnover": round(float(turnover), 6),
@@ -506,8 +639,98 @@ def research_signal_suite(
                 "primary": primary,
                 "decay": by_horizon,
                 "folds": primary_fold_rows,
+                "group_neutral_primary": neutral_primary,
+                "group_neutral_decay": neutral_by_horizon if group_enabled else None,
+                "group_neutral_folds": primary_neutral_fold_rows if group_enabled else None,
+                "_effective_p_value": max(
+                    float(primary.get("ic_p_value") if primary.get("ic_p_value") is not None else 1.0),
+                    float(
+                        (neutral_primary or {}).get("ic_p_value")
+                        if group_enabled and (neutral_primary or {}).get("ic_p_value") is not None
+                        else (1.0 if group_enabled else 0.0)
+                    ),
+                ),
+                "_enough_evidence": enough_evidence,
             }
         )
+
+    # Multiple-testing control is applied across every tested hypothesis, not
+    # only the attractive ones.  Group-neutral p-values are combined
+    # conservatively by taking the worse p-value, so group metadata can never
+    # improve a signal's significance.
+    p_values = {row["name"]: row["_effective_p_value"] for row in reports}
+    q_values = benjamini_hochberg(p_values)
+
+    correlation = signal_correlation_matrix(
+        library.components, min_overlap=redundancy_min_overlap
+    )
+    clusters = correlation_clusters(correlation, threshold=redundancy_threshold)
+    fdr_eligible = {
+        row["name"]: bool(
+            row["base_validated"]
+            and q_values.get(row["name"]) is not None
+            and float(q_values[row["name"]]) <= fdr_alpha
+        )
+        for row in reports
+    }
+    representatives = choose_cluster_representatives(
+        clusters,
+        score_by_signal={row["name"]: row["research_score"] for row in reports},
+        q_by_signal=q_values,
+        eligible_by_signal=fdr_eligible,
+    )
+    cluster_id: dict[str, int] = {}
+    for cid, members in enumerate(clusters, start=1):
+        for name in members:
+            cluster_id[name] = cid
+
+    for row in reports:
+        name = row["name"]
+        q_value = q_values.get(name)
+        fdr_pass = bool(q_value is not None and float(q_value) <= fdr_alpha)
+        representative = representatives.get(name, name)
+        redundancy_pass = bool(name == representative or not fdr_eligible.get(name, False))
+        final_validated = bool(row["base_validated"] and fdr_pass and redundancy_pass)
+        reasons: list[str] = []
+        if not row["raw_validated"]:
+            reasons.append("raw_oos_gate")
+        if group_enabled and not row["group_neutral_validated"]:
+            reasons.append(f"{group_name}_neutral_gate")
+        if row["base_validated"] and not fdr_pass:
+            reasons.append("false_discovery_rate")
+        if row["base_validated"] and fdr_pass and name != representative:
+            reasons.append(f"redundant_with:{representative}")
+
+        row["validated"] = final_validated
+        row["status"] = (
+            "validated"
+            if final_validated
+            else "watch"
+            if row["_enough_evidence"] and (row["primary"].get("mean_ic") or 0.0) > 0
+            else "reject"
+        )
+        row["exclusion_reasons"] = reasons
+        row["fdr"] = {
+            "method": "benjamini_hochberg",
+            "alpha": round(fdr_alpha, 6),
+            "p_value": round(float(row["_effective_p_value"]), 8),
+            "q_value": None if q_value is None else round(float(q_value), 8),
+            "passed": fdr_pass,
+        }
+        corr_to_rep = None
+        if representative in correlation.index and name in correlation.index:
+            value = correlation.loc[name, representative]
+            corr_to_rep = None if pd.isna(value) else float(abs(value))
+        row["redundancy"] = {
+            "cluster_id": cluster_id.get(name),
+            "representative": representative,
+            "absolute_correlation_to_representative": None
+            if corr_to_rep is None
+            else round(corr_to_rep, 6),
+            "passed": redundancy_pass,
+        }
+        row.pop("_effective_p_value", None)
+        row.pop("_enough_evidence", None)
 
     reports.sort(key=lambda row: row["research_score"], reverse=True)
     valid_rows = [row for row in reports if row["validated"] and row["research_score"] > 0]
@@ -519,6 +742,18 @@ def research_signal_suite(
         }
         for row in valid_rows
     ] if total_score > 0 else []
+
+    cluster_rows = []
+    for cid, members in enumerate(clusters, start=1):
+        rep = representatives.get(members[0], members[0]) if members else None
+        cluster_rows.append(
+            {
+                "cluster_id": cid,
+                "representative": rep,
+                "members": members,
+                "size": len(members),
+            }
+        )
 
     return {
         "as_of": str(prices.index[-1].date()),
@@ -538,6 +773,29 @@ def research_signal_suite(
             "min_positive_folds": min_positive_folds,
             "min_coverage": min_coverage,
             "min_oos_observations": min_oos_observations,
+        },
+        "research_controls": {
+            "group_neutralization": {
+                "enabled": group_enabled,
+                "label": group_name,
+                "classification_coverage": round(classification_coverage, 6),
+                "min_group_names": min_group_names,
+                "rule": "raw_and_group_neutral_must_both_pass" if group_enabled else "raw_only",
+            },
+            "false_discovery": {
+                "method": "benjamini_hochberg",
+                "alpha": round(fdr_alpha, 6),
+                "hypotheses": len([v for v in q_values.values() if v is not None]),
+                "passed": sum(
+                    1 for value in q_values.values() if value is not None and float(value) <= fdr_alpha
+                ),
+            },
+            "redundancy": {
+                "absolute_correlation_threshold": round(redundancy_threshold, 6),
+                "min_overlap": redundancy_min_overlap,
+                "clusters": cluster_rows,
+                "surviving_representatives": [row["name"] for row in valid_rows],
+            },
         },
         "signals": reports,
         "recommended_blend": blend,
