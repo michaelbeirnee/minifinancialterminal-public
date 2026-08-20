@@ -313,6 +313,32 @@ class CalendarEvent(Base):
     user: Mapped[User] = relationship(back_populates="calendar_events")
 
 
+class ResearchFeatureSnapshot(Base):
+    """Point-in-time research features that cannot be honestly backfilled.
+
+    Analyst-estimate tables and option chains are captured as dated snapshots.
+    Research code may forward-fill them only from ``as_of_date`` onward, never
+    into history before the platform observed them.
+    """
+
+    __tablename__ = "research_feature_snapshots"
+    __table_args__ = (
+        UniqueConstraint(
+            "as_of_date", "symbol", "family",
+            name="uq_research_feature_snapshots_date_symbol_family",
+        ),
+        Index("ix_research_feature_snapshots_family_date", "family", "as_of_date"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    as_of_date: Mapped[str] = mapped_column(String(10), index=True, nullable=False)
+    symbol: Mapped[str] = mapped_column(String(32), index=True, nullable=False)
+    family: Mapped[str] = mapped_column(String(32), index=True, nullable=False)
+    provider: Mapped[str] = mapped_column(String(32), default="yahoo", nullable=False)
+    features: Mapped[Any] = mapped_column(JSON, nullable=False)
+    captured_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, nullable=False)
+
+
 class BacktestRun(Base):
     """Persisted record of a backtest so users can review past runs / reports."""
 

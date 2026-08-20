@@ -19,6 +19,13 @@ from ..backtest.signal_research import (
     research_signal_suite,
     signal_catalog,
 )
+from ..backtest.multisource_research import (
+    MULTISOURCE_SPEC_BY_NAME,
+    archive_current_snapshots,
+    build_feature_panels,
+    build_multisource_signal_library,
+    multisource_signal_catalog,
+)
 from ..data.provider import get_history, get_price_panel
 from ..database import get_db
 from ..models import BacktestRun, User
@@ -27,6 +34,7 @@ from ..schemas import (
     BacktestRequest,
     BacktestSweepRequest,
     CostSensitivityRequest,
+    ResearchArchiveRequest,
     SignalResearchRequest,
     StatArbSnapshotRequest,
     WalkForwardRequest,
@@ -136,6 +144,84 @@ def stat_arb_signal(
 def signals_catalog(_: User = Depends(get_current_user)) -> dict:
     """Registered signal formulas and their research families/data sources."""
     return {"signals": signal_catalog()}
+
+
+@router.get("/signals/multisource_catalog")
+def multisource_signals_catalog(_: User = Depends(get_current_user)) -> dict:
+    """All price, volume, fundamental, event, archived and relationship signals."""
+    return {"signals": multisource_signal_catalog()}
+
+
+@router.post("/signals/archive")
+def archive_signal_inputs(
+    req: ResearchArchiveRequest,
+    _: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Capture today's estimates/options so future research remains point in time."""
+    try:
+        return archive_current_snapshots(
+            req.symbols,
+            db,
+            include_estimates=req.include_estimates,
+            include_options=req.include_options,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/signals/multisource_research")
+def multisource_signal_research(
+    req: SignalResearchRequest,
+    _: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Run the same OOS gates across every point-in-time data family available."""
+    try:
+        prices = get_price_panel(req.symbols, req.start, req.end)
+        if prices.empty:
+            raise ValueError("No price data for requested symbols/period")
+        features = build_feature_panels(prices, params=req.params, db=db)
+        built = build_multisource_signal_library(
+            prices,
+            params=req.params,
+            features=features,
+            db=db,
+            signals=req.signals,
+        )
+        if not built.library.components:
+            raise ValueError("No requested signals had point-in-time data in this period")
+        report = research_signal_suite(
+            prices,
+            params=req.params,
+            signals=None,
+            horizons=req.horizons,
+            primary_horizon=req.primary_horizon,
+            train_days=req.train_days,
+            test_days=req.test_days,
+            purge_days=req.purge_days,
+            min_names=req.min_names,
+            min_oos_ic=req.min_oos_ic,
+            min_oos_t_stat=req.min_oos_t_stat,
+            min_positive_folds=req.min_positive_folds,
+            min_coverage=req.min_coverage,
+            min_oos_observations=req.min_oos_observations,
+            library=built.library,
+            signal_specs=built.specs,
+        )
+        requested = (
+            list(dict.fromkeys(req.signals))
+            if req.signals is not None
+            else list(MULTISOURCE_SPEC_BY_NAME)
+        )
+        available = set(built.library.components)
+        report["source_status"] = built.source_status
+        report["available_signal_count"] = len(available)
+        report["catalog_signal_count"] = len(MULTISOURCE_SPEC_BY_NAME)
+        report["unavailable_signals"] = [name for name in requested if name not in available]
+        return report
+    except (ValueError, KeyError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @router.post("/signals/research")

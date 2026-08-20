@@ -219,6 +219,7 @@ docker exec -it 5milliondollars python -m cli.terminal
 | **Portfolio analytics** | Daily **time-weighted returns** (deposits neutralised) plus **money-weighted** XIRR; Sharpe/Sortino/drawdown from the same `risk_metrics` the `/quantitative` menu uses; VaR **in dollars** (historical, parametric, conditional); marginal risk contribution per holding; sector/industry/country tilt; and factor exposure regressed on the whole book rather than one ticker at a time. |
 | **Backtesting** | Two engines sharing one cost model: a fast **vectorized** backtester and an **event-driven** engine (explicit cash, positions, commission, slippage, execution latency, per-fill trade log). Both apply a one-bar execution lag to avoid look-ahead bias. Position-sizing overlays (vol targeting, trailing/fixed stop-losses) compose with any strategy. The `stat_arb` strategy blends residual reversal, residual momentum and idiosyncratic-volatility signals into a dollar/beta-neutral long-short target; see [docs/statistical-arbitrage.md](docs/statistical-arbitrage.md). |
 | **Backtest analysis** | Parameter **grid sweeps**, **walk-forward** evaluation (rolling train/purge/test folds, per-fold re-fitting, stitched out-of-sample equity), benchmark-relative **attribution** (alpha/beta, tracking error, information ratio, up/down capture), **cost-sensitivity** ladders and block-bootstrap **Monte Carlo** bands on terminal wealth and drawdown. |
+| **Signal research** | Independent cross-sectional OOS testing across price, volume, filing-lagged fundamentals, earnings/analyst events, archived estimates/options and trailing peer relationships. Current-only estimate/option data is captured into a point-in-time store instead of backfilled into history; see [docs/signal-research.md](docs/signal-research.md). |
 | **Reports** | Tearsheet metrics (CAGR, Sharpe, Sortino, Calmar, max drawdown, win rate) plus a self-contained HTML report with equity and drawdown charts. |
 | **Auth** | JWT bearer auth with bcrypt hashing and **revocable sessions** — logout and password changes kill the token server-side. Platform routes require a token unless `MFT_PLATFORM_REQUIRE_AUTH=false`. |
 | **Caching** | Graded-TTL cache (memory + disk) in front of every outbound call — 2 min for quotes, a week for reference data. Stats at `/api/system/cache`. |
@@ -584,6 +585,7 @@ models have grown, so an older `terminal.db` keeps working after an upgrade.
 | `watchlists` / `watchlist_items` | Named symbol lists with per-symbol notes and ordering |
 | `alerts` | Saved price conditions, with last-checked / last-triggered state |
 | `backtest_runs` | Persisted backtests and their metrics |
+| `research_feature_snapshots` | Dated analyst-estimate and option-chain features captured point in time for future OOS research |
 | `portfolios` | A book: base currency, benchmark, cost-basis method, derived cash balance |
 | `positions` | Holdings derived from the log — quantity, cost basis, open tax lots, realised P&L |
 | `transactions` | The blotter: buys, sells, deposits, withdrawals, dividends, fees, interest |

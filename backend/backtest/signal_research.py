@@ -366,6 +366,8 @@ def research_signal_suite(
     min_positive_folds: float = 0.5,
     min_coverage: float = 0.5,
     min_oos_observations: int = 30,
+    library: SignalLibraryOutput | None = None,
+    signal_specs: dict[str, SignalSpec] | None = None,
 ) -> dict[str, Any]:
     """Evaluate every requested signal independently, with rolling OOS blocks."""
 
@@ -387,7 +389,26 @@ def research_signal_suite(
             f"{train_days + purge_days + test_days} bars, got {len(prices)}"
         )
 
-    library = build_signal_library(prices, params=params, signals=signals)
+    if library is None:
+        library = build_signal_library(prices, params=params, signals=signals)
+        spec_map = _SPEC_BY_NAME
+    else:
+        if signals is not None:
+            requested = list(dict.fromkeys(str(name) for name in signals))
+            missing = [name for name in requested if name not in library.components]
+            if missing:
+                raise ValueError(f"Signals unavailable in supplied research library: {missing}")
+            library = SignalLibraryOutput(
+                components={name: library.components[name] for name in requested},
+                beta=library.beta,
+                residual_returns=library.residual_returns,
+            )
+        spec_map = dict(_SPEC_BY_NAME)
+        if signal_specs:
+            spec_map.update(signal_specs)
+        missing_specs = [name for name in library.components if name not in spec_map]
+        if missing_specs:
+            raise ValueError(f"Missing signal metadata for: {missing_specs}")
     future_by_h = {h: forward_returns(prices, h) for h in horizons}
     windows_by_h = {
         h: _fold_windows(prices.index, train_days, test_days, purge_days, h) for h in horizons
@@ -469,7 +490,7 @@ def research_signal_suite(
             0.5 + 0.5 * stability
         ) * turnover_penalty
 
-        spec = _SPEC_BY_NAME[name]
+        spec = spec_map[name]
         reports.append(
             {
                 "name": name,

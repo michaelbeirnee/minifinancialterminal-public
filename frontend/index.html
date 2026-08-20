@@ -2122,9 +2122,12 @@
         </div>
 
         <div class="panel" style="margin-top:18px">
-          <div class="panel-h">SIGNAL RESEARCH <span class="panel-note">independent forward-return tests before a signal gets capital</span></div>
-          <p class="dim">Rank each signal against the chosen stock basket, check 1/5/10/21-day decay, and score it only on rolling test blocks separated by a purge gap.</p>
-          <button id="bt-signal-run" class="ghost">Test the signal library</button>
+          <div class="panel-h">SIGNAL RESEARCH <span class="panel-note">point-in-time evidence before a signal gets capital</span></div>
+          <p class="dim">Test price, volume, filing-lagged fundamentals, earnings/analyst events and trailing peer relationships together. Estimates and option-chain features are never backfilled: archive them as they are observed, then they become eligible for later out-of-sample tests.</p>
+          <div class="row wrap">
+            <button id="bt-signal-run" class="ghost">Test the full signal library</button>
+            <button id="bt-signal-archive" class="ghost">Archive today's estimates + options</button>
+          </div>
           <div id="bt-signal-out" style="margin-top:14px"></div>
         </div>
       </section>

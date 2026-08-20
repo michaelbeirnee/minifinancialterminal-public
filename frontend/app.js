@@ -7457,7 +7457,7 @@ $("bt-signal-run").onclick = async () => {
     if (extraRaw) Object.assign(params, JSON.parse(extraRaw));
     const years = { "1y": 366, "3y": 1096, "5y": 1827 }[btPeriod];
     const shortRun = btPeriod === "1y";
-    const d = await api("/api/backtest/signals/research", {
+    const d = await api("/api/backtest/signals/multisource_research", {
       method: "POST",
       body: {
         symbols: [...btPicked],
@@ -7473,6 +7473,14 @@ $("bt-signal-run").onclick = async () => {
       },
     });
     const passed = d.signals.filter((x) => x.validated).length;
+    const sourceRows = Object.entries(d.source_status || {}).map(([source, meta]) => {
+      const ok = meta && meta.available;
+      const detail = meta && meta.reason ? meta.reason
+        : meta && meta.coverage != null ? `${(Number(meta.coverage) * 100).toFixed(0)}% coverage`
+        : meta && meta.rows != null ? `${meta.rows} archived rows`
+        : ok ? "available" : "unavailable";
+      return `<span class="badge ${ok ? "" : "dim"}">${escapeHtml(source)} · ${escapeHtml(String(detail))}</span>`;
+    }).join(" ");
     const blend = d.recommended_blend.length
       ? d.recommended_blend.map((x) => `<span class="badge">${escapeHtml(x.signal)} ${(x.weight * 100).toFixed(0)}%</span>`).join(" ")
       : `<span class="dim">No signal cleared every gate in this sample.</span>`;
@@ -7494,8 +7502,12 @@ $("bt-signal-run").onclick = async () => {
         <td class="dim">${decay}</td>
       </tr>`;
     }).join("");
-    out.innerHTML = `<div class="headline">${passed} of ${d.signals.length} signals cleared the current evidence gates.</div>
-      <div class="dim" style="margin:6px 0 10px">Primary horizon: ${d.primary_horizon} days · ${d.fold_config.folds} rolling test blocks · ${d.bars} daily bars.</div>
+    const unavailable = (d.unavailable_signals || []).length
+      ? `<div class="dim" style="margin:6px 0 10px">Not testable in this window: ${(d.unavailable_signals || []).map(escapeHtml).join(", ")}</div>`
+      : "";
+    out.innerHTML = `<div class="headline">${passed} of ${d.signals.length} available signals cleared the current evidence gates.</div>
+      <div class="dim" style="margin:6px 0 10px">Primary horizon: ${d.primary_horizon} days · ${d.fold_config.folds} rolling test blocks · ${d.bars} daily bars · ${d.available_signal_count || d.signals.length}/${d.catalog_signal_count || d.signals.length} catalog signals had point-in-time data.</div>
+      <div class="row wrap" style="margin-bottom:10px">${sourceRows}</div>${unavailable}
       <div class="row wrap" style="margin-bottom:12px"><span class="dim">Suggested blend</span>${blend}</div>
       <div class="tablewrap"><table><tr><th>Signal</th><th>Status</th><th>OOS IC</th><th>IC t</th><th>IC hit</th><th>Positive folds</th><th>Long-short spread</th><th>Rank turnover</th><th>Coverage</th><th>IC decay</th></tr>${rows}</table></div>`;
     setStatus(`SIGNAL RESEARCH DONE · ${passed}/${d.signals.length} VALIDATED`);
@@ -7504,7 +7516,35 @@ $("bt-signal-run").onclick = async () => {
     setStatus("ERR: " + e.message);
   }
   btn.disabled = false;
-  btn.textContent = "Test the signal library";
+  btn.textContent = "Test the full signal library";
+};
+
+$("bt-signal-archive").onclick = async () => {
+  const btn = $("bt-signal-archive");
+  const out = $("bt-signal-out");
+  if (!btPicked.size) return;
+  btn.disabled = true;
+  btn.textContent = "Archiving…";
+  setStatus("CAPTURING POINT-IN-TIME ESTIMATES + OPTIONS…");
+  try {
+    const d = await api("/api/backtest/signals/archive", {
+      method: "POST",
+      body: { symbols: [...btPicked], include_estimates: true, include_options: true },
+    });
+    const families = d.captured.reduce((acc, row) => {
+      acc[row.family] = (acc[row.family] || 0) + 1;
+      return acc;
+    }, {});
+    const summary = Object.entries(families).map(([k, v]) => `${escapeHtml(k)} ${v}`).join(" · ") || "No snapshots returned";
+    out.innerHTML = `<div class="headline">Archived point-in-time inputs for ${escapeHtml(d.as_of)}.</div><div class="dim">${summary}</div>` +
+      ((d.warnings || []).length ? `<div class="dim" style="margin-top:6px">${d.warnings.map(escapeHtml).join(" · ")}</div>` : "");
+    setStatus(`SIGNAL INPUTS ARCHIVED · ${d.captured.length} SNAPSHOTS`);
+  } catch (e) {
+    out.innerHTML = `<div class="empty">${escapeHtml(e.message)}</div>`;
+    setStatus("ERR: " + e.message);
+  }
+  btn.disabled = false;
+  btn.textContent = "Archive today's estimates + options";
 };
 
 function renderMetrics(elId, m, d) {

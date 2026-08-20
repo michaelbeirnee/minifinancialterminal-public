@@ -423,6 +423,12 @@ class SignalResearchRequest(BaseModel):
     min_oos_observations: int = Field(default=30, ge=5, le=5000)
 
 
+class ResearchArchiveRequest(BaseModel):
+    symbols: list[str] = Field(min_length=1, max_length=100)
+    include_estimates: bool = True
+    include_options: bool = True
+
+
 class BacktestSweepRequest(BaseModel):
     strategy: str = "sma_crossover"
     symbols: list[str] = Field(min_length=1, max_length=25)
