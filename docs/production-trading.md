@@ -42,8 +42,8 @@ stale research is treated exactly like stale data.
    close at or before `as_of`, and nothing after it can enter the target;
 3. reconcile first: ingest any fills, rebuild ledger positions from the fill
    ledger, compare with the broker — a mismatch blocks the day;
-4. optionally capture today's estimate/option/crowding snapshots into the
-   point-in-time store (`--capture`);
+4. capture today's raw payloads and estimate/option/crowding features into the
+   point-in-time store (on by default; `--no-capture` skips);
 5. score only the vintage's signals on the truncated panel;
 6. build the sleeve target from the vintage's **frozen** sleeve plan;
 7. rebuild the factor/covariance risk model only when its refresh is due
@@ -62,9 +62,31 @@ blocked day explains itself.
 A practical schedule (cron, America/New_York):
 
 ```text
-30 16 * * 1-5  cd /path/to/repo && .venv/bin/python -m cli.daily_cycle --capture
+35 16 * * 1-5  cd /path/to/repo && .venv/bin/python -m cli.daily_cycle --capture-only
 45 9  * * 1-5  cd /path/to/repo && .venv/bin/python -m cli.daily_cycle --reconcile-only
 ```
+
+`--capture-only` needs no research vintage, so the archive clock starts before
+any strategy is approved. Once a vintage exists, swap the afternoon line for
+the plain full cycle (which captures first by default, then builds the book).
+
+## Raw observations: log everything, cook later
+
+Derived features answer today's formulas; `raw_observations` keeps the
+ingredients. Every capture appends the provider payloads exactly as fetched —
+the full 180-field Yahoo profile, every analyst-estimate table, price targets,
+recommendations, the selected near/far option chains, recent upgrades and
+earnings rows — keyed by both clocks (`as_of_date` effective, `observed_at`
+seen). Rows are never updated: a second capture the same day appends. The
+feature table stays the daily point-in-time layer research reads; the raw
+table is what lets a feature formula change later and be recomputed over
+history instead of restarting the archive from zero. `GET
+/api/production/observations` summarises what the archive holds.
+
+The capture universe resolves explicit list → latest approved vintage →
+`MFT_CAPTURE_UNIVERSE` → a built-in ~120-name liquid US default, because an
+uncaptured day is permanently unrecoverable and capture should never wait on
+configuration.
 
 ## The risk gateway
 
@@ -104,8 +126,8 @@ discrepancies. The next cycle refuses to trade while a discrepancy stands.
 The data flow the tables implement:
 
 ```text
-raw_observations (research_feature_snapshots)
-  → point_in_time_features → signal_values → research vintages
+raw_observations → point_in_time_features (research_feature_snapshots)
+  → signal_values → research vintages
   → target books (production_runs) → orders → fills → positions → P&L
 ```
 

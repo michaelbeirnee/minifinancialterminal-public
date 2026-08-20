@@ -108,6 +108,7 @@ def _cycle(db, prices, features, *, orders_enabled=False, as_of=None, config=Non
         db,
         orders_enabled=orders_enabled,
         broker_kind="ledger",
+        capture_snapshots=False,  # synthetic symbols; no network
         as_of=str(dt.date()),
         today=dt.date(),
         prices=prices,

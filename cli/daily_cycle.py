@@ -1,12 +1,17 @@
 """The scheduler entrypoint for the daily production cycle.
 
-Run after the US close (information cutoff today, execution tomorrow):
+The one job that must never be skipped is snapshot capture: archive-first data
+(estimates, options, crowding) exists only from the day it was captured, and a
+missed day is permanently unrecoverable. Capture therefore runs by default and
+has its own mode that needs no research vintage:
 
-    30 16 * * 1-5  cd /path/to/repo && .venv/bin/python -m cli.daily_cycle --capture
+    35 16 * * 1-5  cd /path/to/repo && .venv/bin/python -m cli.daily_cycle --capture-only
+    45 9  * * 1-5  cd /path/to/repo && .venv/bin/python -m cli.daily_cycle --reconcile-only
 
-The morning-after reconcile (ingest fills, compare positions):
+Once a vintage is promoted, swap the afternoon line for the full cycle (which
+captures first, then builds the target book):
 
-    45 9 * * 1-5   cd /path/to/repo && .venv/bin/python -m cli.daily_cycle --reconcile-only
+    35 16 * * 1-5  cd /path/to/repo && .venv/bin/python -m cli.daily_cycle
 
 Everything is record-only unless BOTH ``--orders`` is passed and the
 MFT_TRADING_ENABLED environment kill switch is on.
@@ -24,19 +29,37 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--orders", action="store_true",
                         help="request order submission (still needs MFT_TRADING_ENABLED=true)")
     parser.add_argument("--broker", default="ledger", choices=("ledger", "alpaca"))
-    parser.add_argument("--capture", action="store_true",
-                        help="capture today's estimate/option/crowding snapshots first")
+    parser.add_argument("--no-capture", action="store_true",
+                        help="skip today's snapshot capture (capture is on by default)")
     parser.add_argument("--as-of", default=None, help="information cutoff date (default: latest bar)")
+    parser.add_argument("--symbols", default=None,
+                        help="comma-separated capture universe override (capture-only mode)")
+    parser.add_argument("--capture-only", action="store_true",
+                        help="archive today's raw+feature snapshots and exit; needs no vintage")
     parser.add_argument("--reconcile-only", action="store_true",
                         help="only ingest fills and compare positions; no new targets")
     args = parser.parse_args(argv)
 
     from backend.database import init_db, SessionLocal
-    from backend.trading.production import reconcile, run_daily_cycle
+    from backend.backtest.multisource_research import archive_current_snapshots
+    from backend.trading.production import reconcile, resolve_capture_universe, run_daily_cycle
 
     init_db()
     db = SessionLocal()
     try:
+        if args.capture_only:
+            symbols = resolve_capture_universe(
+                db, (args.symbols or "").split(",") if args.symbols else None
+            )
+            result = archive_current_snapshots(symbols, db)
+            print(json.dumps({
+                "as_of": result["as_of"],
+                "symbols": len(symbols),
+                "feature_rows": len(result["captured"]),
+                "raw_rows": result["raw_rows"],
+                "warnings": result["warnings"][:20],
+            }, indent=2, default=str))
+            return 0 if result["raw_rows"] or result["captured"] else 1
         if args.reconcile_only:
             result = reconcile(db, broker_kind=args.broker)
             print(json.dumps(result, indent=2, default=str))
@@ -45,7 +68,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             db,
             orders_enabled=args.orders,
             broker_kind=args.broker,
-            capture_snapshots=args.capture,
+            capture_snapshots=not args.no_capture,
             as_of=args.as_of,
         )
         print(json.dumps({

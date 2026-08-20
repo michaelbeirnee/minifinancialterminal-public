@@ -588,6 +588,7 @@ models have grown, so an older `terminal.db` keeps working after an upgrade.
 | `backtest_runs` | Persisted backtests and their metrics |
 | `research_feature_snapshots` | Dated analyst-estimate and option-chain features captured point in time for future OOS research |
 | `production_signal_vintages` / `production_runs` / `production_orders` / `production_position_snapshots` | The daily trading layer: frozen research vintages, deterministic cycle records, the order/fill ledger, and dated ledger-vs-broker position snapshots |
+| `raw_observations` | Append-only provider payloads exactly as fetched (full profiles, estimate tables, option chains), so feature formulas can change later and be recomputed over history |
 | `portfolios` | A book: base currency, benchmark, cost-basis method, derived cash balance |
 | `positions` | Holdings derived from the log — quantity, cost basis, open tax lots, realised P&L |
 | `transactions` | The blotter: buys, sells, deposits, withdrawals, dividends, fees, interest |

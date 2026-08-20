@@ -340,6 +340,31 @@ class ResearchFeatureSnapshot(Base):
     captured_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, nullable=False)
 
 
+class RawObservation(Base):
+    """Append-only store of provider payloads exactly as fetched.
+
+    ``research_feature_snapshots`` holds the cooked point-in-time features; this
+    table holds the ingredients, so a feature formula can change later and be
+    recomputed over history. Rows are never updated or overwritten — a second
+    capture on the same day appends with its own ``observed_at``. Both clocks
+    are kept: ``as_of_date`` is the effective date, ``observed_at`` the moment
+    the platform actually saw the payload.
+    """
+
+    __tablename__ = "raw_observations"
+    __table_args__ = (
+        Index("ix_raw_observations_symbol_source_date", "symbol", "source", "as_of_date"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    as_of_date: Mapped[str] = mapped_column(String(10), index=True, nullable=False)
+    observed_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, nullable=False)
+    symbol: Mapped[str] = mapped_column(String(32), index=True, nullable=False)
+    source: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    provider: Mapped[str] = mapped_column(String(32), default="yahoo", nullable=False)
+    payload: Mapped[Any] = mapped_column(JSON, nullable=False)
+
+
 class ProductionSignalVintage(Base):
     """A frozen, approved research vintage the daily trading job may consume.
 

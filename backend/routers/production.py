@@ -10,15 +10,25 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from sqlalchemy import func
+
 from ..auth import get_current_user
+from ..backtest.multisource_research import archive_current_snapshots
 from ..config import settings
 from ..database import get_db
-from ..models import ProductionOrder, ProductionRun, ProductionSignalVintage, User
-from ..schemas import ProductionRunRequest, ReconcileRequest, VintagePromoteRequest
+from ..models import (
+    ProductionOrder,
+    ProductionRun,
+    ProductionSignalVintage,
+    RawObservation,
+    User,
+)
+from ..schemas import CaptureRequest, ProductionRunRequest, ReconcileRequest, VintagePromoteRequest
 from ..trading.production import (
     latest_approved_vintage,
     reconcile,
     research_and_promote,
+    resolve_capture_universe,
     run_daily_cycle,
 )
 
@@ -191,6 +201,53 @@ def run_detail(run_id: int, _: User = Depends(get_current_user), db: Session = D
         for o in orders
     ]
     return payload
+
+
+@router.post("/capture")
+def capture_snapshots(
+    req: CaptureRequest,
+    _: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Archive today's raw payloads + derived features. Needs no vintage."""
+    symbols = resolve_capture_universe(db, req.symbols or None)
+    try:
+        result = archive_current_snapshots(symbols, db)
+    except (ValueError, KeyError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {
+        "as_of": result["as_of"],
+        "symbols": len(symbols),
+        "feature_rows": len(result["captured"]),
+        "raw_rows": result["raw_rows"],
+        "warnings": result["warnings"][:25],
+    }
+
+
+@router.get("/observations")
+def observation_summary(
+    _: User = Depends(get_current_user), db: Session = Depends(get_db)
+) -> dict:
+    """What the raw archive holds: row counts by day and by source."""
+    by_day = (
+        db.query(RawObservation.as_of_date, func.count(RawObservation.id))
+        .group_by(RawObservation.as_of_date)
+        .order_by(RawObservation.as_of_date.desc())
+        .limit(30)
+        .all()
+    )
+    by_source = (
+        db.query(RawObservation.source, func.count(RawObservation.id))
+        .group_by(RawObservation.source)
+        .order_by(func.count(RawObservation.id).desc())
+        .all()
+    )
+    total = db.query(func.count(RawObservation.id)).scalar() or 0
+    return {
+        "total_rows": int(total),
+        "days": [{"as_of": d, "rows": int(n)} for d, n in by_day],
+        "sources": [{"source": s, "rows": int(n)} for s, n in by_source],
+    }
 
 
 @router.post("/reconcile")

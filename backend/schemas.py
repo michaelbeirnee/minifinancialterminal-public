@@ -498,6 +498,15 @@ class ResearchArchiveRequest(BaseModel):
     include_estimates: bool = True
     include_options: bool = True
     include_crowding: bool = True
+    # Also append the provider payloads exactly as fetched to raw_observations.
+    include_raw: bool = True
+
+
+class CaptureRequest(BaseModel):
+    """Snapshot capture with no vintage required; empty symbols uses the
+    resolver (vintage > MFT_CAPTURE_UNIVERSE > built-in liquid default)."""
+
+    symbols: list[str] = Field(default_factory=list, max_length=500)
 
 
 class VintagePromoteRequest(BaseModel):
@@ -519,7 +528,7 @@ class ProductionRunRequest(BaseModel):
 
     orders_enabled: bool = False
     broker: str = Field(default="ledger", pattern="^(ledger|alpaca)$")
-    capture_snapshots: bool = False
+    capture_snapshots: bool = True
     as_of: Optional[str] = None
     config: dict = Field(default_factory=dict)
 

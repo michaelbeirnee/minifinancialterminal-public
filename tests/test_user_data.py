@@ -47,7 +47,7 @@ def test_schema_contains_every_table():
         "signal_events", "signal_runs", "triage_records", "deepdive_records",
         "hedge_records", "valuation_models", "research_feature_snapshots",
         "production_signal_vintages", "production_runs", "production_orders",
-        "production_position_snapshots",
+        "production_position_snapshots", "raw_observations",
     }
 
 

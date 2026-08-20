@@ -102,6 +102,11 @@ class Settings(BaseSettings):
     # request asked for. Deliberately opt-in per environment: set
     # MFT_TRADING_ENABLED=true only where submission is actually intended.
     trading_enabled: bool = False
+    # Symbols the daily snapshot capture archives when no vintage or explicit
+    # list names them (comma-separated). Empty falls back to the built-in
+    # liquid-US default in backend.trading.production. Every day not captured
+    # is unrecoverable, so the capture universe deliberately has a default.
+    capture_universe: str = ""
 
     # --- Playground ---------------------------------------------------------
     # The Python playground executes arbitrary code as the server's own user —

@@ -59,6 +59,43 @@ from .broker import PAPER_HOST
 
 QTY_TOLERANCE = 1e-6
 
+# The fallback snapshot-capture universe: liquid, optionable US large caps
+# across sectors. Every uncaptured day is permanently unrecoverable for the
+# archive-first data families, so capture deliberately has a default universe
+# rather than waiting for a vintage. Override with MFT_CAPTURE_UNIVERSE or an
+# explicit symbol list.
+DEFAULT_CAPTURE_UNIVERSE: tuple[str, ...] = (
+    "AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "AVGO", "TSLA", "ORCL", "CRM",
+    "AMD", "QCOM", "TXN", "INTC", "MU", "ADBE", "NOW", "PANW", "SNOW", "UBER",
+    "JPM", "BAC", "WFC", "GS", "MS", "C", "BLK", "SCHW", "AXP", "V",
+    "MA", "PYPL", "COIN", "BRK-B", "SPGI", "CME", "ICE", "PGR", "CB", "MET",
+    "UNH", "JNJ", "LLY", "PFE", "MRK", "ABBV", "TMO", "ABT", "AMGN", "GILD",
+    "VRTX", "REGN", "ISRG", "CVS", "MDT", "BMY", "DHR", "SYK", "CI", "HUM",
+    "XOM", "CVX", "COP", "SLB", "EOG", "OXY", "PSX", "MPC", "VLO", "DVN",
+    "WMT", "COST", "HD", "LOW", "TGT", "MCD", "SBUX", "NKE", "TJX", "DG",
+    "PG", "KO", "PEP", "PM", "MO", "CL", "KMB", "MDLZ", "GIS", "KHC",
+    "BA", "CAT", "DE", "GE", "HON", "LMT", "RTX", "UPS", "UNP", "FDX",
+    "DIS", "NFLX", "CMCSA", "T", "VZ", "TMUS", "LIN", "APD", "FCX", "NEM",
+    "NEE", "DUK", "SO", "D", "AEP", "PLD", "AMT", "EQIX", "O", "SPG",
+)
+
+
+def resolve_capture_universe(db: Session, symbols: Iterable[str] | None = None) -> list[str]:
+    """Explicit list > latest approved vintage > MFT_CAPTURE_UNIVERSE > default."""
+
+    explicit = [str(s).strip().upper() for s in (symbols or []) if str(s).strip()]
+    if explicit:
+        return list(dict.fromkeys(explicit))
+    vintage = latest_approved_vintage(db)
+    if vintage is not None:
+        from_vintage = [s for s in vintage.symbols.split(",") if s]
+        if from_vintage:
+            return from_vintage
+    configured = [s.strip().upper() for s in settings.capture_universe.split(",") if s.strip()]
+    if configured:
+        return list(dict.fromkeys(configured))
+    return list(DEFAULT_CAPTURE_UNIVERSE)
+
 DEFAULT_CYCLE_CONFIG: dict[str, Any] = {
     # Capital & sizing
     "initial_capital": 1_000_000.0,
@@ -437,7 +474,7 @@ def run_daily_cycle(
     *,
     orders_enabled: bool = False,
     broker_kind: str = "ledger",
-    capture_snapshots: bool = False,
+    capture_snapshots: bool = True,
     as_of: str | None = None,
     today: date | None = None,
     prices: pd.DataFrame | None = None,

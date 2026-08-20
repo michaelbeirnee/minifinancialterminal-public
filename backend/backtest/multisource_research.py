@@ -25,6 +25,7 @@ expires stale snapshots rather than carrying them forever.
 """
 from __future__ import annotations
 
+import datetime as _datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import date
@@ -41,7 +42,7 @@ from .signal_research import (
     build_signal_library,
 )
 from .stat_arb import _rank_score, _rebalance_schedule, _rolling_beta
-from ..models import ResearchFeatureSnapshot
+from ..models import RawObservation, ResearchFeatureSnapshot
 from ..providers import yahoo
 
 
@@ -274,6 +275,132 @@ def _row_by_period(frame: pd.DataFrame, preferred: tuple[str, ...] = ("0q", "+1q
     return frame.iloc[0]
 
 
+def _jsonable(value: Any) -> Any:
+    """Coerce provider payloads into JSON-safe structures, NaN becoming null."""
+
+    if isinstance(value, pd.DataFrame):
+        frame = value.reset_index() if not isinstance(value.index, pd.RangeIndex) else value
+        return [_jsonable(row) for row in frame.to_dict("records")]
+    if isinstance(value, pd.Series):
+        return {_jsonable(k): _jsonable(v) for k, v in value.items()}
+    if isinstance(value, Mapping):
+        return {str(k): _jsonable(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_jsonable(v) for v in value]
+    if isinstance(value, (pd.Timestamp, _datetime.datetime, _datetime.date)):
+        return value.isoformat()
+    if isinstance(value, np.generic):
+        value = value.item()
+    if isinstance(value, float) and not np.isfinite(value):
+        return None
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return value
+    return str(value)
+
+
+_CHAIN_COLUMNS = (
+    "strike", "option_type", "type", "expiration", "implied_volatility",
+    "impliedVolatility", "open_interest", "openInterest", "volume",
+    "bid", "ask", "last_price", "lastPrice", "in_the_money", "inTheMoney",
+)
+
+
+def _trim_chain(chain: pd.DataFrame, max_rows: int = 400) -> pd.DataFrame:
+    keep = [c for c in chain.columns if str(c) in _CHAIN_COLUMNS]
+    return (chain[keep] if keep else chain).head(max_rows)
+
+
+def _select_expiries(expiries: list[str], today: pd.Timestamp) -> tuple[str | None, str | None]:
+    """Pick the ~30-day and ~75-day expiries; shared by features and raw capture."""
+
+    dated: list[tuple[int, str]] = []
+    for expiry in expiries:
+        try:
+            days = int((pd.Timestamp(expiry) - today).days)
+        except Exception:  # noqa: BLE001
+            continue
+        if days > 3:
+            dated.append((days, expiry))
+    if not dated:
+        return None, None
+    dated.sort()
+    near_days, near_expiry = min(dated, key=lambda x: abs(x[0] - 30))
+    far_candidates = [item for item in dated if item[0] >= near_days + 20]
+    far = min(far_candidates, key=lambda x: abs(x[0] - 75)) if far_candidates else None
+    return near_expiry, None if far is None else far[1]
+
+
+def _raw_estimate_payloads(symbol: str) -> list[tuple[str, Any]]:
+    """Every current-only estimate table, as fetched. Cache makes this cheap."""
+
+    out: list[tuple[str, Any]] = []
+    for kind in ("earnings", "revenue", "eps_trend", "eps_revisions", "growth"):
+        try:
+            frame = yahoo.estimates(symbol, kind)
+            if frame is not None and not frame.empty:
+                out.append((f"yahoo.estimates.{kind}", _jsonable(frame)))
+        except Exception:  # noqa: BLE001 - each table is independent
+            continue
+    for source, fetch in (
+        ("yahoo.price_targets", lambda: yahoo.price_targets(symbol)),
+        ("yahoo.quote", lambda: yahoo.quote(symbol)),
+        ("yahoo.recommendations", lambda: yahoo.recommendations(symbol).tail(24)),
+    ):
+        try:
+            payload = fetch()
+            if payload is not None and (not hasattr(payload, "empty") or len(payload)):
+                out.append((source, _jsonable(payload)))
+        except Exception:  # noqa: BLE001
+            continue
+    return out
+
+
+def _raw_option_payloads(symbol: str) -> list[tuple[str, Any]]:
+    out: list[tuple[str, Any]] = []
+    try:
+        expiries = yahoo.option_expirations(symbol)
+    except Exception:  # noqa: BLE001
+        return out
+    if not expiries:
+        return out
+    out.append(("yahoo.option_expirations", _jsonable(list(expiries))))
+    near, far = _select_expiries(list(expiries), pd.Timestamp.today().normalize())
+    for label, expiry in (("near", near), ("far", far)):
+        if expiry is None:
+            continue
+        try:
+            chain = yahoo.option_chain(symbol, expiry)
+            if chain is not None and not chain.empty:
+                out.append((
+                    f"yahoo.option_chain.{label}",
+                    {"expiration": expiry, "contracts": _jsonable(_trim_chain(chain))},
+                ))
+        except Exception:  # noqa: BLE001
+            continue
+    return out
+
+
+def _raw_crowding_payloads(symbol: str) -> list[tuple[str, Any]]:
+    out: list[tuple[str, Any]] = []
+    try:
+        info = yahoo.info(symbol)
+        if info:
+            out.append(("yahoo.info", _jsonable(info)))
+    except Exception:  # noqa: BLE001
+        pass
+    for source, fetch in (
+        ("yahoo.upgrades_downgrades.recent", lambda: yahoo.upgrades_downgrades(symbol).tail(50)),
+        ("yahoo.earnings_dates.recent", lambda: yahoo.earnings_dates(symbol, limit=12)),
+    ):
+        try:
+            frame = fetch()
+            if frame is not None and not frame.empty:
+                out.append((source, _jsonable(frame)))
+        except Exception:  # noqa: BLE001
+            continue
+    return out
+
+
 def _estimate_snapshot(symbol: str) -> dict[str, float]:
     """Current Yahoo estimate features.  These are *only* valid from capture time."""
 
@@ -366,20 +493,9 @@ def _option_snapshot(symbol: str) -> dict[str, float]:
         return {}
 
     today = pd.Timestamp.today().normalize()
-    dated: list[tuple[int, str]] = []
-    for expiry in expiries:
-        try:
-            days = int((pd.Timestamp(expiry) - today).days)
-        except Exception:  # noqa: BLE001
-            continue
-        if days > 3:
-            dated.append((days, expiry))
-    if not dated:
+    near_expiry, far_expiry = _select_expiries(list(expiries), today)
+    if near_expiry is None:
         return {}
-    dated.sort()
-    near_days, near_expiry = min(dated, key=lambda x: abs(x[0] - 30))
-    far_candidates = [item for item in dated if item[0] >= near_days + 20]
-    far = min(far_candidates, key=lambda x: abs(x[0] - 75)) if far_candidates else None
 
     near = yahoo.option_chain(symbol, near_expiry)
     iv_col = _find_col(near, "implied_volatility", "impliedVolatility")
@@ -420,9 +536,9 @@ def _option_snapshot(symbol: str) -> dict[str, float]:
         except Exception:  # noqa: BLE001
             pass
 
-    if far is not None and atm is not None:
+    if far_expiry is not None and atm is not None:
         try:
-            far_chain = yahoo.option_chain(symbol, far[1])
+            far_chain = yahoo.option_chain(symbol, far_expiry)
             far_atm = _atm_iv(far_chain, spot)
             if far_atm is not None:
                 features["iv_term_slope"] = float(far_atm - atm)
@@ -470,16 +586,26 @@ def archive_current_snapshots(
     include_estimates: bool = True,
     include_options: bool = True,
     include_crowding: bool = True,
+    include_raw: bool = True,
 ) -> dict[str, Any]:
-    """Capture today's non-backfillable features for future OOS/risk research."""
+    """Capture today's non-backfillable data for future OOS/risk research.
+
+    Two layers land per capture: the derived features research already consumes
+    (upserted per day), and — when ``include_raw`` — the provider payloads
+    exactly as fetched, appended to ``raw_observations`` so feature formulas
+    can be changed later and recomputed over history. The raw fetches hit the
+    same cached endpoints the features use, so the extra cost is storage, not
+    network.
+    """
 
     syms = list(dict.fromkeys(str(s).upper() for s in symbols))
     as_of = date.today().isoformat()
     rows: list[dict[str, Any]] = []
     warnings: list[str] = []
 
-    def capture(sym: str) -> tuple[str, dict[str, dict[str, float]], list[str]]:
+    def capture(sym: str) -> tuple[str, dict[str, dict[str, float]], list[tuple[str, Any]], list[str]]:
         payloads: dict[str, dict[str, float]] = {}
+        raw_items: list[tuple[str, Any]] = []
         errs: list[str] = []
         if include_estimates:
             try:
@@ -490,6 +616,8 @@ def archive_current_snapshots(
                     errs.append(f"{sym}: no estimate features")
             except Exception as exc:  # noqa: BLE001
                 errs.append(f"{sym}: estimates: {exc}")
+            if include_raw:
+                raw_items.extend(_raw_estimate_payloads(sym))
         if include_options:
             try:
                 values = _option_snapshot(sym)
@@ -499,6 +627,8 @@ def archive_current_snapshots(
                     errs.append(f"{sym}: no option features")
             except Exception as exc:  # noqa: BLE001
                 errs.append(f"{sym}: options: {exc}")
+            if include_raw:
+                raw_items.extend(_raw_option_payloads(sym))
         if include_crowding:
             try:
                 values = _crowding_snapshot(sym)
@@ -508,14 +638,23 @@ def archive_current_snapshots(
                     errs.append(f"{sym}: no short-interest/crowding features")
             except Exception as exc:  # noqa: BLE001
                 errs.append(f"{sym}: crowding: {exc}")
-        return sym, payloads, errs
+            if include_raw:
+                raw_items.extend(_raw_crowding_payloads(sym))
+        return sym, payloads, raw_items, errs
 
     with ThreadPoolExecutor(max_workers=min(8, max(1, len(syms)))) as pool:
         futures = [pool.submit(capture, sym) for sym in syms]
         captured = [future.result() for future in as_completed(futures)]
 
-    for sym, payloads, errs in captured:
+    raw_rows = 0
+    for sym, payloads, raw_items, errs in captured:
         warnings.extend(errs)
+        for source, payload in raw_items:
+            db.add(RawObservation(
+                as_of_date=as_of, symbol=sym, source=source,
+                provider="yahoo", payload=payload,
+            ))
+            raw_rows += 1
         for family, features in payloads.items():
             existing = (
                 db.query(ResearchFeatureSnapshot)
@@ -540,7 +679,7 @@ def archive_current_snapshots(
                 existing.provider = "yahoo"
             rows.append({"symbol": sym, "family": family, "features": features})
     db.commit()
-    return {"as_of": as_of, "captured": rows, "warnings": warnings}
+    return {"as_of": as_of, "captured": rows, "raw_rows": raw_rows, "warnings": warnings}
 
 
 def _load_archived_panels(

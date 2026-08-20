@@ -202,6 +202,7 @@ def archive_signal_inputs(
             include_estimates=req.include_estimates,
             include_options=req.include_options,
             include_crowding=req.include_crowding,
+            include_raw=req.include_raw,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
